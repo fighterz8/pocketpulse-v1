@@ -6,7 +6,7 @@ import {
   TrendingDown,
   LogOut,
   Menu,
-  Wallet
+  Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,10 +36,10 @@ export function Sidebar({ className = "" }: { className?: string }) {
     <div className={`flex h-screen flex-col border-r bg-card text-card-foreground ${className}`}>
       <div className="p-6">
         <div className="flex items-center gap-2 font-bold text-2xl tracking-tight text-primary">
-          <Wallet className="h-6 w-6" />
-          <span>CashFlow</span>
+          <Activity className="h-6 w-6" />
+          <span>PocketPulse</span>
         </div>
-        <p className="text-xs text-muted-foreground mt-1 font-medium tracking-wide uppercase">Small Business Pro</p>
+        <p className="text-xs text-muted-foreground mt-1 font-medium tracking-wide uppercase">Small Business</p>
       </div>
 
       <nav className="flex-1 space-y-1 px-4 py-2">
@@ -107,8 +107,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <header className="h-16 flex items-center px-6 border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10 md:hidden">
           <MobileNav />
           <div className="ml-4 font-bold text-lg text-primary flex items-center gap-2">
-            <Wallet className="h-5 w-5" />
-            <span>CashFlow Pro</span>
+            <Activity className="h-5 w-5" />
+            <span>PocketPulse</span>
           </div>
         </header>
         <main className="flex-1 overflow-auto p-4 md:p-8">

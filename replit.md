@@ -1,4 +1,4 @@
-# CashFlow Pro - Small Business Cashflow Analysis
+# PocketPulse - Small Business Cashflow Analysis
 
 ## Overview
 Full-stack web application for small-business cashflow analysis with CSV transaction imports, automatic classification, and expense leak detection.

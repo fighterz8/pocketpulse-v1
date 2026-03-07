@@ -1,9 +1,8 @@
-import { useState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Wallet } from "lucide-react";
+import { Activity } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -47,9 +46,9 @@ export default function AuthPage() {
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center space-y-2 text-center">
           <div className="h-12 w-12 bg-primary rounded-xl flex items-center justify-center shadow-sm">
-            <Wallet className="h-6 w-6 text-primary-foreground" />
+            <Activity className="h-6 w-6 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Welcome to CashFlow Pro</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Welcome to PocketPulse</h1>
           <p className="text-sm text-muted-foreground">
             Small-business cashflow analysis and unified ledger.
           </p>
