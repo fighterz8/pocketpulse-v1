@@ -22,7 +22,7 @@ export function Sidebar({ className = "" }: { className?: string }) {
   const { logout } = useAuth();
 
   const { data: cashflow } = useQuery<any>({
-    queryKey: ["/api/cashflow"],
+    queryKey: ["/api/cashflow?days=90"],
   });
 
   const navItems = [

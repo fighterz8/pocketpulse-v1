@@ -1,6 +1,7 @@
 import { parse } from "csv-parse/sync";
 import { classifyTransaction } from "./classifier";
 import type { InsertTransaction } from "@shared/schema";
+import { deriveSignedAmount, flowTypeFromAmount, normalizeAmountForClass } from "./transactionUtils";
 
 interface ParsedRow {
   date: string;
@@ -8,7 +9,15 @@ interface ParsedRow {
   description: string;
 }
 
-function detectColumns(headers: string[]): { dateCol: number; amountCol: number; descCol: number; creditCol?: number; debitCol?: number } {
+function detectColumns(headers: string[]): {
+  dateCol: number;
+  amountCol: number;
+  descCol: number;
+  creditCol?: number;
+  debitCol?: number;
+  indicatorCol?: number;
+  typeCol?: number;
+} {
   const lower = headers.map(h => h.toLowerCase().trim());
   
   let dateCol = lower.findIndex(h => ["date", "transaction date", "posting date", "trans date", "posted date"].includes(h));
@@ -18,6 +27,8 @@ function detectColumns(headers: string[]): { dateCol: number; amountCol: number;
   
   let creditCol: number | undefined;
   let debitCol: number | undefined;
+  let indicatorCol: number | undefined;
+  let typeCol: number | undefined;
   
   if (amountCol === -1) {
     creditCol = lower.findIndex(h => h.includes("credit") || h.includes("deposit"));
@@ -26,6 +37,19 @@ function detectColumns(headers: string[]): { dateCol: number; amountCol: number;
       amountCol = lower.findIndex(h => /^\$?[\d,]+\.?\d*$/.test(h) === false && !["date", "description", "memo", "category"].some(k => h.includes(k)));
     }
   }
+
+  indicatorCol = lower.findIndex(h =>
+    h.includes("credit debit indicator") ||
+    h.includes("debit credit indicator") ||
+    h === "credit/debit" ||
+    h === "debit/credit" ||
+    h.includes("direction") ||
+    h === "dr/cr"
+  );
+  if (indicatorCol === -1) indicatorCol = undefined;
+
+  typeCol = lower.findIndex(h => h === "type" || h === "transaction type");
+  if (typeCol === -1) typeCol = undefined;
   
   let descCol = lower.findIndex(h => ["description", "memo", "payee", "name", "transaction description", "trans description", "merchant"].includes(h));
   if (descCol === -1) descCol = lower.findIndex(h => h.includes("description") || h.includes("memo") || h.includes("payee"));
@@ -34,7 +58,7 @@ function detectColumns(headers: string[]): { dateCol: number; amountCol: number;
   if (amountCol === -1 && creditCol === undefined) amountCol = headers.length > 2 ? 1 : headers.length - 1;
   if (descCol === -1) descCol = Math.max(0, headers.length - 1);
 
-  return { dateCol, amountCol, descCol, creditCol, debitCol };
+  return { dateCol, amountCol, descCol, creditCol, debitCol, indicatorCol, typeCol };
 }
 
 function parseAmount(val: string): number {
@@ -76,7 +100,7 @@ export function parseCSV(csvContent: string, userId: number, accountId: number, 
   }
 
   const headers = records[0];
-  const { dateCol, amountCol, descCol, creditCol, debitCol } = detectColumns(headers);
+  const { dateCol, amountCol, descCol, creditCol, debitCol, indicatorCol, typeCol } = detectColumns(headers);
   const dataRows = records.slice(1);
 
   const txns: InsertTransaction[] = [];
@@ -86,32 +110,38 @@ export function parseCSV(csvContent: string, userId: number, accountId: number, 
 
     const rawDesc = (row[descCol] || "Unknown").trim();
     
-    let amount: number;
-    if (creditCol !== undefined && debitCol !== undefined) {
-      const credit = parseAmount(row[creditCol] || "");
-      const debit = parseAmount(row[debitCol] || "");
-      amount = credit > 0 ? credit : -Math.abs(debit);
-    } else {
-      amount = parseAmount(row[amountCol] || "0");
-    }
+    const rawAmount = parseAmount(row[amountCol] || "0");
+    const credit = creditCol !== undefined ? parseAmount(row[creditCol] || "") : undefined;
+    const debit = debitCol !== undefined ? parseAmount(row[debitCol] || "") : undefined;
+    const amountResult = deriveSignedAmount({
+      rawAmount,
+      creditAmount: credit,
+      debitAmount: debit,
+      indicator: indicatorCol !== undefined ? row[indicatorCol] : undefined,
+      typeHint: typeCol !== undefined ? row[typeCol] : undefined,
+      rawDescription: rawDesc,
+    });
+    const amount = amountResult.amount;
 
     if (amount === 0 && rawDesc === "Unknown") continue;
 
     const date = normalizeDate(row[dateCol]);
     const classification = classifyTransaction(rawDesc, amount);
+    const normalizedAmount = normalizeAmountForClass(amount, classification.transactionClass);
 
     txns.push({
       userId,
       uploadId,
       accountId,
       date,
-      amount: amount.toFixed(2),
+      amount: normalizedAmount.toFixed(2),
       merchant: classification.merchant,
       rawDescription: rawDesc,
-      flowType: classification.flowType,
+      flowType: flowTypeFromAmount(normalizedAmount),
       transactionClass: classification.transactionClass,
       recurrenceType: classification.recurrenceType,
-      aiAssisted: classification.aiAssisted,
+      category: classification.category,
+      aiAssisted: classification.aiAssisted || amountResult.ambiguous,
       userCorrected: false,
     });
   }

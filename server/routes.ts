@@ -9,6 +9,22 @@ import { updateTransactionSchema, insertAccountSchema } from "@shared/schema";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+function parseWindowDays(value: unknown): number {
+  const parsed = parseInt(String(value ?? "90"), 10);
+  if (![30, 60, 90].includes(parsed)) {
+    return 90;
+  }
+
+  return parsed;
+}
+
+function getWindowStartDate(days: number): string {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -32,7 +48,7 @@ export async function registerRoutes(
   app.post("/api/upload", requireAuth, upload.single("file"), async (req: Request, res: Response) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
     
-    const accountId = parseInt(req.body.accountId);
+    const accountId = parseInt(String(req.body.accountId), 10);
     if (!accountId) return res.status(400).json({ message: "Account ID is required" });
 
     const account = await storage.getAccount(accountId, req.user!.id);
@@ -61,15 +77,38 @@ export async function registerRoutes(
 
   // ── Transactions ──────────────────────────────────────
   app.get("/api/transactions", requireAuth, async (req: Request, res: Response) => {
-    const filters: { flowType?: string; accountId?: number } = {};
+    const filters: {
+      flowType?: string;
+      accountId?: number;
+      search?: string;
+      merchant?: string;
+      category?: string;
+      transactionClass?: string;
+      recurrenceType?: string;
+      startDate?: string;
+    } = {};
     if (req.query.flowType) filters.flowType = req.query.flowType as string;
-    if (req.query.accountId) filters.accountId = parseInt(req.query.accountId as string);
-    const txns = await storage.getTransactions(req.user!.id, filters);
+    if (req.query.accountId) filters.accountId = parseInt(String(req.query.accountId), 10);
+    if (req.query.search) filters.search = req.query.search as string;
+    if (req.query.merchant) filters.merchant = req.query.merchant as string;
+    if (req.query.category) filters.category = req.query.category as string;
+    if (req.query.transactionClass) filters.transactionClass = req.query.transactionClass as string;
+    if (req.query.recurrenceType) filters.recurrenceType = req.query.recurrenceType as string;
+    if (req.query.days) filters.startDate = getWindowStartDate(parseWindowDays(req.query.days));
+    if (req.query.startDate) filters.startDate = String(req.query.startDate);
+
+    const page = parseInt(String(req.query.page ?? ""), 10) || 1;
+    const pageSize = parseInt(String(req.query.pageSize ?? ""), 10) || 50;
+    const txns = await storage.getTransactionPage(req.user!.id, {
+      ...filters,
+      page,
+      pageSize,
+    });
     res.json(txns);
   });
 
   app.patch("/api/transactions/:id", requireAuth, async (req: Request, res: Response) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id), 10);
     const parsed = updateTransactionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid update data" });
 
@@ -78,33 +117,61 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  app.post("/api/transactions/reprocess", requireAuth, async (req: Request, res: Response) => {
+    const result = await storage.reprocessTransactions(req.user!.id);
+    res.json(result);
+  });
+
+  app.delete("/api/transactions", requireAuth, async (req: Request, res: Response) => {
+    const result = await storage.wipeImportedData(req.user!.id);
+    res.json(result);
+  });
+
+  app.delete("/api/workspace-data", requireAuth, async (req: Request, res: Response) => {
+    const result = await storage.wipeWorkspaceData(req.user!.id);
+    res.json(result);
+  });
+
   // ── Cashflow Summary ──────────────────────────────────
   app.get("/api/cashflow", requireAuth, async (req: Request, res: Response) => {
-    const txns = await storage.getTransactions(req.user!.id);
-    const summary = calculateCashflow(txns);
+    const days = parseWindowDays(req.query.days);
+    const txns = await storage.getTransactions(req.user!.id, {
+      startDate: getWindowStartDate(days),
+    });
+    const summary = calculateCashflow(txns, { windowDays: days });
     res.json(summary);
   });
 
   // ── Leak Detection ────────────────────────────────────
   app.get("/api/leaks", requireAuth, async (req: Request, res: Response) => {
-    const txns = await storage.getTransactions(req.user!.id);
+    const days = req.query.days ? parseWindowDays(req.query.days) : undefined;
+    const txns = await storage.getTransactions(req.user!.id, days ? {
+      startDate: getWindowStartDate(days),
+    } : undefined);
     const leaks = detectLeaks(txns);
     res.json(leaks);
   });
 
   // ── CSV Export ─────────────────────────────────────────
   app.get("/api/export/summary", requireAuth, async (req: Request, res: Response) => {
-    const txns = await storage.getTransactions(req.user!.id);
-    const summary = calculateCashflow(txns);
+    const days = parseWindowDays(req.query.days);
+    const txns = await storage.getTransactions(req.user!.id, {
+      startDate: getWindowStartDate(days),
+    });
+    const summary = calculateCashflow(txns, { windowDays: days });
 
     const csvRows = [
       "Metric,Value",
+      `Window,${days} days`,
       `Total Inflows,$${summary.totalInflows}`,
       `Total Outflows,$${summary.totalOutflows}`,
       `Recurring Income,$${summary.recurringIncome}`,
       `Recurring Expenses,$${summary.recurringExpenses}`,
       `One-time Income,$${summary.oneTimeIncome}`,
       `One-time Expenses,$${summary.oneTimeExpenses}`,
+      `Utilities Baseline,$${summary.utilitiesBaseline}`,
+      `Subscriptions Baseline,$${summary.subscriptionsBaseline}`,
+      `Discretionary Spend,$${summary.discretionarySpend}`,
       `Safe to Spend,$${summary.safeToSpend}`,
       `Net Cashflow,$${summary.netCashflow}`,
     ];
@@ -118,9 +185,9 @@ export async function registerRoutes(
     const txns = await storage.getTransactions(req.user!.id);
 
     const csvRows = [
-      "Date,Merchant,Amount,Type,Class,Recurrence,Raw Description",
+      "Date,Merchant,Amount,Type,Class,Recurrence,Category,Raw Description",
       ...txns.map(tx =>
-        `${tx.date},"${tx.merchant}",${tx.amount},${tx.flowType},${tx.transactionClass},${tx.recurrenceType},"${tx.rawDescription.replace(/"/g, '""')}"`
+        `${tx.date},"${tx.merchant}",${tx.amount},${tx.flowType},${tx.transactionClass},${tx.recurrenceType},${tx.category},"${tx.rawDescription.replace(/"/g, '""')}"`
       ),
     ];
 

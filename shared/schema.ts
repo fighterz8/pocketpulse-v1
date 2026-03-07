@@ -3,6 +3,35 @@ import { pgTable, text, varchar, integer, numeric, boolean, timestamp, serial } 
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const flowTypeSchema = z.enum(["inflow", "outflow"]);
+export type FlowType = z.infer<typeof flowTypeSchema>;
+
+export const transactionClassSchema = z.enum(["income", "expense", "transfer", "refund"]);
+export type TransactionClass = z.infer<typeof transactionClassSchema>;
+
+export const recurrenceTypeSchema = z.enum(["recurring", "one-time"]);
+export type RecurrenceType = z.infer<typeof recurrenceTypeSchema>;
+
+export const transactionCategorySchema = z.enum([
+  "income",
+  "transfers",
+  "utilities",
+  "subscriptions",
+  "insurance",
+  "housing",
+  "groceries",
+  "transportation",
+  "dining",
+  "shopping",
+  "health",
+  "debt",
+  "business_software",
+  "entertainment",
+  "fees",
+  "other",
+]);
+export type TransactionCategory = z.infer<typeof transactionCategorySchema>;
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -55,6 +84,7 @@ export const transactions = pgTable("transactions", {
   flowType: text("flow_type").notNull(), // inflow | outflow
   transactionClass: text("transaction_class").notNull(), // income | expense | transfer | refund
   recurrenceType: text("recurrence_type").notNull(), // recurring | one-time
+  category: text("category").notNull().default("other"),
   aiAssisted: boolean("ai_assisted").notNull().default(false),
   userCorrected: boolean("user_corrected").notNull().default(false),
 });
@@ -66,8 +96,10 @@ export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Transaction = typeof transactions.$inferSelect;
 
 export const updateTransactionSchema = z.object({
-  transactionClass: z.enum(["income", "expense", "transfer", "refund"]).optional(),
-  recurrenceType: z.enum(["recurring", "one-time"]).optional(),
+  transactionClass: transactionClassSchema.optional(),
+  recurrenceType: recurrenceTypeSchema.optional(),
+  flowType: flowTypeSchema.optional(),
+  category: transactionCategorySchema.optional(),
   merchant: z.string().optional(),
 });
 export type UpdateTransaction = z.infer<typeof updateTransactionSchema>;

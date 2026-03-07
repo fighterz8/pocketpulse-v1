@@ -64,9 +64,15 @@ export default function UploadPage() {
     },
     onSuccess: (data) => {
       setUploadResult(data);
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/cashflow"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leaks"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/transactions"),
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/cashflow"),
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/leaks"),
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       toast({ title: "Upload complete", description: `${data.transactionCount} transactions imported.` });
     },

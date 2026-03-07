@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowUpRight, ArrowDownRight, TrendingUp, AlertTriangle, RefreshCcw, Download } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
+import { useMemo, useState } from "react";
 
 interface CashflowSummary {
   totalInflows: number;
@@ -14,6 +15,9 @@ interface CashflowSummary {
   oneTimeExpenses: number;
   safeToSpend: number;
   netCashflow: number;
+  utilitiesBaseline: number;
+  subscriptionsBaseline: number;
+  discretionarySpend: number;
 }
 
 interface LeakItem {
@@ -26,18 +30,22 @@ interface LeakItem {
 const fmt = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 export default function Dashboard() {
+  const [days, setDays] = useState(90);
+  const cashflowUrl = useMemo(() => `/api/cashflow?days=${days}`, [days]);
+  const leaksUrl = useMemo(() => `/api/leaks?days=${days}`, [days]);
+
   const { data: cashflow, isLoading: cfLoading } = useQuery<CashflowSummary>({
-    queryKey: ["/api/cashflow"],
+    queryKey: [cashflowUrl],
   });
 
   const { data: leaks } = useQuery<LeakItem[]>({
-    queryKey: ["/api/leaks"],
+    queryKey: [leaksUrl],
   });
 
   const totalLeakMonthly = leaks?.reduce((s, l) => s + l.monthlyAmount, 0) ?? 0;
 
   const handleExport = () => {
-    window.open("/api/export/summary", "_blank");
+    window.open(`/api/export/summary?days=${days}`, "_blank");
   };
 
   return (
@@ -45,9 +53,22 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Financial overview and cashflow estimates.</p>
+          <p className="text-muted-foreground mt-1">Financial overview and cashflow estimates for the selected window.</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-md border bg-background p-1">
+            {[30, 60, 90].map((windowDays) => (
+              <Button
+                key={windowDays}
+                variant={days === windowDays ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setDays(windowDays)}
+                data-testid={`button-window-${windowDays}`}
+              >
+                {windowDays}D
+              </Button>
+            ))}
+          </div>
           <Button variant="outline" onClick={handleExport} data-testid="button-export">
             <Download className="mr-2 h-4 w-4" />
             Export Report
@@ -74,7 +95,7 @@ export default function Dashboard() {
                 <TrendingUp className="mr-1 h-3 w-3" />
                 Net: {fmt(cashflow?.netCashflow ?? 0)}
               </span>
-              Based on recurring income minus recurring expenses.
+              Based on the last {days} days of recurring income minus recurring expenses.
             </div>
           </CardContent>
         </Card>
@@ -110,9 +131,15 @@ export default function Dashboard() {
         <SummaryCard label="Recurring Expenses" value={cashflow?.recurringExpenses} icon={<RefreshCcw className="h-4 w-4 text-destructive opacity-70" />} loading={cfLoading} sub="Baseline" testId="text-recurring-expenses" />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <SummaryCard label="One-time Income" value={cashflow?.oneTimeIncome} icon={<ArrowUpRight className="h-4 w-4 text-emerald-500" />} loading={cfLoading} testId="text-onetime-income" />
         <SummaryCard label="One-time Expenses" value={cashflow?.oneTimeExpenses} icon={<ArrowDownRight className="h-4 w-4 text-destructive" />} loading={cfLoading} testId="text-onetime-expenses" />
+        <SummaryCard label="Discretionary Spend" value={cashflow?.discretionarySpend} icon={<AlertTriangle className="h-4 w-4 text-warning" />} loading={cfLoading} sub={`${days}-day total`} testId="text-discretionary-spend" />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <SummaryCard label="Utilities" value={cashflow?.utilitiesBaseline} icon={<RefreshCcw className="h-4 w-4 text-muted-foreground" />} loading={cfLoading} sub="Monthly baseline" testId="text-utilities-baseline" />
+        <SummaryCard label="Subscriptions" value={cashflow?.subscriptionsBaseline} icon={<RefreshCcw className="h-4 w-4 text-muted-foreground" />} loading={cfLoading} sub="Monthly baseline" testId="text-subscriptions-baseline" />
       </div>
 
       {!cfLoading && cashflow?.totalInflows === 0 && cashflow?.totalOutflows === 0 && (
