@@ -1,0 +1,64 @@
+Build a full-stack web application for small-business cashflow analysis.
+
+Tech stack:
+- React frontend
+- Node.js + Express backend
+- Replit SQL / PostgreSQL database
+- Replit App Storage for uploaded CSV files
+- secure email/password authentication
+- clean responsive dashboard UI
+
+Core product requirements:
+1. Users can register, log in, and access a protected single-business workspace.
+2. Users can upload CSV transaction files from multiple financial accounts.
+3. The system parses and normalizes transactions into a unified ledger with standardized fields:
+   - date
+   - amount
+   - merchant
+   - raw description
+   - account
+   - inflow/outflow
+   - transaction class
+   - recurrence type
+4. Use two layers of classification:
+   - deterministic parser/rule-based classification first
+   - LLM-assisted classification only for ambiguous transactions
+5. Let users manually correct any classification, and never overwrite user corrections.
+6. Distinguish:
+   - recurring income
+   - one-time income
+   - recurring expenses
+   - one-time expenses
+   - transfers/refunds where possible
+7. Detect recurring charges and show a ranked list of possible expense leaks.
+8. Calculate a safe-to-spend estimate based on incoming and outgoing cashflow. Do not use manual category budgets.
+9. Show dashboard summaries for:
+   - total inflows
+   - total outflows
+   - recurring income baseline
+   - recurring expense baseline
+   - one-time income
+   - one-time expenses
+   - safe-to-spend estimate
+10. Allow CSV export of summary/report data.
+
+Implementation constraints:
+- Keep MVP simple and explainable.
+- Do not build direct bank integrations.
+- Do not build payroll, invoicing, tax filing, or advanced accounting features.
+- Do not build multi-tenant enterprise permissions.
+- Use App Storage for file uploads, not local filesystem persistence.
+- Server must be deployment-ready on Replit.
+
+Please:
+- scaffold the full project
+- create the database schema
+- create backend routes
+- create frontend pages
+- implement auth first
+- then implement CSV upload and parsing
+- then implement transaction review
+- then implement cashflow calculations
+- then implement leak detection
+- then implement export
+- explain any assumptions before coding
