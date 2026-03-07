@@ -1,10 +1,9 @@
 import { Link, useLocation } from "wouter";
-import { 
-  LayoutDashboard, 
-  Upload, 
-  ListChecks, 
-  TrendingDown, 
-  Settings,
+import {
+  LayoutDashboard,
+  Upload,
+  ListChecks,
+  TrendingDown,
   LogOut,
   Menu,
   Wallet
@@ -15,16 +14,22 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 
 export function Sidebar({ className = "" }: { className?: string }) {
   const [location] = useLocation();
+  const { logout } = useAuth();
+
+  const { data: cashflow } = useQuery<any>({
+    queryKey: ["/api/cashflow"],
+  });
 
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/upload", label: "Upload CSV", icon: Upload },
     { href: "/transactions", label: "Ledger", icon: ListChecks },
     { href: "/leaks", label: "Leak Detection", icon: TrendingDown },
-    { href: "/settings", label: "Settings", icon: Settings },
   ];
 
   return (
@@ -45,7 +50,7 @@ export function Sidebar({ className = "" }: { className?: string }) {
               <Button
                 variant={isActive ? "secondary" : "ghost"}
                 className={`w-full justify-start ${isActive ? "font-semibold" : "font-medium"}`}
-                data-testid={`nav-${item.label.toLowerCase().replace(" ", "-")}`}
+                data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
               >
                 <item.icon className="mr-3 h-5 w-5" />
                 {item.label}
@@ -58,9 +63,16 @@ export function Sidebar({ className = "" }: { className?: string }) {
       <div className="p-4 mt-auto">
         <div className="rounded-xl bg-muted p-4 mb-4">
           <p className="text-sm font-medium mb-1">Safe to Spend</p>
-          <p className="text-2xl font-bold text-primary">$12,450</p>
+          <p className="text-2xl font-bold text-primary" data-testid="text-sidebar-safe-to-spend">
+            {cashflow ? `$${cashflow.safeToSpend.toLocaleString()}` : "$0.00"}
+          </p>
         </div>
-        <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-foreground">
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted-foreground hover:text-foreground"
+          onClick={() => logout.mutate()}
+          data-testid="button-logout"
+        >
           <LogOut className="mr-3 h-5 w-5" />
           Sign Out
         </Button>

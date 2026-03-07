@@ -1,24 +1,45 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Wallet } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function AuthPage() {
-  const [, setLocation] = useLocation();
-  const [isLoading, setIsLoading] = useState(false);
+  const { login, register } = useAuth();
+  const { toast } = useToast();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsLoading(true);
-    // Simulate auth
-    setTimeout(() => {
-      setIsLoading(false);
-      setLocation("/");
-    }, 800);
+    const form = new FormData(e.currentTarget);
+    login.mutate(
+      { email: form.get("email") as string, password: form.get("password") as string },
+      {
+        onError: (err) => {
+          toast({ title: "Login failed", description: err.message, variant: "destructive" });
+        },
+      }
+    );
+  };
+
+  const handleRegister = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    register.mutate(
+      {
+        email: form.get("email") as string,
+        password: form.get("password") as string,
+        companyName: form.get("companyName") as string,
+      },
+      {
+        onError: (err) => {
+          toast({ title: "Registration failed", description: err.message, variant: "destructive" });
+        },
+      }
+    );
   };
 
   return (
@@ -37,41 +58,36 @@ export default function AuthPage() {
         <Card className="shadow-sm">
           <Tabs defaultValue="login" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Login</TabsTrigger>
-              <TabsTrigger value="register">Register</TabsTrigger>
+              <TabsTrigger value="login" data-testid="tab-login">Login</TabsTrigger>
+              <TabsTrigger value="register" data-testid="tab-register">Register</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="login">
-              <form onSubmit={handleSubmit}>
+              <form onSubmit={handleLogin}>
                 <CardHeader>
                   <CardTitle>Sign In</CardTitle>
                   <CardDescription>Enter your email below to access your workspace.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="m@example.com" required defaultValue="admin@smallbusiness.com" />
+                    <Label htmlFor="login-email">Email</Label>
+                    <Input id="login-email" name="email" type="email" placeholder="m@example.com" required data-testid="input-login-email" />
                   </div>
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="password">Password</Label>
-                      <a href="#" className="text-xs text-primary hover:underline" tabIndex={-1}>
-                        Forgot password?
-                      </a>
-                    </div>
-                    <Input id="password" type="password" required defaultValue="password123" />
+                    <Label htmlFor="login-password">Password</Label>
+                    <Input id="login-password" name="password" type="password" required data-testid="input-login-password" />
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Signing in..." : "Sign In"}
+                  <Button type="submit" className="w-full" disabled={login.isPending} data-testid="button-login">
+                    {login.isPending ? "Signing in..." : "Sign In"}
                   </Button>
                 </CardFooter>
               </form>
             </TabsContent>
-            
+
             <TabsContent value="register">
-              <form onSubmit={handleSubmit}>
+              <form onSubmit={handleRegister}>
                 <CardHeader>
                   <CardTitle>Create an account</CardTitle>
                   <CardDescription>Enter your details to create your workspace.</CardDescription>
@@ -79,20 +95,20 @@ export default function AuthPage() {
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="company">Company Name</Label>
-                    <Input id="company" type="text" placeholder="Acme Corp" required />
+                    <Input id="company" name="companyName" type="text" placeholder="Acme Corp" required data-testid="input-company" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reg-email">Email</Label>
-                    <Input id="reg-email" type="email" placeholder="m@example.com" required />
+                    <Input id="reg-email" name="email" type="email" placeholder="m@example.com" required data-testid="input-reg-email" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reg-password">Password</Label>
-                    <Input id="reg-password" type="password" required />
+                    <Input id="reg-password" name="password" type="password" required data-testid="input-reg-password" />
                   </div>
                 </CardContent>
                 <CardFooter>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Creating account..." : "Create Account"}
+                  <Button type="submit" className="w-full" disabled={register.isPending} data-testid="button-register">
+                    {register.isPending ? "Creating account..." : "Create Account"}
                   </Button>
                 </CardFooter>
               </form>

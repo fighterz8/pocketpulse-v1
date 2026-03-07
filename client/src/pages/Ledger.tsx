@@ -1,27 +1,65 @@
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Filter, Sparkles, Check, ArrowDownRight, ArrowUpRight, Clock, CalendarDays } from "lucide-react";
+import { Search, Sparkles, Check, ArrowDownRight, ArrowUpRight, Clock, CalendarDays, Download } from "lucide-react";
+import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Mock data
-const transactions = [
-  { id: 1, date: "2023-10-24", rawDesc: "STRIPE - TRANSFER", merchant: "Stripe", amount: 4500.00, type: "inflow", class: "income", recurrence: "one-time", autoClassified: true, aiAssisted: false },
-  { id: 2, date: "2023-10-23", rawDesc: "AWS EMEA *1X2Y3Z", merchant: "Amazon Web Services", amount: -340.50, type: "outflow", class: "expense", recurrence: "recurring", autoClassified: true, aiAssisted: false },
-  { id: 3, date: "2023-10-22", rawDesc: "GUSTO GUSTO PAYROLL", merchant: "Gusto", amount: -12450.00, type: "outflow", class: "expense", recurrence: "recurring", autoClassified: true, aiAssisted: false },
-  { id: 4, date: "2023-10-21", rawDesc: "TST* LOCAL COFFEE SHOP", merchant: "Local Coffee", amount: -24.50, type: "outflow", class: "expense", recurrence: "one-time", autoClassified: true, aiAssisted: false },
-  { id: 5, date: "2023-10-20", rawDesc: "DEPOSIT - WIRE FROM ACME CORP", merchant: "Acme Corp", amount: 8500.00, type: "inflow", class: "income", recurrence: "one-time", autoClassified: false, aiAssisted: true },
-  { id: 6, date: "2023-10-18", rawDesc: "ADOBE *CREATIVE CLOUD", merchant: "Adobe", amount: -54.99, type: "outflow", class: "expense", recurrence: "recurring", autoClassified: true, aiAssisted: false },
-  { id: 7, date: "2023-10-15", rawDesc: "UBER   *TRIP", merchant: "Uber", amount: -42.10, type: "outflow", class: "expense", recurrence: "one-time", autoClassified: true, aiAssisted: false },
-  { id: 8, date: "2023-10-14", rawDesc: "SQ *CONSULTING RETAINER", merchant: "Unknown Consulting", amount: -1200.00, type: "outflow", class: "expense", recurrence: "one-time", autoClassified: false, aiAssisted: true },
-];
+interface Transaction {
+  id: number;
+  date: string;
+  rawDescription: string;
+  merchant: string;
+  amount: string;
+  flowType: string;
+  transactionClass: string;
+  recurrenceType: string;
+  aiAssisted: boolean;
+  userCorrected: boolean;
+}
 
 export default function Ledger() {
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
-  
+  const [flowFilter, setFlowFilter] = useState("all");
+
+  const { data: transactions = [], isLoading } = useQuery<Transaction[]>({
+    queryKey: ["/api/transactions"],
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/transactions/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashflow"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leaks"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const filtered = transactions.filter((tx) => {
+    const matchesSearch = searchTerm === "" ||
+      tx.merchant.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.rawDescription.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFlow = flowFilter === "all" || tx.flowType === flowFilter;
+    return matchesSearch && matchesFlow;
+  });
+
+  const handleExportTransactions = () => {
+    window.open("/api/export/transactions", "_blank");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -32,8 +70,12 @@ export default function Ledger() {
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 px-3 py-1 text-xs">
             <Sparkles className="w-3 h-3 mr-1" />
-            AI Assistant Active
+            Auto-classified
           </Badge>
+          <Button variant="outline" size="sm" onClick={handleExportTransactions} data-testid="button-export-transactions">
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
         </div>
       </div>
 
@@ -46,121 +88,127 @@ export default function Ledger() {
               className="pl-9"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              data-testid="input-search"
             />
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Select defaultValue="all">
-              <SelectTrigger className="w-[130px]">
-                <Filter className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="All types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                <SelectItem value="inflow">Inflows</SelectItem>
-                <SelectItem value="outflow">Outflows</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select defaultValue="needs-review">
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="needs-review">Needs Review</SelectItem>
-                <SelectItem value="auto">Auto-classified</SelectItem>
-                <SelectItem value="manual">Manual override</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Select value={flowFilter} onValueChange={setFlowFilter}>
+            <SelectTrigger className="w-[130px]" data-testid="select-flow-filter">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="inflow">Inflows</SelectItem>
+              <SelectItem value="outflow">Outflows</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-muted/30">
-              <TableRow>
-                <TableHead className="w-[100px]">Date</TableHead>
-                <TableHead className="w-[200px]">Merchant / Desc</TableHead>
-                <TableHead className="w-[120px] text-right">Amount</TableHead>
-                <TableHead className="w-[140px]">Classification</TableHead>
-                <TableHead className="w-[140px]">Recurrence</TableHead>
-                <TableHead className="w-[80px] text-right">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((tx) => (
-                <TableRow key={tx.id} className="group hover:bg-muted/10">
-                  <TableCell className="font-medium text-xs whitespace-nowrap">
-                    {tx.date}
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium text-sm flex items-center">
-                      {tx.merchant}
-                      {tx.aiAssisted && (
-                        <span title="AI Classified">
-                          <Sparkles className="w-3 h-3 ml-1.5 text-primary opacity-70" />
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate max-w-[200px] mt-0.5" title={tx.rawDesc}>
-                      {tx.rawDesc}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className={`font-semibold ${tx.type === 'inflow' ? 'text-success' : ''}`}>
-                      {tx.type === 'inflow' ? '+' : ''}{tx.amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Select defaultValue={tx.class}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          {tx.class === 'income' ? <ArrowUpRight className="w-3 h-3 text-success" /> : 
-                           tx.class === 'expense' ? <ArrowDownRight className="w-3 h-3 text-destructive" /> : null}
-                          <SelectValue />
-                        </div>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="income">Income</SelectItem>
-                        <SelectItem value="expense">Expense</SelectItem>
-                        <SelectItem value="transfer">Transfer</SelectItem>
-                        <SelectItem value="refund">Refund</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Select defaultValue={tx.recurrence}>
-                      <SelectTrigger className="h-8 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          {tx.recurrence === 'recurring' ? <Clock className="w-3 h-3 text-primary" /> : 
-                           <CalendarDays className="w-3 h-3 text-muted-foreground" />}
-                          <SelectValue />
-                        </div>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="recurring">Recurring</SelectItem>
-                        <SelectItem value="one-time">One-time</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-success hover:text-success hover:bg-success/10 rounded-full" title="Confirm classification">
-                        <Check className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
+
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center text-muted-foreground">
+            {transactions.length === 0 ? "No transactions yet. Upload a CSV to get started." : "No matching transactions found."}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-muted/30">
+                <TableRow>
+                  <TableHead className="w-[100px]">Date</TableHead>
+                  <TableHead className="w-[200px]">Merchant / Desc</TableHead>
+                  <TableHead className="w-[120px] text-right">Amount</TableHead>
+                  <TableHead className="w-[140px]">Classification</TableHead>
+                  <TableHead className="w-[140px]">Recurrence</TableHead>
+                  <TableHead className="w-[80px] text-right">Confirm</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-        
-        <div className="p-4 border-t flex items-center justify-between text-sm text-muted-foreground bg-muted/10">
-          <div>Showing 8 of 342 transactions</div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>Previous</Button>
-            <Button variant="outline" size="sm">Next</Button>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((tx) => (
+                  <TableRow key={tx.id} className="group hover:bg-muted/10">
+                    <TableCell className="font-medium text-xs whitespace-nowrap">{tx.date}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-sm flex items-center">
+                        {tx.merchant}
+                        {tx.aiAssisted && !tx.userCorrected && (
+                          <span title="AI Classified"><Sparkles className="w-3 h-3 ml-1.5 text-primary opacity-70" /></span>
+                        )}
+                        {tx.userCorrected && (
+                          <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0 h-4">Manual</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate max-w-[200px] mt-0.5" title={tx.rawDescription}>
+                        {tx.rawDescription}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className={`font-semibold ${tx.flowType === "inflow" ? "text-emerald-600" : ""}`}>
+                        {tx.flowType === "inflow" ? "+" : ""}
+                        {parseFloat(tx.amount).toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        defaultValue={tx.transactionClass}
+                        onValueChange={(val) => updateMutation.mutate({ id: tx.id, data: { transactionClass: val } })}
+                      >
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-class-${tx.id}`}>
+                          <div className="flex items-center gap-1.5">
+                            {tx.transactionClass === "income" ? <ArrowUpRight className="w-3 h-3 text-emerald-500" /> :
+                             tx.transactionClass === "expense" ? <ArrowDownRight className="w-3 h-3 text-destructive" /> : null}
+                            <SelectValue />
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="income">Income</SelectItem>
+                          <SelectItem value="expense">Expense</SelectItem>
+                          <SelectItem value="transfer">Transfer</SelectItem>
+                          <SelectItem value="refund">Refund</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        defaultValue={tx.recurrenceType}
+                        onValueChange={(val) => updateMutation.mutate({ id: tx.id, data: { recurrenceType: val } })}
+                      >
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-recurrence-${tx.id}`}>
+                          <div className="flex items-center gap-1.5">
+                            {tx.recurrenceType === "recurring" ? <Clock className="w-3 h-3 text-primary" /> :
+                             <CalendarDays className="w-3 h-3 text-muted-foreground" />}
+                            <SelectValue />
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="recurring">Recurring</SelectItem>
+                          <SelectItem value="one-time">One-time</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-full"
+                          title="Confirm classification"
+                          onClick={() => updateMutation.mutate({ id: tx.id, data: { transactionClass: tx.transactionClass, recurrenceType: tx.recurrenceType } })}
+                          data-testid={`button-confirm-${tx.id}`}
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
+        )}
+
+        <div className="p-4 border-t flex items-center justify-between text-sm text-muted-foreground bg-muted/10">
+          <div data-testid="text-transaction-count">Showing {filtered.length} of {transactions.length} transactions</div>
         </div>
       </Card>
     </div>

@@ -11,42 +11,33 @@ import UploadPage from "@/pages/Upload";
 import Ledger from "@/pages/Ledger";
 import Leaks from "@/pages/Leaks";
 import AuthPage from "@/pages/Auth";
+import { useAuth } from "@/hooks/use-auth";
 
-// A simple mock protected route wrapper
-function ProtectedRoute({ component: Component }: { component: any }) {
-  // Always render the component for mockup purposes, but normally we'd check auth state
+function ProtectedApp() {
+  const { user, isLoading, isAuthenticated } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AuthPage />;
+  }
+
   return (
     <Layout>
-      <Component />
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/upload" component={UploadPage} />
+        <Route path="/transactions" component={Ledger} />
+        <Route path="/leaks" component={Leaks} />
+        <Route component={NotFound} />
+      </Switch>
     </Layout>
-  );
-}
-
-function Router() {
-  return (
-    <Switch>
-      <Route path="/auth" component={AuthPage} />
-      
-      <Route path="/">
-        <ProtectedRoute component={Dashboard} />
-      </Route>
-      <Route path="/upload">
-        <ProtectedRoute component={UploadPage} />
-      </Route>
-      <Route path="/transactions">
-        <ProtectedRoute component={Ledger} />
-      </Route>
-      <Route path="/leaks">
-        <ProtectedRoute component={Leaks} />
-      </Route>
-      
-      {/* Fallback to dashboard for unknown routes or explicitly settings for now */}
-      <Route path="/settings">
-         <Redirect to="/" />
-      </Route>
-      
-      <Route component={NotFound} />
-    </Switch>
   );
 }
 
@@ -55,7 +46,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <Router />
+        <ProtectedApp />
       </TooltipProvider>
     </QueryClientProvider>
   );

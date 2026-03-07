@@ -1,18 +1,73 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, numeric, boolean, timestamp, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
   password: text("password").notNull(),
+  companyName: text("company_name").notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
+  email: true,
   password: true,
+  companyName: true,
 });
-
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+export const accounts = pgTable("accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  lastFour: text("last_four"),
+});
+
+export const insertAccountSchema = createInsertSchema(accounts).pick({
+  name: true,
+  lastFour: true,
+});
+export type InsertAccount = z.infer<typeof insertAccountSchema>;
+export type Account = typeof accounts.$inferSelect;
+
+export const uploads = pgTable("uploads", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  accountId: integer("account_id").notNull().references(() => accounts.id),
+  filename: text("filename").notNull(),
+  rowCount: integer("row_count").notNull().default(0),
+  uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
+});
+
+export type Upload = typeof uploads.$inferSelect;
+
+export const transactions = pgTable("transactions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  uploadId: integer("upload_id").references(() => uploads.id),
+  accountId: integer("account_id").notNull().references(() => accounts.id),
+  date: text("date").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  merchant: text("merchant").notNull(),
+  rawDescription: text("raw_description").notNull(),
+  flowType: text("flow_type").notNull(), // inflow | outflow
+  transactionClass: text("transaction_class").notNull(), // income | expense | transfer | refund
+  recurrenceType: text("recurrence_type").notNull(), // recurring | one-time
+  aiAssisted: boolean("ai_assisted").notNull().default(false),
+  userCorrected: boolean("user_corrected").notNull().default(false),
+});
+
+export const insertTransactionSchema = createInsertSchema(transactions).omit({
+  id: true,
+});
+export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+export type Transaction = typeof transactions.$inferSelect;
+
+export const updateTransactionSchema = z.object({
+  transactionClass: z.enum(["income", "expense", "transfer", "refund"]).optional(),
+  recurrenceType: z.enum(["recurring", "one-time"]).optional(),
+  merchant: z.string().optional(),
+});
+export type UpdateTransaction = z.infer<typeof updateTransactionSchema>;

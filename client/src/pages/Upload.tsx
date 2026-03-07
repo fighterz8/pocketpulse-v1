@@ -1,67 +1,104 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle, Plus } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+
+interface Account {
+  id: number;
+  name: string;
+  lastFour: string | null;
+}
 
 export default function UploadPage() {
-  const [isDragging, setIsDragging] = useState(false);
+  const { toast } = useToast();
   const [file, setFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
+  const [selectedAccount, setSelectedAccount] = useState<string>("");
+  const [showNewAccount, setShowNewAccount] = useState(false);
+  const [newAccountName, setNewAccountName] = useState("");
+  const [newAccountLastFour, setNewAccountLastFour] = useState("");
+  const [uploadResult, setUploadResult] = useState<{ transactionCount: number; filename: string } | null>(null);
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery<Account[]>({
+    queryKey: ["/api/accounts"],
+  });
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
+  const createAccountMutation = useMutation({
+    mutationFn: async (data: { name: string; lastFour?: string }) => {
+      const res = await apiRequest("POST", "/api/accounts", data);
+      return res.json();
+    },
+    onSuccess: (newAccount: Account) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
+      setSelectedAccount(newAccount.id.toString());
+      setShowNewAccount(false);
+      setNewAccountName("");
+      setNewAccountLastFour("");
+      toast({ title: "Account created" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to create account", description: err.message, variant: "destructive" });
+    },
+  });
 
-  const handleDrop = (e: React.DragEvent) => {
+  const uploadMutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Upload failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setUploadResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cashflow"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leaks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      toast({ title: "Upload complete", description: `${data.transactionCount} transactions imported.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile.type === "text/csv" || droppedFile.name.endsWith('.csv')) {
-        setFile(droppedFile);
-        setUploadStatus("idle");
+    if (e.dataTransfer.files?.length) {
+      const f = e.dataTransfer.files[0];
+      if (f.name.endsWith(".csv")) {
+        setFile(f);
+        setUploadResult(null);
       }
     }
-  };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.dataTransfer?.files.length !== 0) {
+    if (e.target.files?.length) {
       setFile(e.target.files[0]);
-      setUploadStatus("idle");
+      setUploadResult(null);
     }
   };
 
   const handleUpload = () => {
-    if (!file) return;
-    
-    setIsUploading(true);
-    setUploadProgress(0);
-    
-    // Simulate upload and parsing
-    const interval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-          setUploadStatus("success");
-          return 100;
-        }
-        return prev + 5;
-      });
-    }, 100);
+    if (!file || !selectedAccount) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("accountId", selectedAccount);
+    uploadMutation.mutate(formData);
   };
 
   return (
@@ -79,54 +116,48 @@ export default function UploadPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="account-select">Target Account</Label>
-              <Select defaultValue="checking">
-                <SelectTrigger id="account-select">
-                  <SelectValue placeholder="Select account" />
+          <div className="space-y-2">
+            <Label htmlFor="account-select">Target Account</Label>
+            <div className="flex gap-2">
+              <Select value={selectedAccount} onValueChange={(v) => {
+                if (v === "__new__") {
+                  setShowNewAccount(true);
+                } else {
+                  setSelectedAccount(v);
+                }
+              }}>
+                <SelectTrigger id="account-select" className="flex-1" data-testid="select-account">
+                  <SelectValue placeholder="Select an account" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="checking">Main Checking (...4589)</SelectItem>
-                  <SelectItem value="savings">Business Savings (...1234)</SelectItem>
-                  <SelectItem value="cc">Corporate Credit Card (...8899)</SelectItem>
-                  <SelectItem value="new">+ Add New Account</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="date-format">Date Format (Optional)</Label>
-              <Select defaultValue="auto">
-                <SelectTrigger id="date-format">
-                  <SelectValue placeholder="Auto-detect" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto-detect</SelectItem>
-                  <SelectItem value="mmddyyyy">MM/DD/YYYY</SelectItem>
-                  <SelectItem value="ddmmyyyy">DD/MM/YYYY</SelectItem>
-                  <SelectItem value="yyyy-mm-dd">YYYY-MM-DD</SelectItem>
+                  {accounts.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id.toString()}>
+                      {acc.name}{acc.lastFour ? ` (...${acc.lastFour})` : ""}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__new__">
+                    <span className="flex items-center gap-1"><Plus className="w-3 h-3" /> Add New Account</span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
-          <div 
+          <div
             className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center text-center transition-colors
-              ${isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 bg-muted/30 hover:bg-muted/50'}
-              ${uploadStatus === 'success' ? 'border-success/50 bg-success/5' : ''}
+              ${uploadResult ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-muted-foreground/25 bg-muted/30 hover:bg-muted/50'}
             `}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
+            onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
           >
-            {uploadStatus === 'success' ? (
+            {uploadResult ? (
               <div className="space-y-3 flex flex-col items-center">
-                <div className="h-16 w-16 bg-success/20 rounded-full flex items-center justify-center mb-2">
-                  <CheckCircle2 className="h-8 w-8 text-success" />
+                <div className="h-16 w-16 bg-emerald-500/20 rounded-full flex items-center justify-center mb-2">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-500" />
                 </div>
                 <h3 className="font-semibold text-lg">Upload Complete</h3>
-                <p className="text-sm text-muted-foreground max-w-xs">
-                  Successfully imported and parsed 342 transactions from {file?.name}.
+                <p className="text-sm text-muted-foreground max-w-xs" data-testid="text-upload-result">
+                  Successfully imported {uploadResult.transactionCount} transactions from {uploadResult.filename}.
                 </p>
               </div>
             ) : file ? (
@@ -139,20 +170,18 @@ export default function UploadPage() {
                     <p className="text-sm font-medium truncate">{file.name}</p>
                     <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
                   </div>
-                  {!isUploading && (
+                  {!uploadMutation.isPending && (
                     <Button variant="ghost" size="sm" onClick={() => setFile(null)} className="h-8 text-muted-foreground hover:text-destructive shrink-0">
                       Remove
                     </Button>
                   )}
                 </div>
-
-                {isUploading && (
+                {uploadMutation.isPending && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs text-muted-foreground font-medium">
                       <span>Parsing data...</span>
-                      <span>{uploadProgress}%</span>
                     </div>
-                    <Progress value={uploadProgress} className="h-2" />
+                    <Progress value={50} className="h-2 animate-pulse" />
                   </div>
                 )}
               </div>
@@ -168,16 +197,11 @@ export default function UploadPage() {
                   </p>
                 </div>
                 <div className="mt-4">
-                  <Input 
-                    type="file" 
-                    accept=".csv" 
-                    className="hidden" 
-                    id="file-upload" 
-                    onChange={handleFileChange}
-                  />
-                  <Label 
+                  <Input type="file" accept=".csv" className="hidden" id="file-upload" onChange={handleFileChange} />
+                  <Label
                     htmlFor="file-upload"
                     className="inline-flex h-10 items-center justify-center rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 cursor-pointer transition-colors"
+                    data-testid="button-select-file"
                   >
                     Select File
                   </Label>
@@ -189,23 +213,51 @@ export default function UploadPage() {
         <CardFooter className="bg-muted/30 border-t justify-between items-center py-4">
           <p className="text-xs text-muted-foreground flex items-center">
             <AlertCircle className="h-3 w-3 mr-1" />
-            AI classification will automatically run on ambiguous entries.
+            Classification runs automatically on import.
           </p>
-          {uploadStatus === 'success' ? (
+          {uploadResult ? (
             <Button data-testid="button-view-ledger" onClick={() => window.location.href = "/transactions"}>
               Review Transactions
             </Button>
           ) : (
-            <Button 
-              onClick={handleUpload} 
-              disabled={!file || isUploading}
+            <Button
+              onClick={handleUpload}
+              disabled={!file || !selectedAccount || uploadMutation.isPending}
               data-testid="button-process-upload"
             >
-              {isUploading ? "Processing..." : "Process Upload"}
+              {uploadMutation.isPending ? "Processing..." : "Process Upload"}
             </Button>
           )}
         </CardFooter>
       </Card>
+
+      <Dialog open={showNewAccount} onOpenChange={setShowNewAccount}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Account</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Account Name</Label>
+              <Input placeholder="Main Checking" value={newAccountName} onChange={(e) => setNewAccountName(e.target.value)} data-testid="input-account-name" />
+            </div>
+            <div className="space-y-2">
+              <Label>Last 4 Digits (optional)</Label>
+              <Input placeholder="4589" maxLength={4} value={newAccountLastFour} onChange={(e) => setNewAccountLastFour(e.target.value)} data-testid="input-account-last-four" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewAccount(false)}>Cancel</Button>
+            <Button
+              onClick={() => createAccountMutation.mutate({ name: newAccountName, lastFour: newAccountLastFour || undefined })}
+              disabled={!newAccountName || createAccountMutation.isPending}
+              data-testid="button-create-account"
+            >
+              {createAccountMutation.isPending ? "Creating..." : "Create Account"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
