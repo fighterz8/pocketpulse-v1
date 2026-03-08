@@ -11,3 +11,13 @@ export const pool = new pg.Pool({
 });
 
 export const db = drizzle(pool, { schema });
+
+export async function ensureSchemaExtensions(): Promise<void> {
+  await pool.query(`
+    ALTER TABLE transactions
+      ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'other',
+      ADD COLUMN IF NOT EXISTS label_source text NOT NULL DEFAULT 'rule',
+      ADD COLUMN IF NOT EXISTS label_confidence numeric(5, 2),
+      ADD COLUMN IF NOT EXISTS label_reason text
+  `);
+}

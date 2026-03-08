@@ -14,7 +14,6 @@ interface LeakItem {
   bucket: "repeat_discretionary" | "micro_spend" | "high_frequency_convenience";
   label: string;
   monthlyAmount: number;
-  annualAmount: number;
   occurrences: number;
   lastDate: string;
   confidence: "High" | "Medium" | "Low";
@@ -33,7 +32,7 @@ export default function Leaks() {
     queryKey: [leaksUrl],
   });
 
-  const totalAnnual = leaks.reduce((s, l) => s + l.annualAmount, 0);
+  const totalWindowSpend = leaks.reduce((s, l) => s + l.recentSpend, 0);
 
   return (
     <div className="space-y-6">
@@ -71,10 +70,10 @@ export default function Leaks() {
             <Skeleton className="h-10 w-48" />
           ) : (
             <>
-              <div className="text-4xl font-bold text-foreground mt-2" data-testid="text-total-annual-savings">
-                {fmt(totalAnnual)}
+              <div className="text-4xl font-bold text-foreground mt-2" data-testid="text-total-window-leak-spend">
+                {fmt(totalWindowSpend)}
               </div>
-              <p className="text-sm text-muted-foreground mt-1">Estimated annualized savings opportunity from flagged leak patterns</p>
+              <p className="text-sm text-muted-foreground mt-1">Flagged discretionary spend inside the selected {days}-day window</p>
             </>
           )}
         </CardContent>
@@ -95,7 +94,7 @@ export default function Leaks() {
         </Card>
       ) : (
         <>
-          <h3 className="text-lg font-semibold mt-8 mb-4">Ranked by Annual Cost</h3>
+          <h3 className="text-lg font-semibold mt-8 mb-4">Ranked by Recent Window Spend</h3>
           <div className="space-y-4">
             {leaks.map((leak, i) => (
               <Card key={i} className="overflow-hidden transition-all hover:shadow-md" data-testid={`card-leak-${i}`}>
@@ -123,8 +122,8 @@ export default function Leaks() {
                       <p className="font-semibold">{fmt(leak.monthlyAmount)}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground mb-1">Annual Cost</p>
-                      <p className="font-bold text-destructive">{fmt(leak.annualAmount)}</p>
+                      <p className="text-muted-foreground mb-1">{days}-Day Spend</p>
+                      <p className="font-bold text-destructive">{fmt(leak.recentSpend)}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground mb-1">Last Seen</p>

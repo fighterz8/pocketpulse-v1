@@ -2,6 +2,7 @@ import { parse } from "csv-parse/sync";
 import { classifyTransaction } from "./classifier";
 import type { InsertTransaction } from "@shared/schema";
 import { deriveSignedAmount, flowTypeFromAmount, normalizeAmountForClass } from "./transactionUtils";
+import { detectMonthlyRecurringPatterns } from "./recurrenceDetector";
 
 interface ParsedRow {
   date: string;
@@ -141,10 +142,32 @@ export function parseCSV(csvContent: string, userId: number, accountId: number, 
       transactionClass: classification.transactionClass,
       recurrenceType: classification.recurrenceType,
       category: classification.category,
+      labelSource: classification.labelSource,
+      labelConfidence: classification.labelConfidence,
+      labelReason: classification.labelReason,
       aiAssisted: classification.aiAssisted || amountResult.ambiguous,
       userCorrected: false,
     });
   }
 
-  return txns;
+  const recurrenceMatches = detectMonthlyRecurringPatterns(txns.map((transaction) => ({
+    merchant: transaction.merchant,
+    date: transaction.date,
+    amount: transaction.amount,
+    flowType: transaction.flowType as "inflow" | "outflow",
+    recurrenceType: transaction.recurrenceType as "recurring" | "one-time",
+    labelReason: transaction.labelReason,
+  })));
+
+  return txns.map((transaction, index) => {
+    if (!recurrenceMatches.matchedIndexes.has(index) || transaction.recurrenceType === "recurring") {
+      return transaction;
+    }
+
+    return {
+      ...transaction,
+      recurrenceType: "recurring",
+      labelReason: recurrenceMatches.reasonByIndex.get(index) ?? transaction.labelReason,
+    };
+  });
 }

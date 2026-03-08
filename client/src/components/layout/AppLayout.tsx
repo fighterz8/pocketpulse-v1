@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
+  LineChart,
   Upload,
   ListChecks,
   TrendingDown,
@@ -27,6 +28,7 @@ export function Sidebar({ className = "" }: { className?: string }) {
 
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/analysis", label: "Analysis", icon: LineChart },
     { href: "/upload", label: "Upload CSV", icon: Upload },
     { href: "/transactions", label: "Ledger", icon: ListChecks },
     { href: "/leaks", label: "Leak Detection", icon: TrendingDown },

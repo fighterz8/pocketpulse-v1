@@ -4,25 +4,92 @@ import multer from "multer";
 import { storage } from "./storage";
 import { setupAuth, requireAuth } from "./auth";
 import { parseCSV } from "./csvParser";
-import { calculateCashflow, detectLeaks } from "./cashflow";
+import {
+  buildCashflowAnalysis,
+  calculateCashflow,
+  detectLeaks,
+  getDashboardMetricDefinition,
+  getDashboardMetricTransactions,
+  getDashboardMetricValue,
+  type DashboardMetric,
+} from "./cashflow";
 import { updateTransactionSchema, insertAccountSchema } from "@shared/schema";
+import { resolveDateRange } from "./dateRanges";
+import { maybeApplyLlmLabels } from "./llmLabeler";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const CSV_MIME_TYPES = new Set(["text/csv", "application/vnd.ms-excel", "application/csv", "text/plain"]);
 
-function parseWindowDays(value: unknown): number {
-  const parsed = parseInt(String(value ?? "90"), 10);
-  if (![30, 60, 90].includes(parsed)) {
-    return 90;
-  }
-
-  return parsed;
+function toCsvCell(value: unknown): string {
+  const raw = String(value ?? "").replace(/\r?\n/g, " ").trim();
+  const neutralized = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${neutralized.replace(/"/g, '""')}"`;
 }
 
-function getWindowStartDate(days: number): string {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() - days);
-  return date.toISOString().slice(0, 10);
+function hasRangeQuery(query: Request["query"]): boolean {
+  return ["days", "preset", "startDate", "endDate", "year"].some((key) => query[key] !== undefined);
+}
+
+function getResolvedRange(query: Request["query"], fallbackToRecent = false) {
+  if (!fallbackToRecent && !hasRangeQuery(query)) {
+    return undefined;
+  }
+
+  return resolveDateRange({
+    days: query.days,
+    preset: query.preset,
+    startDate: query.startDate,
+    endDate: query.endDate,
+    year: query.year,
+  });
+}
+
+function parseDashboardMetric(value: unknown): DashboardMetric | undefined {
+  const metric = String(value ?? "");
+  const allowedMetrics: DashboardMetric[] = [
+    "totalInflows",
+    "totalOutflows",
+    "recurringIncome",
+    "recurringExpenses",
+    "oneTimeIncome",
+    "oneTimeExpenses",
+    "safeToSpend",
+    "netCashflow",
+    "utilitiesBaseline",
+    "subscriptionsBaseline",
+    "discretionarySpend",
+  ];
+  return allowedMetrics.includes(metric as DashboardMetric) ? (metric as DashboardMetric) : undefined;
+}
+
+function buildTransactionFilters(query: Request["query"], options: { fallbackToRecent?: boolean } = {}) {
+  const filters: {
+    flowType?: string;
+    accountId?: number;
+    search?: string;
+    merchant?: string;
+    category?: string;
+    transactionClass?: string;
+    recurrenceType?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {};
+
+  if (query.flowType) filters.flowType = query.flowType as string;
+  if (query.accountId) filters.accountId = parseInt(String(query.accountId), 10);
+  if (query.search) filters.search = query.search as string;
+  if (query.merchant) filters.merchant = query.merchant as string;
+  if (query.category) filters.category = query.category as string;
+  if (query.transactionClass) filters.transactionClass = query.transactionClass as string;
+  if (query.recurrenceType) filters.recurrenceType = query.recurrenceType as string;
+
+  const range = getResolvedRange(query, options.fallbackToRecent);
+  if (range) {
+    filters.startDate = range.startDate;
+    filters.endDate = range.endDate;
+  }
+
+  return { filters, range, metric: parseDashboardMetric(query.metric) };
 }
 
 export async function registerRoutes(
@@ -47,26 +114,76 @@ export async function registerRoutes(
   // ── CSV Upload ────────────────────────────────────────
   app.post("/api/upload", requireAuth, upload.single("file"), async (req: Request, res: Response) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-    
+
     const accountId = parseInt(String(req.body.accountId), 10);
     if (!accountId) return res.status(400).json({ message: "Account ID is required" });
+
+    const originalName = String(req.file.originalname || "").trim();
+    const lowerName = originalName.toLowerCase();
+    if (!lowerName.endsWith(".csv")) {
+      return res.status(400).json({ message: "Upload a CSV file." });
+    }
+
+    if (req.file.mimetype && !CSV_MIME_TYPES.has(req.file.mimetype)) {
+      return res.status(400).json({ message: "Unsupported file type. Upload a CSV export." });
+    }
 
     const account = await storage.getAccount(accountId, req.user!.id);
     if (!account) return res.status(404).json({ message: "Account not found" });
 
     try {
       const csvContent = req.file.buffer.toString("utf-8");
-      const uploadRecord = await storage.createUpload(req.user!.id, accountId, req.file.originalname, 0);
-      const txns = parseCSV(csvContent, req.user!.id, accountId, uploadRecord.id);
+      const uploadRecord = await storage.createUpload(req.user!.id, accountId, originalName, 0);
+      const parsedTransactions = parseCSV(csvContent, req.user!.id, accountId, uploadRecord.id);
+      const enrichedLabels = await maybeApplyLlmLabels(parsedTransactions.map((transaction) => ({
+        rawDescription: transaction.rawDescription,
+        amount: parseFloat(String(transaction.amount)),
+        transactionClass: transaction.transactionClass as "income" | "expense" | "transfer" | "refund",
+        recurrenceType: transaction.recurrenceType as "recurring" | "one-time",
+        category: (transaction.category ?? "other") as
+          | "income"
+          | "transfers"
+          | "utilities"
+          | "subscriptions"
+          | "insurance"
+          | "housing"
+          | "groceries"
+          | "transportation"
+          | "dining"
+          | "shopping"
+          | "health"
+          | "debt"
+          | "business_software"
+          | "entertainment"
+          | "fees"
+          | "other",
+        aiAssisted: Boolean(transaction.aiAssisted),
+        labelSource: (transaction.labelSource ?? "rule") as "rule" | "llm" | "manual",
+        labelConfidence: transaction.labelConfidence ?? null,
+        labelReason: transaction.labelReason ?? null,
+      })));
+      const txns = parsedTransactions.map((transaction, index) => {
+        const decision = enrichedLabels[index];
+        return {
+          ...transaction,
+          transactionClass: decision.transactionClass,
+          recurrenceType: decision.recurrenceType,
+          category: decision.category,
+          labelSource: decision.labelSource,
+          labelConfidence: decision.labelConfidence,
+          labelReason: decision.labelReason,
+          aiAssisted: decision.aiAssisted,
+        };
+      });
       const created = await storage.createTransactions(txns);
 
       res.status(201).json({
         uploadId: uploadRecord.id,
-        filename: req.file.originalname,
+        filename: originalName,
         transactionCount: created.length,
       });
-    } catch (err: any) {
-      res.status(422).json({ message: err.message });
+    } catch {
+      res.status(422).json({ message: "The CSV could not be processed. Please verify the format and try again." });
     }
   });
 
@@ -77,34 +194,38 @@ export async function registerRoutes(
 
   // ── Transactions ──────────────────────────────────────
   app.get("/api/transactions", requireAuth, async (req: Request, res: Response) => {
-    const filters: {
-      flowType?: string;
-      accountId?: number;
-      search?: string;
-      merchant?: string;
-      category?: string;
-      transactionClass?: string;
-      recurrenceType?: string;
-      startDate?: string;
-    } = {};
-    if (req.query.flowType) filters.flowType = req.query.flowType as string;
-    if (req.query.accountId) filters.accountId = parseInt(String(req.query.accountId), 10);
-    if (req.query.search) filters.search = req.query.search as string;
-    if (req.query.merchant) filters.merchant = req.query.merchant as string;
-    if (req.query.category) filters.category = req.query.category as string;
-    if (req.query.transactionClass) filters.transactionClass = req.query.transactionClass as string;
-    if (req.query.recurrenceType) filters.recurrenceType = req.query.recurrenceType as string;
-    if (req.query.days) filters.startDate = getWindowStartDate(parseWindowDays(req.query.days));
-    if (req.query.startDate) filters.startDate = String(req.query.startDate);
-
+    const { filters, range, metric } = buildTransactionFilters(req.query);
     const page = parseInt(String(req.query.page ?? ""), 10) || 1;
-    const pageSize = parseInt(String(req.query.pageSize ?? ""), 10) || 50;
-    const txns = await storage.getTransactionPage(req.user!.id, {
-      ...filters,
-      page,
+    const pageSize = Math.min(Math.max(parseInt(String(req.query.pageSize ?? ""), 10) || 50, 1), 100);
+    if (!metric) {
+      const txns = await storage.getTransactionPage(req.user!.id, {
+        ...filters,
+        page,
+        pageSize,
+      });
+      return res.json(txns);
+    }
+
+    const sourceRows = await storage.getTransactions(req.user!.id, filters);
+    const metricRows = getDashboardMetricTransactions(sourceRows, metric);
+    const totalCount = metricRows.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const currentPage = Math.min(Math.max(page, 1), totalPages);
+    const offset = (currentPage - 1) * pageSize;
+    const rows = metricRows.slice(offset, offset + pageSize);
+    const metricDefinition = getDashboardMetricDefinition(metric);
+
+    return res.json({
+      rows,
+      totalCount,
+      page: currentPage,
       pageSize,
+      totalPages,
+      metric,
+      metricLabel: metricDefinition.label,
+      metricDescription: metricDefinition.description,
+      metricTotal: getDashboardMetricValue(metricRows, metric, { rangeDays: range?.rangeDays }),
     });
-    res.json(txns);
   });
 
   app.patch("/api/transactions/:id", requireAuth, async (req: Request, res: Response) => {
@@ -134,35 +255,56 @@ export async function registerRoutes(
 
   // ── Cashflow Summary ──────────────────────────────────
   app.get("/api/cashflow", requireAuth, async (req: Request, res: Response) => {
-    const days = parseWindowDays(req.query.days);
-    const txns = await storage.getTransactions(req.user!.id, {
-      startDate: getWindowStartDate(days),
-    });
-    const summary = calculateCashflow(txns, { windowDays: days });
-    res.json(summary);
+    const { filters, range } = buildTransactionFilters(req.query, { fallbackToRecent: true });
+    const txns = await storage.getTransactions(req.user!.id, filters);
+    const summary = calculateCashflow(txns, { rangeDays: range?.rangeDays });
+    res.json({ ...summary, range });
   });
 
   // ── Leak Detection ────────────────────────────────────
   app.get("/api/leaks", requireAuth, async (req: Request, res: Response) => {
-    const days = req.query.days ? parseWindowDays(req.query.days) : undefined;
-    const txns = await storage.getTransactions(req.user!.id, days ? {
-      startDate: getWindowStartDate(days),
-    } : undefined);
-    const leaks = detectLeaks(txns);
+    const { filters, range } = buildTransactionFilters(req.query, { fallbackToRecent: true });
+    const txns = await storage.getTransactions(req.user!.id, filters);
+    const leaks = detectLeaks(txns, { rangeDays: range?.rangeDays });
     res.json(leaks);
+  });
+
+  app.get("/api/analysis", requireAuth, async (req: Request, res: Response) => {
+    const range = getResolvedRange(req.query, true)!;
+    const [currentTransactions, previousTransactions] = await Promise.all([
+      storage.getTransactions(req.user!.id, {
+        startDate: range.startDate,
+        endDate: range.endDate,
+      }),
+      storage.getTransactions(req.user!.id, {
+        startDate: range.previousStartDate,
+        endDate: range.previousEndDate,
+      }),
+    ]);
+
+    const analysis = buildCashflowAnalysis(currentTransactions, previousTransactions, {
+      rangeDays: range.rangeDays,
+    });
+
+    res.json({
+      range,
+      analysis,
+      currentTransactionCount: currentTransactions.length,
+      previousTransactionCount: previousTransactions.length,
+    });
   });
 
   // ── CSV Export ─────────────────────────────────────────
   app.get("/api/export/summary", requireAuth, async (req: Request, res: Response) => {
-    const days = parseWindowDays(req.query.days);
-    const txns = await storage.getTransactions(req.user!.id, {
-      startDate: getWindowStartDate(days),
-    });
-    const summary = calculateCashflow(txns, { windowDays: days });
+    const { filters, range } = buildTransactionFilters(req.query, { fallbackToRecent: true });
+    const txns = await storage.getTransactions(req.user!.id, filters);
+    const summary = calculateCashflow(txns, { rangeDays: range?.rangeDays });
 
     const csvRows = [
       "Metric,Value",
-      `Window,${days} days`,
+      `Window,${range?.label ?? "Custom range"}`,
+      `Start Date,${range?.startDate ?? ""}`,
+      `End Date,${range?.endDate ?? ""}`,
       `Total Inflows,$${summary.totalInflows}`,
       `Total Outflows,$${summary.totalOutflows}`,
       `Recurring Income,$${summary.recurringIncome}`,
@@ -182,12 +324,32 @@ export async function registerRoutes(
   });
 
   app.get("/api/export/transactions", requireAuth, async (req: Request, res: Response) => {
-    const txns = await storage.getTransactions(req.user!.id);
+    const { filters, range, metric } = buildTransactionFilters(req.query);
+    const sourceRows = await storage.getTransactions(req.user!.id, filters);
+    const txns = metric ? getDashboardMetricTransactions(sourceRows, metric) : sourceRows;
+    const metricDefinition = metric ? getDashboardMetricDefinition(metric) : undefined;
+    const metricTotal = metric ? getDashboardMetricValue(txns, metric, { rangeDays: range?.rangeDays }) : undefined;
 
     const csvRows = [
-      "Date,Merchant,Amount,Type,Class,Recurrence,Category,Raw Description",
+      `${toCsvCell("Window")},${toCsvCell(range?.label ?? "All transactions")}`,
+      ...(metricDefinition
+        ? [`${toCsvCell("Metric")},${toCsvCell(metricDefinition.label)}`, `${toCsvCell("Metric Total")},${toCsvCell(`$${metricTotal}`)}`]
+        : []),
+      "Date,Merchant,Amount,Type,Class,Recurrence,Category,Label Source,Label Confidence,Label Reason,Raw Description",
       ...txns.map(tx =>
-        `${tx.date},"${tx.merchant}",${tx.amount},${tx.flowType},${tx.transactionClass},${tx.recurrenceType},${tx.category},"${tx.rawDescription.replace(/"/g, '""')}"`
+        [
+          toCsvCell(tx.date),
+          toCsvCell(tx.merchant),
+          tx.amount,
+          toCsvCell(tx.flowType),
+          toCsvCell(tx.transactionClass),
+          toCsvCell(tx.recurrenceType),
+          toCsvCell(tx.category),
+          toCsvCell(tx.labelSource),
+          toCsvCell(tx.labelConfidence ?? ""),
+          toCsvCell(tx.labelReason ?? ""),
+          toCsvCell(tx.rawDescription),
+        ].join(",")
       ),
     ];
 

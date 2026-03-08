@@ -7,6 +7,15 @@ interface AuthUser {
   companyName: string;
 }
 
+function resetUserScopedQueries() {
+  queryClient.removeQueries({
+    predicate: (query) => {
+      const key = query.queryKey[0];
+      return typeof key === "string" && key.startsWith("/api/") && key !== "/api/auth/me";
+    },
+  });
+}
+
 export function useAuth() {
   const { data: user, isLoading, error } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/me"],
@@ -26,6 +35,7 @@ export function useAuth() {
       return res.json();
     },
     onSuccess: () => {
+      resetUserScopedQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });
@@ -36,6 +46,7 @@ export function useAuth() {
       return res.json();
     },
     onSuccess: () => {
+      resetUserScopedQueries();
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });
@@ -45,6 +56,8 @@ export function useAuth() {
       await apiRequest("POST", "/api/auth/logout");
     },
     onSuccess: () => {
+      resetUserScopedQueries();
+      queryClient.setQueryData(["/api/auth/me"], null);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });

@@ -32,6 +32,9 @@ export const transactionCategorySchema = z.enum([
 ]);
 export type TransactionCategory = z.infer<typeof transactionCategorySchema>;
 
+export const labelSourceSchema = z.enum(["rule", "llm", "manual"]);
+export type LabelSource = z.infer<typeof labelSourceSchema>;
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -85,6 +88,9 @@ export const transactions = pgTable("transactions", {
   transactionClass: text("transaction_class").notNull(), // income | expense | transfer | refund
   recurrenceType: text("recurrence_type").notNull(), // recurring | one-time
   category: text("category").notNull().default("other"),
+  labelSource: text("label_source").notNull().default("rule"),
+  labelConfidence: numeric("label_confidence", { precision: 5, scale: 2 }),
+  labelReason: text("label_reason"),
   aiAssisted: boolean("ai_assisted").notNull().default(false),
   userCorrected: boolean("user_corrected").notNull().default(false),
 });

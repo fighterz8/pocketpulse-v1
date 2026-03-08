@@ -1,9 +1,29 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+async function readApiErrorMessage(res: Response) {
+  const contentType = res.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    const payload = await res.json().catch(() => null) as { message?: string } | null;
+    if (payload?.message) {
+      return payload.message;
+    }
+  }
+
+  const text = (await res.text()) || res.statusText;
+  if (text) {
+    return text;
+  }
+
+  return res.status >= 500
+    ? "Something went wrong on the server. Please try again."
+    : "Request failed.";
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const message = await readApiErrorMessage(res);
+    throw new Error(res.status >= 500 ? "Something went wrong on the server. Please try again." : message);
   }
 }
 
@@ -22,6 +42,8 @@ export async function apiRequest(
   await throwIfResNotOk(res);
   return res;
 }
+
+export { readApiErrorMessage };
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {

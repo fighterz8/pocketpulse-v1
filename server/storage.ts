@@ -1,4 +1,4 @@
-import { eq, and, desc, gte, ilike, or, count } from "drizzle-orm";
+import { eq, and, desc, gte, lte, ilike, or, count, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
   users, accounts, uploads, transactions,
@@ -9,6 +9,20 @@ import {
 } from "@shared/schema";
 import { buildTransactionUpdate, deriveSignedAmount, flowTypeFromAmount, normalizeAmountForClass } from "./transactionUtils";
 import { classifyTransaction } from "./classifier";
+import { maybeApplyLlmLabels } from "./llmLabeler";
+import { detectMonthlyRecurringPatterns } from "./recurrenceDetector";
+
+export interface TransactionFilters {
+  flowType?: string;
+  accountId?: number;
+  search?: string;
+  startDate?: string;
+  endDate?: string;
+  merchant?: string;
+  category?: string;
+  transactionClass?: string;
+  recurrenceType?: string;
+}
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -23,25 +37,8 @@ export interface IStorage {
   getUploads(userId: number): Promise<Upload[]>;
 
   createTransactions(txns: InsertTransaction[]): Promise<Transaction[]>;
-  getTransactions(userId: number, filters?: {
-    flowType?: string;
-    accountId?: number;
-    search?: string;
-    startDate?: string;
-    merchant?: string;
-    category?: string;
-    transactionClass?: string;
-    recurrenceType?: string;
-  }): Promise<Transaction[]>;
-  getTransactionPage(userId: number, filters?: {
-    flowType?: string;
-    accountId?: number;
-    search?: string;
-    startDate?: string;
-    merchant?: string;
-    category?: string;
-    transactionClass?: string;
-    recurrenceType?: string;
+  getTransactions(userId: number, filters?: TransactionFilters): Promise<Transaction[]>;
+  getTransactionPage(userId: number, filters?: TransactionFilters & {
     page?: number;
     pageSize?: number;
   }): Promise<{
@@ -59,23 +56,24 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private parseFilterList(value?: string): string[] {
+    return (value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
   private buildTransactionWhere(
     userId: number,
-    filters?: {
-      flowType?: string;
-      accountId?: number;
-      search?: string;
-      startDate?: string;
-      merchant?: string;
-      category?: string;
-      transactionClass?: string;
-      recurrenceType?: string;
-    },
+    filters?: TransactionFilters,
   ) {
     const conditions = [eq(transactions.userId, userId)];
 
-    if (filters?.flowType) {
-      conditions.push(eq(transactions.flowType, filters.flowType));
+    const flowTypes = this.parseFilterList(filters?.flowType);
+    if (flowTypes.length === 1) {
+      conditions.push(eq(transactions.flowType, flowTypes[0]));
+    } else if (flowTypes.length > 1) {
+      conditions.push(inArray(transactions.flowType, flowTypes));
     }
 
     if (filters?.accountId) {
@@ -86,20 +84,33 @@ export class DatabaseStorage implements IStorage {
       conditions.push(gte(transactions.date, filters.startDate));
     }
 
+    if (filters?.endDate) {
+      conditions.push(lte(transactions.date, filters.endDate));
+    }
+
     if (filters?.merchant?.trim()) {
       conditions.push(ilike(transactions.merchant, filters.merchant.trim()));
     }
 
-    if (filters?.category) {
-      conditions.push(eq(transactions.category, filters.category));
+    const categories = this.parseFilterList(filters?.category);
+    if (categories.length === 1) {
+      conditions.push(eq(transactions.category, categories[0]));
+    } else if (categories.length > 1) {
+      conditions.push(inArray(transactions.category, categories));
     }
 
-    if (filters?.transactionClass) {
-      conditions.push(eq(transactions.transactionClass, filters.transactionClass));
+    const transactionClasses = this.parseFilterList(filters?.transactionClass);
+    if (transactionClasses.length === 1) {
+      conditions.push(eq(transactions.transactionClass, transactionClasses[0]));
+    } else if (transactionClasses.length > 1) {
+      conditions.push(inArray(transactions.transactionClass, transactionClasses));
     }
 
-    if (filters?.recurrenceType) {
-      conditions.push(eq(transactions.recurrenceType, filters.recurrenceType));
+    const recurrenceTypes = this.parseFilterList(filters?.recurrenceType);
+    if (recurrenceTypes.length === 1) {
+      conditions.push(eq(transactions.recurrenceType, recurrenceTypes[0]));
+    } else if (recurrenceTypes.length > 1) {
+      conditions.push(inArray(transactions.recurrenceType, recurrenceTypes));
     }
 
     if (filters?.search?.trim()) {
@@ -160,34 +171,14 @@ export class DatabaseStorage implements IStorage {
     return db.insert(transactions).values(txns).returning();
   }
 
-  async getTransactions(userId: number, filters?: {
-    flowType?: string;
-    accountId?: number;
-    search?: string;
-    startDate?: string;
-    merchant?: string;
-    category?: string;
-    transactionClass?: string;
-    recurrenceType?: string;
-  }): Promise<Transaction[]> {
+  async getTransactions(userId: number, filters?: TransactionFilters): Promise<Transaction[]> {
     return db.select()
       .from(transactions)
       .where(this.buildTransactionWhere(userId, filters))
       .orderBy(desc(transactions.date), desc(transactions.id));
   }
 
-  async getTransactionPage(userId: number, filters?: {
-    flowType?: string;
-    accountId?: number;
-    search?: string;
-    startDate?: string;
-    merchant?: string;
-    category?: string;
-    transactionClass?: string;
-    recurrenceType?: string;
-    page?: number;
-    pageSize?: number;
-  }) {
+  async getTransactionPage(userId: number, filters?: TransactionFilters & { page?: number; pageSize?: number }) {
     const pageSize = Math.min(Math.max(filters?.pageSize ?? 50, 1), 100);
     const page = Math.max(filters?.page ?? 1, 1);
     const where = this.buildTransactionWhere(userId, filters);
@@ -240,38 +231,86 @@ export class DatabaseStorage implements IStorage {
     let skipped = 0;
     let ambiguous = 0;
 
-    for (const transaction of existingTransactions) {
-      if (transaction.userCorrected) {
-        skipped += 1;
-        continue;
-      }
+    const pendingUpdates = existingTransactions
+      .map((transaction) => {
+        if (transaction.userCorrected) {
+          skipped += 1;
+          return undefined;
+        }
 
-      const currentAmount = parseFloat(transaction.amount);
-      const signedAmountResult = deriveSignedAmount({
-        rawAmount: currentAmount,
-        rawDescription: transaction.rawDescription,
-      });
-      const classification = classifyTransaction(transaction.rawDescription, signedAmountResult.amount);
-      const normalizedAmount = normalizeAmountForClass(
-        signedAmountResult.amount,
-        classification.transactionClass,
-      );
+        const currentAmount = parseFloat(transaction.amount);
+        const signedAmountResult = deriveSignedAmount({
+          rawAmount: currentAmount,
+          rawDescription: transaction.rawDescription,
+        });
+        const classification = classifyTransaction(transaction.rawDescription, signedAmountResult.amount);
+        const normalizedAmount = normalizeAmountForClass(
+          signedAmountResult.amount,
+          classification.transactionClass,
+        );
 
-      if (signedAmountResult.ambiguous) {
-        ambiguous += 1;
-      }
+        if (signedAmountResult.ambiguous || classification.aiAssisted) {
+          ambiguous += 1;
+        }
 
+        return {
+          transaction,
+          normalizedAmount,
+          decision: {
+            rawDescription: transaction.rawDescription,
+            amount: normalizedAmount,
+            transactionClass: classification.transactionClass,
+            recurrenceType: classification.recurrenceType,
+            category: classification.category,
+            aiAssisted: classification.aiAssisted || signedAmountResult.ambiguous,
+            labelSource: classification.labelSource,
+            labelConfidence: classification.labelConfidence,
+            labelReason: classification.labelReason,
+          },
+          merchant: classification.merchant,
+        };
+      })
+      .filter(Boolean) as Array<{
+      transaction: Transaction;
+      normalizedAmount: number;
+      decision: Awaited<ReturnType<typeof maybeApplyLlmLabels>>[number];
+      merchant: string;
+    }>;
+
+    const llmDecisions = await maybeApplyLlmLabels(pendingUpdates.map((entry) => entry.decision));
+    const recurrenceMatches = detectMonthlyRecurringPatterns(pendingUpdates.map((entry, index) => ({
+      merchant: entry.merchant,
+      date: entry.transaction.date,
+      amount: entry.normalizedAmount,
+      flowType: flowTypeFromAmount(entry.normalizedAmount),
+      recurrenceType: llmDecisions[index]?.recurrenceType ?? entry.decision.recurrenceType,
+      userCorrected: entry.transaction.userCorrected,
+      labelReason: llmDecisions[index]?.labelReason ?? entry.decision.labelReason,
+    })));
+
+    for (const [index, entry] of Array.from(pendingUpdates.entries())) {
+      const llmDecision = llmDecisions[index];
+      const decision = recurrenceMatches.matchedIndexes.has(index) && llmDecision.recurrenceType !== "recurring"
+        ? {
+            ...llmDecision,
+            recurrenceType: "recurring" as const,
+            labelReason: recurrenceMatches.reasonByIndex.get(index) ?? llmDecision.labelReason,
+          }
+        : llmDecision;
       await db.update(transactions)
         .set({
-          amount: normalizedAmount.toFixed(2),
-          flowType: flowTypeFromAmount(normalizedAmount),
-          transactionClass: classification.transactionClass,
-          recurrenceType: classification.recurrenceType,
-          category: classification.category,
-          merchant: classification.merchant,
-          aiAssisted: classification.aiAssisted || signedAmountResult.ambiguous,
+          amount: entry.normalizedAmount.toFixed(2),
+          flowType: flowTypeFromAmount(entry.normalizedAmount),
+          transactionClass: decision.transactionClass,
+          recurrenceType: decision.recurrenceType,
+          category: decision.category,
+          merchant: entry.merchant,
+          labelSource: decision.labelSource,
+          labelConfidence: decision.labelConfidence,
+          labelReason: decision.labelReason,
+          aiAssisted: decision.aiAssisted,
         })
-        .where(eq(transactions.id, transaction.id));
+        .where(eq(transactions.id, entry.transaction.id));
 
       updated += 1;
     }

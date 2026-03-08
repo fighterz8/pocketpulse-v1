@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Search, Sparkles, Check, ArrowDownRight, ArrowUpRight, Clock, CalendarDays, Download, Layers, Trash2 } from "lucide-react";
+import { Search, Sparkles, ArrowDownRight, ArrowUpRight, Clock, CalendarDays, Download, Layers, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +33,9 @@ interface Transaction {
   transactionClass: string;
   recurrenceType: string;
   category: string;
+  labelSource: "rule" | "llm" | "manual";
+  labelConfidence: string | null;
+  labelReason: string | null;
   aiAssisted: boolean;
   userCorrected: boolean;
   accountId: number;
@@ -50,6 +53,10 @@ interface TransactionPage {
   page: number;
   pageSize: number;
   totalPages: number;
+  metric?: string;
+  metricLabel?: string;
+  metricDescription?: string;
+  metricTotal?: number;
 }
 
 const CATEGORY_OPTIONS = [
@@ -70,6 +77,64 @@ const CATEGORY_OPTIONS = [
   "fees",
   "other",
 ];
+const LEDGER_DRILLDOWN_KEY = "ledger-drilldown";
+const RECURRING_PATTERN_REASON_PREFIX = "Detected monthly duplicate pattern";
+
+function normalizeLedgerSearch(search: string): string {
+  const params = new URLSearchParams(search);
+  const hasQueryFilters = [
+    "search",
+    "accountId",
+    "page",
+    "category",
+    "startDate",
+    "endDate",
+    "metric",
+    "merchant",
+    "transactionClass",
+    "recurrenceType",
+    "days",
+  ].some((key) => params.has(key));
+
+  if (!hasQueryFilters) {
+    const storedValue = window.sessionStorage.getItem(LEDGER_DRILLDOWN_KEY);
+    if (storedValue) {
+      try {
+        const stored = JSON.parse(storedValue) as Partial<Record<string, string>>;
+        for (const [key, value] of Object.entries(stored)) {
+          if (value) {
+            params.set(key, value);
+          }
+        }
+      } catch {
+        // Ignore malformed drilldown payloads.
+      } finally {
+        window.sessionStorage.removeItem(LEDGER_DRILLDOWN_KEY);
+      }
+    }
+  } else {
+    window.sessionStorage.removeItem(LEDGER_DRILLDOWN_KEY);
+  }
+
+  return params.toString();
+}
+
+function parseLedgerUrlState(search: string) {
+  const params = new URLSearchParams(search);
+  return {
+    search: params.get("search") ?? "",
+    accountId: params.get("accountId") ?? "all",
+    page: parseInt(params.get("page") || "1", 10) || 1,
+    category: params.get("category") ?? "all",
+    startDate: params.get("startDate") ?? "",
+    endDate: params.get("endDate") ?? "",
+    metric: params.get("metric") ?? "",
+    merchant: params.get("merchant") ?? "",
+    transactionClass: params.get("transactionClass") ?? "",
+    recurrenceType: params.get("recurrenceType") ?? "",
+    days: params.get("days") ?? "",
+  };
+}
 
 function getVisiblePages(currentPage: number, totalPages: number): Array<number | "ellipsis-left" | "ellipsis-right"> {
   if (totalPages <= 7) {
@@ -107,7 +172,6 @@ function TransactionTable({ transactions, updateMutation }: { transactions: Tran
             <TableHead className="w-[140px]">Classification</TableHead>
             <TableHead className="w-[150px]">Category</TableHead>
             <TableHead className="w-[140px]">Recurrence</TableHead>
-            <TableHead className="w-[80px] text-right">Confirm</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -117,16 +181,33 @@ function TransactionTable({ transactions, updateMutation }: { transactions: Tran
               <TableCell>
                 <div className="font-medium text-sm flex items-center">
                   {tx.merchant}
-                  {tx.aiAssisted && !tx.userCorrected && (
-                    <span title="AI Classified"><Sparkles className="w-3 h-3 ml-1.5 text-primary opacity-70" /></span>
+                  {tx.labelSource === "llm" && (
+                    <span title="LLM assisted label"><Sparkles className="w-3 h-3 ml-1.5 text-primary opacity-70" /></span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {(tx.labelSource === "llm" || tx.labelSource === "manual") && (
+                    <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 capitalize">
+                      {tx.labelSource === "manual" ? "Manual review" : "LLM label"}
+                    </Badge>
+                  )}
+                  {tx.labelSource === "llm" && tx.labelConfidence && (
+                    <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">
+                      {Math.round(parseFloat(tx.labelConfidence) * 100)}% confidence
+                    </Badge>
                   )}
                   {tx.userCorrected && (
-                    <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0 h-4">Manual</Badge>
+                    <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Protected</Badge>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground truncate max-w-[200px] mt-0.5" title={tx.rawDescription}>
                   {tx.rawDescription}
                 </div>
+                {tx.labelReason && (tx.labelSource !== "rule" || tx.labelReason.startsWith(RECURRING_PATTERN_REASON_PREFIX)) && (
+                  <div className="text-[11px] text-muted-foreground mt-1 truncate max-w-[220px]" title={tx.labelReason}>
+                    {tx.labelReason}
+                  </div>
+                )}
               </TableCell>
               <TableCell className="text-right">
                 <div className={`font-semibold ${tx.flowType === "inflow" ? "text-emerald-600" : ""}`}>
@@ -189,20 +270,6 @@ function TransactionTable({ transactions, updateMutation }: { transactions: Tran
                   </SelectContent>
                 </Select>
               </TableCell>
-              <TableCell className="text-right">
-                <div className="flex justify-end">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 rounded-full"
-                    title="Confirm classification"
-                    onClick={() => updateMutation.mutate({ id: tx.id, data: { transactionClass: tx.transactionClass, recurrenceType: tx.recurrenceType, category: tx.category } })}
-                    data-testid={`button-confirm-${tx.id}`}
-                  >
-                    <Check className="h-4 w-4" />
-                  </Button>
-                </div>
-              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -213,17 +280,41 @@ function TransactionTable({ transactions, updateMutation }: { transactions: Tran
 
 export default function Ledger() {
   const { toast } = useToast();
-  const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
-  const [searchTerm, setSearchTerm] = useState(initialParams.get("search") ?? "");
-  const [debouncedSearch, setDebouncedSearch] = useState(initialParams.get("search") ?? "");
-  const [activeTab, setActiveTab] = useState(initialParams.get("accountId") ?? "all");
-  const [page, setPage] = useState(parseInt(initialParams.get("page") || "1", 10) || 1);
-  const [categoryFilter, setCategoryFilter] = useState(initialParams.get("category") ?? "all");
+  const [normalizedSearch, setNormalizedSearch] = useState(() => normalizeLedgerSearch(window.location.search));
+  const initialUrlState = useMemo(() => parseLedgerUrlState(normalizedSearch), [normalizedSearch]);
+  const [searchTerm, setSearchTerm] = useState(initialUrlState.search);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialUrlState.search);
+  const [activeTab, setActiveTab] = useState(initialUrlState.accountId);
+  const [page, setPage] = useState(initialUrlState.page);
+  const [categoryFilter, setCategoryFilter] = useState(initialUrlState.category);
+  const [startDateFilter, setStartDateFilter] = useState(initialUrlState.startDate);
+  const [endDateFilter, setEndDateFilter] = useState(initialUrlState.endDate);
   const pageSize = 50;
-  const merchantFilter = initialParams.get("merchant") ?? "";
-  const transactionClassFilter = initialParams.get("transactionClass") ?? "";
-  const recurrenceTypeFilter = initialParams.get("recurrenceType") ?? "";
-  const daysFilter = initialParams.get("days") ?? "";
+  const urlState = useMemo(() => parseLedgerUrlState(normalizedSearch), [normalizedSearch]);
+  const metricFilter = urlState.metric;
+  const merchantFilter = urlState.merchant;
+  const transactionClassFilter = urlState.transactionClass;
+  const recurrenceTypeFilter = urlState.recurrenceType;
+  const daysFilter = urlState.days;
+
+  useEffect(() => {
+    const nextSearch = normalizeLedgerSearch(window.location.search);
+    if (nextSearch !== normalizedSearch) {
+      const nextUrl = nextSearch ? `${window.location.pathname}?${nextSearch}` : window.location.pathname;
+      window.history.replaceState({}, "", nextUrl);
+      setNormalizedSearch(nextSearch);
+    }
+  }, [normalizedSearch]);
+
+  useEffect(() => {
+    setSearchTerm(urlState.search);
+    setDebouncedSearch(urlState.search);
+    setActiveTab(urlState.accountId);
+    setPage(urlState.page);
+    setCategoryFilter(urlState.category);
+    setStartDateFilter(urlState.startDate);
+    setEndDateFilter(urlState.endDate);
+  }, [urlState]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -235,7 +326,7 @@ export default function Ledger() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, activeTab, categoryFilter]);
+  }, [debouncedSearch, activeTab, categoryFilter, startDateFilter, endDateFilter]);
 
   const transactionUrl = useMemo(() => {
     const params = new URLSearchParams({
@@ -271,8 +362,20 @@ export default function Ledger() {
       params.set("days", daysFilter);
     }
 
+    if (startDateFilter) {
+      params.set("startDate", startDateFilter);
+    }
+
+    if (endDateFilter) {
+      params.set("endDate", endDateFilter);
+    }
+
+    if (metricFilter) {
+      params.set("metric", metricFilter);
+    }
+
     return `/api/transactions?${params.toString()}`;
-  }, [activeTab, categoryFilter, debouncedSearch, daysFilter, merchantFilter, page, recurrenceTypeFilter, transactionClassFilter]);
+  }, [activeTab, categoryFilter, debouncedSearch, daysFilter, endDateFilter, merchantFilter, metricFilter, page, recurrenceTypeFilter, startDateFilter, transactionClassFilter]);
 
   const { data: transactionPage, isLoading } = useQuery<TransactionPage>({
     queryKey: [transactionUrl],
@@ -296,6 +399,9 @@ export default function Ledger() {
       });
       queryClient.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/leaks"),
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/analysis"),
       });
     },
     onError: (err: Error) => {
@@ -323,6 +429,9 @@ export default function Ledger() {
       queryClient.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/leaks"),
       });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/analysis"),
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       toast({
         title: "Imported data wiped",
@@ -345,6 +454,8 @@ export default function Ledger() {
       setDebouncedSearch("");
       setActiveTab("all");
       setCategoryFilter("all");
+      setStartDateFilter("");
+      setEndDateFilter("");
       queryClient.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/transactions"),
       });
@@ -353,6 +464,9 @@ export default function Ledger() {
       });
       queryClient.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/leaks"),
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/analysis"),
       });
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/accounts"] });
@@ -374,7 +488,10 @@ export default function Ledger() {
   const lastRowNumber = totalCount === 0 ? 0 : Math.min(page * pageSize, totalCount);
 
   const handleExportTransactions = () => {
-    window.open("/api/export/transactions", "_blank");
+    const params = new URLSearchParams(transactionUrl.split("?")[1] ?? "");
+    params.delete("page");
+    params.delete("pageSize");
+    window.open(`/api/export/transactions?${params.toString()}`, "_blank");
   };
 
   return (
@@ -382,7 +499,7 @@ export default function Ledger() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Unified Ledger</h1>
-          <p className="text-muted-foreground mt-1">Review and correct transaction classifications.</p>
+          <p className="text-muted-foreground mt-1">Review and correct transaction classifications. Changes auto-save and mark the row as manually reviewed.</p>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 px-3 py-1 text-xs">
@@ -450,50 +567,88 @@ export default function Ledger() {
 
       <Card className="shadow-sm">
         <div className="p-4 border-b flex flex-col sm:flex-row gap-4 items-center justify-between bg-muted/10">
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <div className="grid w-full gap-4 lg:grid-cols-4">
+            <div className="relative w-full">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search merchants or descriptions..."
+                className="pl-9"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                data-testid="input-search"
+              />
+            </div>
             <Input
-              placeholder="Search merchants or descriptions..."
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              data-testid="input-search"
+              type="date"
+              value={startDateFilter}
+              onChange={(e) => setStartDateFilter(e.target.value)}
+              data-testid="input-ledger-start-date"
             />
+            <Input
+              type="date"
+              value={endDateFilter}
+              onChange={(e) => setEndDateFilter(e.target.value)}
+              data-testid="input-ledger-end-date"
+            />
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full" data-testid="select-ledger-category-filter">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {CATEGORY_OPTIONS.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-full sm:w-[220px]" data-testid="select-ledger-category-filter">
-              <SelectValue placeholder="All categories" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
-              {CATEGORY_OPTIONS.map((category) => (
-                <SelectItem key={category} value={category}>
-                  {category.replace(/_/g, " ")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
-        {(merchantFilter || transactionClassFilter || recurrenceTypeFilter || daysFilter || categoryFilter !== "all") && (
+        {(metricFilter || merchantFilter || transactionClassFilter || recurrenceTypeFilter || daysFilter || categoryFilter !== "all" || startDateFilter || endDateFilter) && (
           <div className="px-4 py-3 border-b bg-muted/5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium">Active filters:</span>
+            {transactionPage?.metricLabel && <Badge variant="secondary">Metric: {transactionPage.metricLabel}</Badge>}
             {merchantFilter && <Badge variant="secondary">Merchant: {merchantFilter}</Badge>}
             {transactionClassFilter && <Badge variant="secondary">Class: {transactionClassFilter}</Badge>}
             {recurrenceTypeFilter && <Badge variant="secondary">Recurrence: {recurrenceTypeFilter}</Badge>}
             {daysFilter && <Badge variant="secondary">Window: {daysFilter}D</Badge>}
+            {startDateFilter && <Badge variant="secondary">From: {startDateFilter}</Badge>}
+            {endDateFilter && <Badge variant="secondary">To: {endDateFilter}</Badge>}
             {categoryFilter !== "all" && <Badge variant="secondary">Category: {categoryFilter.replace(/_/g, " ")}</Badge>}
             <Button
               variant="ghost"
               size="sm"
               className="h-7 px-2"
               onClick={() => {
+                setSearchTerm("");
+                setDebouncedSearch("");
+                setCategoryFilter("all");
+                setStartDateFilter("");
+                setEndDateFilter("");
                 window.location.href = "/transactions";
               }}
               data-testid="button-clear-ledger-filters"
             >
               Clear filters
             </Button>
+          </div>
+        )}
+
+        {transactionPage?.metricLabel && (
+          <div className="px-4 py-3 border-b bg-primary/5 text-sm">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium text-foreground">{transactionPage.metricLabel}</p>
+                {transactionPage.metricDescription && (
+                  <p className="text-xs text-muted-foreground">{transactionPage.metricDescription}</p>
+                )}
+              </div>
+              <div className="text-sm font-semibold text-primary">
+                Metric total: {(transactionPage.metricTotal ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD" })}
+              </div>
+            </div>
           </div>
         )}
 

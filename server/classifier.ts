@@ -1,5 +1,6 @@
 import type {
   FlowType,
+  LabelSource,
   RecurrenceType,
   TransactionCategory,
   TransactionClass,
@@ -12,6 +13,9 @@ interface ClassificationResult {
   flowType: FlowType;
   recurrenceType: RecurrenceType;
   category: TransactionCategory;
+  labelSource: LabelSource;
+  labelConfidence: string | null;
+  labelReason: string | null;
   aiAssisted: boolean;
 }
 
@@ -19,6 +23,7 @@ interface MerchantRule {
   merchant: string;
   category: TransactionCategory;
   recurrenceType?: RecurrenceType;
+  transactionClass?: TransactionClass;
 }
 
 const MERCHANT_RULES: Array<{ keyword: string; rule: MerchantRule }> = [
@@ -77,9 +82,9 @@ const MERCHANT_RULES: Array<{ keyword: string; rule: MerchantRule }> = [
   { keyword: "pandora", rule: { merchant: "Pandora Jewelry", category: "shopping" } },
   { keyword: "chevron", rule: { merchant: "Chevron", category: "transportation" } },
   { keyword: "shell", rule: { merchant: "Shell", category: "transportation" } },
-  { keyword: "lakeview", rule: { merchant: "Lakeview Loan Servicing", category: "debt", recurrenceType: "recurring" } },
-  { keyword: "payment to chase", rule: { merchant: "Payment To Chase", category: "debt" } },
-  { keyword: "credit card", rule: { merchant: "Credit Card Payment", category: "debt" } },
+  { keyword: "lakeview", rule: { merchant: "Lakeview Loan Servicing", category: "debt", recurrenceType: "recurring", transactionClass: "expense" } },
+  { keyword: "payment to chase", rule: { merchant: "Payment To Chase", category: "debt", recurrenceType: "recurring", transactionClass: "expense" } },
+  { keyword: "credit card", rule: { merchant: "Credit Card Payment", category: "debt", recurrenceType: "recurring", transactionClass: "expense" } },
 ];
 
 const TRANSFER_KEYWORDS = ["transfer", "xfer", "ach transfer", "wire transfer", "zelle", "venmo transfer"];
@@ -171,12 +176,14 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
   let recurrenceType: ClassificationResult["recurrenceType"] = "one-time";
   let category: ClassificationResult["category"] =
     amount >= 0 ? "income" : "other";
+  let labelReason = "Initial amount-sign heuristic";
   let aiAssisted = false;
 
   for (const keyword of TRANSFER_KEYWORDS) {
     if (lower.includes(keyword)) {
       transactionClass = "transfer";
       category = "transfers";
+      labelReason = `Matched transfer keyword: ${keyword}`;
       break;
     }
   }
@@ -185,6 +192,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
     for (const keyword of REFUND_KEYWORDS) {
       if (lower.includes(keyword)) {
         transactionClass = "refund";
+        labelReason = `Matched refund keyword: ${keyword}`;
         break;
       }
     }
@@ -192,6 +200,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
 
   if (transactionClass !== "transfer" && /(^|\s)credit($|\s)/.test(lower) && amount > 0) {
       transactionClass = "refund";
+      labelReason = "Matched standalone credit keyword";
   }
 
   if (transactionClass !== "transfer" && transactionClass !== "refund") {
@@ -199,6 +208,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
       if (lower.includes(keyword) && amount >= 0) {
         transactionClass = "income";
         category = "income";
+        labelReason = `Matched income keyword: ${keyword}`;
         break;
       }
     }
@@ -213,9 +223,13 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
     if (lower.includes(keyword)) {
       merchant = rule.merchant;
       category = rule.category;
+      if (rule.transactionClass) {
+        transactionClass = rule.transactionClass;
+      }
       if (rule.recurrenceType) {
         recurrenceType = rule.recurrenceType;
       }
+      labelReason = `Matched merchant rule: ${keyword}`;
       break;
     }
   }
@@ -224,6 +238,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
     for (const { keyword, category: matchedCategory } of CATEGORY_KEYWORDS) {
       if (lower.includes(keyword)) {
         category = matchedCategory;
+        labelReason = `Matched category keyword: ${keyword}`;
         break;
       }
     }
@@ -232,6 +247,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
   if (recurrenceType === "one-time" && transactionClass !== "transfer" && transactionClass !== "refund") {
     if (lower.includes("subscription") || lower.includes("monthly") || lower.includes("recurring") || lower.includes("membership")) {
       recurrenceType = "recurring";
+      labelReason = "Matched recurring subscription heuristic";
     }
   }
 
@@ -239,6 +255,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
     for (const keyword of RECURRING_INCOME_KEYWORDS) {
       if (lower.includes(keyword)) {
         recurrenceType = "recurring";
+        labelReason = `Matched recurring income keyword: ${keyword}`;
         break;
       }
     }
@@ -257,7 +274,18 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
     !directionHint
   ) {
     aiAssisted = true;
+    labelReason = "No strong merchant or recurrence rule matched";
   }
 
-  return { merchant, transactionClass, flowType, recurrenceType, category, aiAssisted };
+  return {
+    merchant,
+    transactionClass,
+    flowType,
+    recurrenceType,
+    category,
+    labelSource: "rule",
+    labelConfidence: aiAssisted ? "0.55" : "0.92",
+    labelReason,
+    aiAssisted,
+  };
 }

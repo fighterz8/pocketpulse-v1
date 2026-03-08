@@ -1,5 +1,6 @@
 import type {
   FlowType,
+  LabelSource,
   Transaction,
   TransactionCategory,
   TransactionClass,
@@ -242,7 +243,10 @@ export function normalizeAmountForClass(
 export function buildTransactionUpdate(
   transaction: Transaction,
   data: UpdateTransaction,
-): Pick<Transaction, "amount" | "flowType" | "transactionClass" | "recurrenceType" | "category" | "merchant" | "userCorrected"> {
+): Pick<
+  Transaction,
+  "amount" | "flowType" | "transactionClass" | "recurrenceType" | "category" | "merchant" | "userCorrected" | "labelSource" | "labelConfidence" | "labelReason"
+> {
   const nextClass = data.transactionClass ?? (transaction.transactionClass as TransactionClass);
   const shouldUpdateDirection = Boolean(data.transactionClass || data.flowType);
   const nextAmount = shouldUpdateDirection
@@ -262,6 +266,9 @@ export function buildTransactionUpdate(
     recurrenceType: data.recurrenceType ?? transaction.recurrenceType,
     category: data.category ?? (transaction.category as TransactionCategory),
     merchant: data.merchant ?? transaction.merchant,
+    labelSource: "manual" as LabelSource,
+    labelConfidence: "1.00",
+    labelReason: "Confirmed manually in the ledger",
     userCorrected: true,
   };
 }

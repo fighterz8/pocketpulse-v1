@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Upload as UploadIcon, FileText, CheckCircle2, AlertCircle, Plus } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, readApiErrorMessage } from "@/lib/queryClient";
 
 interface Account {
   id: number;
@@ -30,6 +30,17 @@ export default function UploadPage() {
   const { data: accounts = [], isLoading: accountsLoading } = useQuery<Account[]>({
     queryKey: ["/api/accounts"],
   });
+
+  useEffect(() => {
+    if (!selectedAccount) {
+      return;
+    }
+
+    const stillExists = accounts.some((account) => account.id.toString() === selectedAccount);
+    if (!stillExists) {
+      setSelectedAccount("");
+    }
+  }, [accounts, selectedAccount]);
 
   const createAccountMutation = useMutation({
     mutationFn: async (data: { name: string; lastFour?: string }) => {
@@ -57,8 +68,7 @@ export default function UploadPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Upload failed");
+        throw new Error(await readApiErrorMessage(res));
       }
       return res.json();
     },
@@ -72,6 +82,9 @@ export default function UploadPage() {
       });
       queryClient.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/leaks"),
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === "string" && query.queryKey[0].startsWith("/api/analysis"),
       });
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       toast({ title: "Upload complete", description: `${data.transactionCount} transactions imported.` });
