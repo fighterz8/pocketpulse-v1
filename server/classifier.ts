@@ -265,15 +265,25 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
   }
 
   if (transactionClass === "transfer") {
-    category = "transfers";
-  } else if (transactionClass === "income") {
+    transactionClass = amount >= 0 ? "income" : "expense";
+    labelReason = amount >= 0
+      ? "Positive transfer counted as income"
+      : "Negative transfer counted as expense";
+
+    if (amount >= 0) {
+      category = "income";
+    } else if (category === "transfers") {
+      category = "other";
+    }
+  }
+
+  if (transactionClass === "income") {
     category = "income";
   }
 
   if (
     merchant === cleanMerchant(rawDescription) &&
     recurrenceType === "one-time" &&
-    transactionClass !== "transfer" &&
     !directionHint
   ) {
     aiAssisted = true;

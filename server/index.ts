@@ -97,14 +97,38 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+
+  const tryListen = () => {
+    httpServer.listen(
+      {
+        port,
+        host: "0.0.0.0",
+        reusePort: true,
+      },
+      () => {
+        log(`serving on port ${port}`);
+      },
+    );
+  };
+
+  httpServer.on("error", async (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      log(`Port ${port} in use, attempting to free it...`);
+      try {
+        const { execSync } = await import("child_process");
+        execSync(`kill -9 $(ps aux | grep -E 'tsx server|node.*server/index' | grep -v grep | awk '{print $2}') 2>/dev/null || true`, { stdio: "ignore" });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        log(`Retrying listen on port ${port}...`);
+        const retryServer = createServer(app);
+        retryServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+          log(`serving on port ${port} (after retry)`);
+        });
+      } catch {
+        log(`Failed to free port ${port}. Please restart manually.`);
+        process.exit(1);
+      }
+    }
+  });
+
+  tryListen();
 })();
