@@ -201,11 +201,6 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
     }
   }
 
-  if (transactionClass !== "transfer" && /(^|\s)credit($|\s)/.test(lower) && amount > 0) {
-      transactionClass = "refund";
-      labelReason = "Matched standalone credit keyword";
-  }
-
   if (transactionClass !== "transfer" && transactionClass !== "refund") {
     for (const keyword of INCOME_KEYWORDS) {
       if (lower.includes(keyword) && amount >= 0) {
@@ -214,6 +209,15 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
         labelReason = `Matched income keyword: ${keyword}`;
         break;
       }
+    }
+  }
+
+  if (transactionClass !== "transfer" && transactionClass !== "refund") {
+    const hasIncomeContext = INCOME_KEYWORDS.some(k => lower.includes(k)) ||
+      RECURRING_INCOME_KEYWORDS.some(k => lower.includes(k));
+    if (/(^|\s)credit($|\s)/.test(lower) && amount > 0 && !hasIncomeContext && transactionClass !== "income") {
+      transactionClass = "refund";
+      labelReason = "Matched standalone credit keyword";
     }
   }
 
