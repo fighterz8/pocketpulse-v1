@@ -1,0 +1,34 @@
+**Project Purpose and Justification (Slide 3)**
+
+- Help users better understand financial transaction data.
+- Turn raw uploads into clear, useful insights.
+- Emphasize trust through secure handling and clear system feedback.
+- Show a project that solves a real problem while combining data processing, UX, and security.
+
+**Project Description (Slides 4-5)**
+
+- A financial data analysis app built around importing and reviewing transaction records.
+- Users upload data, organize it by account, and explore summaries and drilldowns.
+- The app is intended to make financial information easier to interpret and act on.
+- AI-assisted labeling may be explored later, but only with strong privacy and consent considerations.
+- Since this is still an early-stage course project, the focus is on direction and design goals rather than a fully finished product.
+
+**Scope and Main Functionalities (Slide 6)**
+
+- Upload CSV-based financial transaction data.
+- Process imported data for review and analysis.
+- Display dashboard summaries and detailed drilldowns.
+- Improve clarity after imports, edits, and reprocessing.
+- Reduce duplicate imports and malformed upload issues.
+- Support privacy-aware settings for any future AI features.
+- Build with security-focused practices from the start.
+
+**Project Constraints, Assumptions, Risks, Complexity, and Feasibility (Slide 7)**
+
+- Constraint: the project is still in an early phase, so presentation claims should stay realistic.
+- Assumption: users will upload financial CSV data with varying quality and formatting.
+- Assumption: users expect both convenience and trustworthy data handling.
+- Risks include duplicate imports, bad file inputs, stale data confusion, and privacy concerns.
+- Complexity comes from balancing usability, security, privacy, and reliable data processing.
+- Feasibility is strong because the core workflow is clear: upload, process, and analyze data.
+- Success depends on prioritizing essential features before advanced polish.
