@@ -35,6 +35,100 @@ body {
   flex-direction: column;
 }
 
+.app-protected {
+  display: flex;
+  flex: 1;
+  min-height: 100vh;
+  align-items: stretch;
+}
+
+.app-sidebar {
+  flex: 0 0 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem 1rem;
+  border-right: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.app-nav-brand {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.app-nav {
+  flex: 1;
+}
+
+.app-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.app-nav-link {
+  display: block;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-nav-link:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.app-nav-link--active {
+  background: color-mix(in srgb, #2563eb 18%, transparent);
+  color: #1d4ed8;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-nav-link--active {
+    background: color-mix(in srgb, #93c5fd 22%, transparent);
+    color: #e2e8f0;
+  }
+}
+
+.app-sidebar-footer {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.app-nav-logout {
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.35rem;
+  cursor: pointer;
+  background: Field;
+  color: FieldText;
+}
+
+.app-layout-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1.5rem 1.75rem;
+}
+
+.app-page-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
 .app-main {
   flex: 1;
   padding: 1.5rem;

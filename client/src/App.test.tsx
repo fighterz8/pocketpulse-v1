@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { App } from "./App";
 
 const { mockAuthState } = vi.hoisted(() => ({
@@ -98,7 +100,7 @@ describe("app shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps the signed-in workspace shell when the user already has accounts", () => {
+  it("renders protected app shell with sidebar navigation when the user has accounts", () => {
     mockAuthState.isLoading = false;
     mockAuthState.isAuthenticated = true;
     mockAuthState.user = {
@@ -111,11 +113,55 @@ describe("app shell", () => {
     mockAuthState.accountsError = null;
     render(<App />);
     expect(
-      screen.getByRole("heading", { name: /^PocketPulse$/i }),
+      screen.getByRole("navigation", { name: /main navigation/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/workspace shell/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^dashboard$/i })).toHaveAttribute(
+      "href",
+      "/",
+    );
+    expect(screen.getByRole("link", { name: /^upload$/i })).toHaveAttribute(
+      "href",
+      "/upload",
+    );
+    expect(screen.getByRole("link", { name: /^ledger$/i })).toHaveAttribute(
+      "href",
+      "/transactions",
+    );
+    expect(
+      screen.getByRole("link", { name: /recurring leak review/i }),
+    ).toHaveAttribute("href", "/leaks");
+    expect(
+      screen.getByRole("button", { name: /^logout$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /^dashboard$/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/dashboard overview will live here/i)).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: /set up your first account/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders not-found inside the protected shell for unknown routes", () => {
+    const { hook } = memoryLocation({ path: "/not-a-real-page", static: true });
+    mockAuthState.isLoading = false;
+    mockAuthState.isAuthenticated = true;
+    mockAuthState.user = {
+      id: 1,
+      email: "user@example.com",
+      displayName: "Test User",
+    };
+    mockAuthState.accountsLoading = false;
+    mockAuthState.accounts = [{ id: 10, label: "Cash" }];
+    mockAuthState.accountsError = null;
+    render(
+      <Router hook={hook}>
+        <App />
+      </Router>,
+    );
+    expect(
+      screen.getByRole("navigation", { name: /main navigation/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /page not found/i })).toBeInTheDocument();
   });
 });

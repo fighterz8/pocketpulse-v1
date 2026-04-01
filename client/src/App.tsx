@@ -1,27 +1,39 @@
 import { useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
+import { AppLayout } from "./components/layout/AppLayout";
 import { useAuth } from "./hooks/use-auth";
 import { AccountSetup } from "./pages/AccountSetup";
 import { Auth } from "./pages/Auth";
+import { Dashboard } from "./pages/Dashboard";
+import { Ledger } from "./pages/Ledger";
+import { Leaks } from "./pages/Leaks";
+import { NotFoundPage } from "./pages/not-found";
+import { Upload } from "./pages/Upload";
 import { createQueryClient } from "./lib/queryClient";
 import { cn } from "./lib/utils";
 
 function AppAuthenticated() {
   return (
-    <Switch>
-      <Route path="/">
-        <main className="app-main">
-          <h1 className="app-title">PocketPulse</h1>
-          <p className="app-placeholder">Workspace shell — sign-in flows land here.</p>
-        </main>
-      </Route>
-      <Route>
-        <main className="app-main">
-          <p>Not found</p>
-        </main>
-      </Route>
-    </Switch>
+    <AppLayout>
+      <Switch>
+        <Route path="/">
+          <Dashboard />
+        </Route>
+        <Route path="/upload">
+          <Upload />
+        </Route>
+        <Route path="/transactions">
+          <Ledger />
+        </Route>
+        <Route path="/leaks">
+          <Leaks />
+        </Route>
+        <Route>
+          <NotFoundPage />
+        </Route>
+      </Switch>
+    </AppLayout>
   );
 }
 

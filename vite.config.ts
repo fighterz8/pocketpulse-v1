@@ -16,6 +16,9 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5000,
     strictPort: true,
+    allowedHosts: [
+      "62a59de6-74f8-4147-b39b-eaa0464852fd-00-1zih0nm80aas8.worf.replit.dev",
+    ],
     proxy: {
       "/api": {
         target: `http://localhost:${process.env.API_PORT ?? "5001"}`,
