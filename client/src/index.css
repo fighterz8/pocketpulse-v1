@@ -1,8 +1,158 @@
 :root {
-  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
   line-height: 1.5;
+  font-weight: 400;
+  color: #0f172a;
+  background-color: #f8fafc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e2e8f0;
+    background-color: #0f172a;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1;
+  padding: 1.5rem;
+  max-width: 48rem;
+}
+
+.app-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.app-placeholder {
+  margin: 0;
+  opacity: 0.85;
+}
+
+.auth-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 22rem;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.auth-title {
+  margin: 0 0 1.25rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.auth-label {
+  font-weight: 500;
+}
+
+.auth-input {
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  border-radius: 0.35rem;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.auth-input:disabled {
+  opacity: 0.65;
+}
+
+.auth-error {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .auth-error {
+    color: #fca5a5;
+  }
+}
+
+.auth-submit {
+  margin-top: 0.25rem;
+  padding: 0.55rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  background: #2563eb;
+  color: #fff;
+}
+
+.auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.auth-switch {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  text-align: center;
+}
+
+.auth-linkish {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+@media (prefers-color-scheme: dark) {
+  .auth-linkish {
+    color: #93c5fd;
+  }
 }
