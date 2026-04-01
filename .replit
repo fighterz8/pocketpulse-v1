@@ -9,6 +9,10 @@ channel = "stable-24_05"
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 5173
+externalPort = 5173
+
 [env]
 PORT = "5000"
 
@@ -29,16 +33,33 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Frontend (Vite)"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "echo 'Workspace is clean and ready for reimplementation. Add your app code then update this workflow.'"
+args = "cd /home/runner/workspace/.worktrees/phase-1-auth-account-setup && npx tsx server/index.ts"
+waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Frontend (Vite)"
+author = "agent"
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace/.worktrees/phase-1-auth-account-setup && npx vite --host 0.0.0.0"
+waitForPort = 5173
 
 [agent]
 stack = "MOCKUP_JS"
