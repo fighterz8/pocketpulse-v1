@@ -41,13 +41,13 @@ export function AccountSetup() {
   const busy = createAccount.isPending;
 
   return (
-    <main className="app-main auth-main">
-      <div className="auth-card">
+    <main className="app-main auth-main auth-main--centered auth-main--editorial">
+      <div className="auth-card auth-card--capture">
+        <div className="auth-brand-row">
+          <span className="auth-brand">PocketPulse</span>
+          <span className="auth-brand-dot auth-brand-dot--success" aria-hidden="true" />
+        </div>
         <h1 className="auth-title">Set up your first account</h1>
-        <p className="app-placeholder">
-          Add a label for this pocket-money account. You can update details
-          later.
-        </p>
 
         <form className="auth-form" onSubmit={(e) => void onSubmit(e)}>
           <label className="auth-field">

@@ -47,8 +47,12 @@ export function Auth() {
   const busy = activeMutation.isPending;
 
   return (
-    <main className="app-main auth-main">
-      <div className="auth-card">
+    <main className="app-main auth-main auth-main--centered auth-main--editorial">
+      <div className="auth-card auth-card--capture">
+        <div className="auth-brand-row">
+          <span className="auth-brand">PocketPulse</span>
+          <span className="auth-brand-dot" aria-hidden="true" />
+        </div>
         <h1 className="auth-title">
           {mode === "login" ? "Sign in" : "Create account"}
         </h1>

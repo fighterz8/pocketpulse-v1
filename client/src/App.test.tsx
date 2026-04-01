@@ -84,10 +84,15 @@ describe("app shell", () => {
     mockAuthState.isAuthenticated = false;
     mockAuthState.isLoading = false;
     render(<App />);
-    expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    const title = screen.getByRole("heading", { name: /sign in/i });
+    expect(title).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /create an account/i }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("auth-main--centered");
+    expect(screen.getByRole("main")).toHaveClass("auth-main--editorial");
+    expect(title.closest(".auth-card")).toHaveClass("auth-card--capture");
+    expect(screen.getByText(/^pocketpulse$/i)).toHaveClass("auth-brand");
   });
 
   it("routes authenticated users with no accounts to account setup onboarding", () => {
@@ -102,12 +107,17 @@ describe("app shell", () => {
     mockAuthState.accounts = [];
     mockAuthState.accountsError = null;
     render(<App />);
-    expect(
-      screen.getByRole("heading", { name: /set up your first account/i }),
-    ).toBeInTheDocument();
+    const title = screen.getByRole("heading", {
+      name: /set up your first account/i,
+    });
+    expect(title).toBeInTheDocument();
     expect(
       screen.getByRole("textbox", { name: /account name/i }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("auth-main--centered");
+    expect(screen.getByRole("main")).toHaveClass("auth-main--editorial");
+    expect(title.closest(".auth-card")).toHaveClass("auth-card--capture");
+    expect(screen.getByText(/^pocketpulse$/i)).toHaveClass("auth-brand");
   });
 
   it("renders protected app shell with sidebar navigation when the user has accounts", () => {
