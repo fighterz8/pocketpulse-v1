@@ -14,6 +14,14 @@ localPort = 5001
 externalPort = 3001
 
 [[ports]]
+localPort = 5055
+externalPort = 3002
+
+[[ports]]
+localPort = 5061
+externalPort = 3003
+
+[[ports]]
 localPort = 5173
 externalPort = 5173
 
@@ -54,7 +62,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace/.worktrees/phase-1-auth-account-setup && npx tsx server/index.ts"
+args = "cd /home/runner/workspace/.worktrees/phase-1-auth-account-setup && PORT=5001 SKIP_VITE=1 npx tsx server/index.ts"
 waitForPort = 5001
 
 [[workflows.workflow]]
