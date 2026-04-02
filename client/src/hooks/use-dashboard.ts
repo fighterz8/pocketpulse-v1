@@ -34,6 +34,7 @@ export type DashboardSummary = {
 export function useDashboardSummary() {
   return useQuery<DashboardSummary>({
     queryKey: dashboardSummaryQueryKey,
+    staleTime: 60_000,
     queryFn: async () => {
       const res = await fetch("/api/dashboard-summary");
       if (!res.ok) throw new Error("Failed to fetch dashboard");

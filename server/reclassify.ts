@@ -33,44 +33,48 @@ export async function reclassifyTransactions(
       continue;
     }
 
-    const merchant = normalizeMerchant(txn.rawDescription);
-    const rawAmount = parseFloat(String(txn.amount));
-    const rawFlowType = inferFlowType(rawAmount);
-    const classification = classifyTransaction(
-      merchant || txn.rawDescription,
-      rawAmount,
-      rawFlowType,
-    );
+    try {
+      const merchant = normalizeMerchant(txn.rawDescription);
+      const rawAmount = parseFloat(String(txn.amount));
+      const rawFlowType = inferFlowType(rawAmount);
+      const classification = classifyTransaction(
+        merchant || txn.rawDescription,
+        rawAmount,
+        rawFlowType,
+      );
 
-    const effectiveFlowType = classification.flowOverride ?? rawFlowType;
-    const effectiveAmount =
-      effectiveFlowType === "outflow" && rawAmount > 0
-        ? -Math.abs(rawAmount)
-        : rawAmount;
+      const effectiveFlowType = classification.flowOverride ?? rawFlowType;
+      const effectiveAmount =
+        effectiveFlowType === "outflow" && rawAmount > 0
+          ? -Math.abs(rawAmount)
+          : rawAmount;
 
-    const newAmount = effectiveAmount.toFixed(2);
-    const changed =
-      newAmount !== String(txn.amount) ||
-      effectiveFlowType !== txn.flowType ||
-      classification.transactionClass !== txn.transactionClass ||
-      classification.category !== txn.category;
+      const newAmount = effectiveAmount.toFixed(2);
+      const changed =
+        newAmount !== String(txn.amount) ||
+        effectiveFlowType !== txn.flowType ||
+        classification.transactionClass !== txn.transactionClass ||
+        classification.category !== txn.category;
 
-    if (!changed) {
+      if (!changed) {
+        result.unchanged++;
+        continue;
+      }
+
+      updates.push({
+        id: txn.id,
+        amount: newAmount,
+        flowType: effectiveFlowType,
+        transactionClass: classification.transactionClass,
+        category: classification.category,
+        recurrenceType: classification.recurrenceType,
+        labelSource: "rule",
+        labelConfidence: classification.labelConfidence.toFixed(2),
+        labelReason: classification.labelReason,
+      });
+    } catch {
       result.unchanged++;
-      continue;
     }
-
-    updates.push({
-      id: txn.id,
-      amount: newAmount,
-      flowType: effectiveFlowType,
-      transactionClass: classification.transactionClass,
-      category: classification.category,
-      recurrenceType: classification.recurrenceType,
-      labelSource: "rule",
-      labelConfidence: classification.labelConfidence.toFixed(2),
-      labelReason: classification.labelReason,
-    });
   }
 
   if (updates.length > 0) {
