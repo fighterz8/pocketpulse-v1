@@ -952,3 +952,127 @@ body {
   opacity: 0.55;
   text-align: center;
 }
+
+/* Inline editing */
+
+.ledger-row--clickable {
+  cursor: pointer;
+}
+
+.ledger-row--selected {
+  background: color-mix(in srgb, #2563eb 6%, transparent) !important;
+}
+
+.ledger-edit-row td {
+  padding: 0 !important;
+  border-bottom: 2px solid color-mix(in srgb, #2563eb 25%, transparent);
+}
+
+.ledger-edit-panel {
+  padding: 1rem 1.125rem;
+  background: color-mix(in srgb, currentColor 2%, transparent);
+}
+
+.ledger-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.65rem;
+}
+
+.ledger-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ledger-edit-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.ledger-edit-input {
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.88rem;
+  border-radius: 0.35rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-edit-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 0.12rem color-mix(in srgb, #2563eb 16%, transparent);
+}
+
+.ledger-edit-exclude-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.ledger-edit-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.ledger-edit-reason {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.ledger-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ledger-edit-save {
+  padding: 0.4rem 1rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  color: #fff;
+}
+
+.ledger-edit-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ledger-edit-cancel {
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-edit-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ledger-edit-raw {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  opacity: 0.5;
+  font-style: italic;
+}

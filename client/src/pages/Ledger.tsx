@@ -61,14 +61,21 @@ export function Ledger() {
     setFilters((f) => ({ ...f, [key]: value || undefined, page: 1 }));
   };
 
+  const [editingId, setEditingId] = useState<number | null>(null);
+
   const {
     transactions,
     pagination,
     isLoading,
     error,
+    updateTransaction,
   } = useTransactions(filters);
 
   const setPage = (p: number) => setFilters((f) => ({ ...f, page: p }));
+
+  const handleRowClick = (id: number) => {
+    setEditingId((prev) => (prev === id ? null : id));
+  };
 
   const hasAnyFilter = !!(
     filters.search || filters.category || filters.transactionClass ||
@@ -212,7 +219,20 @@ export function Ledger() {
               </thead>
               <tbody>
                 {transactions.map((txn) => (
-                  <TransactionRow key={txn.id} txn={txn} />
+                  <TransactionRow
+                    key={txn.id}
+                    txn={txn}
+                    isEditing={editingId === txn.id}
+                    onRowClick={() => handleRowClick(txn.id)}
+                    onSave={(fields) => {
+                      updateTransaction.mutate(
+                        { id: txn.id, fields },
+                        { onSuccess: () => setEditingId(null) },
+                      );
+                    }}
+                    onCancel={() => setEditingId(null)}
+                    isSaving={updateTransaction.isPending}
+                  />
                 ))}
               </tbody>
             </table>
@@ -252,25 +272,161 @@ export function Ledger() {
   );
 }
 
-function TransactionRow({ txn }: { txn: Transaction }) {
+import type { UpdateTransactionInput } from "../hooks/use-transactions";
+
+type TransactionRowProps = {
+  txn: Transaction;
+  isEditing: boolean;
+  onRowClick: () => void;
+  onSave: (fields: UpdateTransactionInput) => void;
+  onCancel: () => void;
+  isSaving: boolean;
+};
+
+function TransactionRow({ txn, isEditing, onRowClick, onSave, onCancel, isSaving }: TransactionRowProps) {
   return (
-    <tr className={txn.excludedFromAnalysis ? "ledger-row--excluded" : ""}>
-      <td className="ledger-td-date">{txn.date}</td>
-      <td className="ledger-td-merchant" title={txn.rawDescription}>
-        {txn.merchant}
-      </td>
-      <td className={`ledger-td-amount ${amountClass(txn.amount)}`}>
-        {formatAmount(txn.amount)}
-      </td>
-      <td className="ledger-td-category">
-        <span className="ledger-badge">{txn.category}</span>
-      </td>
-      <td className="ledger-td-class">{txn.transactionClass}</td>
-      <td className="ledger-td-recurrence">{txn.recurrenceType}</td>
-      <td className="ledger-td-status">
-        {txn.excludedFromAnalysis && <span className="ledger-badge ledger-badge--excluded">excluded</span>}
-        {txn.userCorrected && <span className="ledger-badge ledger-badge--edited">edited</span>}
-      </td>
-    </tr>
+    <>
+      <tr
+        className={`ledger-row--clickable ${txn.excludedFromAnalysis ? "ledger-row--excluded" : ""} ${isEditing ? "ledger-row--selected" : ""}`}
+        onClick={onRowClick}
+      >
+        <td className="ledger-td-date">{txn.date}</td>
+        <td className="ledger-td-merchant" title={txn.rawDescription}>
+          {txn.merchant}
+        </td>
+        <td className={`ledger-td-amount ${amountClass(txn.amount)}`}>
+          {formatAmount(txn.amount)}
+        </td>
+        <td className="ledger-td-category">
+          <span className="ledger-badge">{txn.category}</span>
+        </td>
+        <td className="ledger-td-class">{txn.transactionClass}</td>
+        <td className="ledger-td-recurrence">{txn.recurrenceType}</td>
+        <td className="ledger-td-status">
+          {txn.excludedFromAnalysis && <span className="ledger-badge ledger-badge--excluded">excluded</span>}
+          {txn.userCorrected && <span className="ledger-badge ledger-badge--edited">edited</span>}
+        </td>
+      </tr>
+      {isEditing && (
+        <tr className="ledger-edit-row">
+          <td colSpan={7}>
+            <EditPanel txn={txn} onSave={onSave} onCancel={onCancel} isSaving={isSaving} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+type EditPanelProps = {
+  txn: Transaction;
+  onSave: (fields: UpdateTransactionInput) => void;
+  onCancel: () => void;
+  isSaving: boolean;
+};
+
+function EditPanel({ txn, onSave, onCancel, isSaving }: EditPanelProps) {
+  const [date, setDate] = useState(txn.date);
+  const [merchant, setMerchant] = useState(txn.merchant);
+  const [amount, setAmount] = useState(txn.amount);
+  const [category, setCategory] = useState(txn.category);
+  const [txnClass, setTxnClass] = useState(txn.transactionClass);
+  const [recurrence, setRecurrence] = useState(txn.recurrenceType);
+  const [excluded, setExcluded] = useState(txn.excludedFromAnalysis);
+  const [excludedReason, setExcludedReason] = useState(txn.excludedReason ?? "");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const fields: UpdateTransactionInput = {};
+    if (date !== txn.date) fields.date = date;
+    if (merchant !== txn.merchant) fields.merchant = merchant;
+    if (amount !== txn.amount) fields.amount = amount;
+    if (category !== txn.category) fields.category = category;
+    if (txnClass !== txn.transactionClass) fields.transactionClass = txnClass;
+    if (recurrence !== txn.recurrenceType) fields.recurrenceType = recurrence;
+    if (excluded !== txn.excludedFromAnalysis) fields.excludedFromAnalysis = excluded;
+    if (excludedReason !== (txn.excludedReason ?? "")) {
+      fields.excludedReason = excludedReason || null;
+    }
+    if (Object.keys(fields).length === 0) {
+      onCancel();
+      return;
+    }
+    onSave(fields);
+  };
+
+  return (
+    <form className="ledger-edit-panel" onSubmit={handleSubmit} onClick={(e) => e.stopPropagation()}>
+      <div className="ledger-edit-grid">
+        <label className="ledger-edit-field">
+          <span className="ledger-edit-label">Date</span>
+          <input type="date" className="ledger-edit-input" value={date} onChange={(e) => setDate(e.target.value)} disabled={isSaving} />
+        </label>
+        <label className="ledger-edit-field">
+          <span className="ledger-edit-label">Merchant</span>
+          <input type="text" className="ledger-edit-input" value={merchant} onChange={(e) => setMerchant(e.target.value)} disabled={isSaving} />
+        </label>
+        <label className="ledger-edit-field">
+          <span className="ledger-edit-label">Amount</span>
+          <input type="text" className="ledger-edit-input" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isSaving} />
+        </label>
+        <label className="ledger-edit-field">
+          <span className="ledger-edit-label">Category</span>
+          <select className="ledger-edit-input" value={category} onChange={(e) => setCategory(e.target.value)} disabled={isSaving}>
+            {V1_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+        </label>
+        <label className="ledger-edit-field">
+          <span className="ledger-edit-label">Class</span>
+          <select className="ledger-edit-input" value={txnClass} onChange={(e) => setTxnClass(e.target.value)} disabled={isSaving}>
+            {CLASS_OPTIONS.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+        <label className="ledger-edit-field">
+          <span className="ledger-edit-label">Recurrence</span>
+          <select className="ledger-edit-input" value={recurrence} onChange={(e) => setRecurrence(e.target.value)} disabled={isSaving}>
+            {RECURRENCE_OPTIONS.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="ledger-edit-exclude-row">
+        <label className="ledger-edit-checkbox">
+          <input
+            type="checkbox"
+            checked={excluded}
+            onChange={(e) => setExcluded(e.target.checked)}
+            disabled={isSaving}
+          />
+          <span>Exclude from analysis</span>
+        </label>
+        {excluded && (
+          <input
+            type="text"
+            className="ledger-edit-input ledger-edit-reason"
+            placeholder="Reason (optional)"
+            value={excludedReason}
+            onChange={(e) => setExcludedReason(e.target.value)}
+            disabled={isSaving}
+          />
+        )}
+      </div>
+      <div className="ledger-edit-actions">
+        <button type="submit" className="ledger-edit-save" disabled={isSaving}>
+          {isSaving ? "Saving..." : "Save"}
+        </button>
+        <button type="button" className="ledger-edit-cancel" onClick={onCancel} disabled={isSaving}>
+          Cancel
+        </button>
+      </div>
+      {txn.rawDescription !== txn.merchant && (
+        <p className="ledger-edit-raw">Original: {txn.rawDescription}</p>
+      )}
+    </form>
   );
 }
