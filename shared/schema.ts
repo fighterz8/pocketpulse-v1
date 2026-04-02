@@ -23,6 +23,7 @@ import {
   smallint,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
 
@@ -168,6 +169,30 @@ export const transactions = pgTable(
     index("transactions_upload_id_idx").on(t.uploadId),
     index("transactions_account_id_idx").on(t.accountId),
     index("transactions_date_idx").on(t.date),
+  ],
+);
+
+export const REVIEW_STATUSES = ["unreviewed", "essential", "leak", "dismissed"] as const;
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+export const recurringReviews = pgTable(
+  "recurring_reviews",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    candidateKey: text("candidate_key").notNull(),
+    status: text("status").notNull().default("unreviewed"),
+    notes: text("notes"),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("recurring_reviews_user_id_idx").on(t.userId),
+    uniqueIndex("recurring_reviews_user_candidate_idx").on(t.userId, t.candidateKey),
   ],
 );
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   accounts,
+  recurringReviews,
   session,
   transactions,
   uploads,
@@ -75,5 +76,27 @@ describe("shared schema", () => {
     expect(V1_CATEGORIES).toContain("other");
     expect(V1_CATEGORIES).toContain("subscriptions");
     expect(V1_CATEGORIES.length).toBeGreaterThanOrEqual(15);
+  });
+
+  it("exports recurringReviews table with expected name and columns", () => {
+    const config = getTableConfig(recurringReviews);
+    expect(config.name).toBe("recurring_reviews");
+    const colNames = config.columns.map((c) => c.name);
+    expect(colNames).toContain("id");
+    expect(colNames).toContain("user_id");
+    expect(colNames).toContain("candidate_key");
+    expect(colNames).toContain("status");
+    expect(colNames).toContain("notes");
+    expect(colNames).toContain("reviewed_at");
+    expect(colNames).toContain("created_at");
+  });
+
+  it("has unique index on (user_id, candidate_key) in recurring_reviews", () => {
+    const config = getTableConfig(recurringReviews);
+    const idx = config.indexes.find(
+      (i) => i.config.name === "recurring_reviews_user_candidate_idx",
+    );
+    expect(idx).toBeDefined();
+    expect(idx!.config.unique).toBe(true);
   });
 });

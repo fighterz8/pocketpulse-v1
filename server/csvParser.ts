@@ -157,10 +157,7 @@ export async function parseCSV(
     const description = row[mapping.descriptionIdx] ?? "";
 
     let amount: number;
-    if (mapping.amountIdx !== null) {
-      const rawAmount = row[mapping.amountIdx] ?? "";
-      amount = normalizeAmount(rawAmount);
-    } else {
+    if (mapping.debitIdx !== null || mapping.creditIdx !== null) {
       const rawDebit = mapping.debitIdx !== null ? row[mapping.debitIdx] ?? "" : "";
       const rawCredit = mapping.creditIdx !== null ? row[mapping.creditIdx] ?? "" : "";
       const debitVal = rawDebit ? normalizeAmount(rawDebit) : 0;
@@ -169,6 +166,11 @@ export async function parseCSV(
         debit: isNaN(debitVal) ? 0 : debitVal,
         credit: isNaN(creditVal) ? 0 : creditVal,
       });
+    } else if (mapping.amountIdx !== null) {
+      const rawAmount = row[mapping.amountIdx] ?? "";
+      amount = normalizeAmount(rawAmount);
+    } else {
+      amount = NaN;
     }
 
     if (isNaN(amount)) {

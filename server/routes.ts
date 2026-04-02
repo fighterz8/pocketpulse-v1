@@ -7,7 +7,7 @@ import { hashPassword, verifyPassword } from "./auth.js";
 import { classifyTransaction } from "./classifier.js";
 import { parseCSV } from "./csvParser.js";
 import { ensureUserPreferences, pool } from "./db.js";
-import { V1_CATEGORIES } from "../shared/schema.js";
+import { REVIEW_STATUSES, V1_CATEGORIES } from "../shared/schema.js";
 import {
   createAccountForUser,
   createTransactionBatch,
@@ -21,12 +21,15 @@ import {
   getUserById,
   listAccountsForUser,
   listAllTransactionsForExport,
+  listRecurringReviewsForUser,
   listTransactionsForUser,
   listUploadsForUser,
   updateTransaction,
   updateUploadStatus,
+  upsertRecurringReview,
   type UpdateTransactionInput,
 } from "./storage.js";
+import { detectRecurringCandidates } from "./recurrenceDetector.js";
 import {
   inferFlowType,
   normalizeMerchant,
@@ -638,6 +641,68 @@ export function createApp(options?: CreateAppOptions) {
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", 'attachment; filename="pocketpulse-transactions.csv"');
       res.send(csv);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/recurring-candidates", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+
+      const allTxns = await listAllTransactionsForExport({ userId });
+      const candidates = detectRecurringCandidates(allTxns as any);
+
+      const reviews = await listRecurringReviewsForUser(userId);
+      const reviewMap = new Map(reviews.map((r) => [r.candidateKey, r]));
+
+      const merged = candidates.map((c) => {
+        const review = reviewMap.get(c.candidateKey);
+        return {
+          ...c,
+          reviewStatus: review?.status ?? "unreviewed",
+          reviewNotes: review?.notes ?? null,
+        };
+      });
+
+      const summary = {
+        total: merged.length,
+        unreviewed: merged.filter((c) => c.reviewStatus === "unreviewed").length,
+        essential: merged.filter((c) => c.reviewStatus === "essential").length,
+        leak: merged.filter((c) => c.reviewStatus === "leak").length,
+        dismissed: merged.filter((c) => c.reviewStatus === "dismissed").length,
+      };
+
+      res.json({ candidates: merged, summary });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.patch("/api/recurring-reviews/:candidateKey", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const candidateKey = decodeURIComponent(req.params.candidateKey as string);
+      const { status, notes } = req.body as { status?: string; notes?: string };
+
+      if (!status || !REVIEW_STATUSES.includes(status as any)) {
+        return res.status(400).json({
+          error: `Invalid status. Must be one of: ${REVIEW_STATUSES.join(", ")}`,
+        });
+      }
+
+      const row = await upsertRecurringReview(userId, candidateKey, status, notes);
+      res.json(row);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.get("/api/recurring-reviews", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const reviews = await listRecurringReviewsForUser(userId);
+      res.json(reviews);
     } catch (e) {
       next(e);
     }

@@ -167,4 +167,35 @@ describe("parseCSV", () => {
     const { rows } = result as CSVParseResult & { ok: true };
     expect(rows[0]!.amount).toBe(1234.56);
   });
+
+  it("prefers debit/credit columns over unsigned Amount column", async () => {
+    const csv = makeCsv([
+      "Date,Description,Amount,Debit,Credit",
+      "01/15/2026,NETFLIX INC,15.99,15.99,",
+      "01/16/2026,PAYROLL DEPOSIT,3500.00,,3500.00",
+    ]);
+
+    const result = await parseCSV(csv, "test.csv");
+
+    expect(result.ok).toBe(true);
+    const { rows } = result as CSVParseResult & { ok: true };
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.amount).toBe(-15.99);
+    expect(rows[1]!.amount).toBe(3500.0);
+  });
+
+  it("handles CSV with only unsigned positive amounts (no debit/credit)", async () => {
+    const csv = makeCsv([
+      "Date,Description,Amount",
+      "01/15/2026,NETFLIX INC,15.99",
+      "01/16/2026,PAYROLL DEPOSIT,3500.00",
+    ]);
+
+    const result = await parseCSV(csv, "test.csv");
+
+    expect(result.ok).toBe(true);
+    const { rows } = result as CSVParseResult & { ok: true };
+    expect(rows[0]!.amount).toBe(15.99);
+    expect(rows[1]!.amount).toBe(3500.0);
+  });
 });

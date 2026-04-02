@@ -1246,3 +1246,338 @@ body {
   display: flex;
   gap: 0.5rem;
 }
+
+/* ── Leaks page ─────────────────────────────────────────────── */
+
+.leaks-summary {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.leaks-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  background: Field;
+  min-width: 5.5rem;
+}
+
+.leaks-summary-count {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.leaks-summary-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.leaks-summary-item--essential .leaks-summary-count {
+  color: #16a34a;
+}
+
+.leaks-summary-item--leak .leaks-summary-count {
+  color: #d97706;
+}
+
+.leaks-summary-item--unreviewed .leaks-summary-count {
+  color: #2563eb;
+}
+
+.leaks-summary-item--dismissed .leaks-summary-count {
+  opacity: 0.5;
+}
+
+.leaks-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.leaks-tab {
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 0.35rem;
+  background: Field;
+  color: FieldText;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.leaks-tab:hover {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.leaks-tab--active {
+  background: color-mix(in srgb, #2563eb 16%, transparent);
+  border-color: color-mix(in srgb, #2563eb 30%, transparent);
+  color: #1d4ed8;
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaks-tab--active {
+    background: color-mix(in srgb, #93c5fd 20%, transparent);
+    color: #e2e8f0;
+  }
+}
+
+.leaks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1rem;
+}
+
+.leaks-card {
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 0.65rem;
+  padding: 1rem 1.1rem;
+  background: Field;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: border-color 150ms;
+}
+
+.leaks-card:hover {
+  border-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.leaks-card--essential {
+  border-left: 3px solid #16a34a;
+}
+
+.leaks-card--leak {
+  border-left: 3px solid #d97706;
+}
+
+.leaks-card--dismissed {
+  opacity: 0.55;
+  border-left: 3px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.leaks-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.leaks-card-merchant {
+  font-weight: 600;
+  font-size: 1.05rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaks-card-amount {
+  font-weight: 700;
+  font-size: 1.1rem;
+  white-space: nowrap;
+  color: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaks-card-amount {
+    color: #fbbf24;
+  }
+}
+
+.leaks-card-freq {
+  font-weight: 400;
+  font-size: 0.82rem;
+  opacity: 0.65;
+  margin-left: 0.15em;
+}
+
+.leaks-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+}
+
+.leaks-confidence {
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+
+.leaks-confidence--high {
+  background: color-mix(in srgb, #16a34a 15%, transparent);
+  color: #16a34a;
+}
+
+.leaks-confidence--medium {
+  background: color-mix(in srgb, #d97706 15%, transparent);
+  color: #d97706;
+}
+
+.leaks-confidence--low {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  opacity: 0.7;
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaks-confidence--high {
+    color: #4ade80;
+  }
+  .leaks-confidence--medium {
+    color: #fbbf24;
+  }
+}
+
+.leaks-card-category {
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  color: #2563eb;
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaks-card-category {
+    color: #93c5fd;
+  }
+}
+
+.leaks-card-date {
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.leaks-card-reason {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  line-height: 1.4;
+}
+
+.leaks-card-actions {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+}
+
+.leaks-action-btn {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 0.35rem;
+  background: Field;
+  color: FieldText;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+.leaks-action-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.leaks-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.leaks-action-btn--essential {
+  border-color: color-mix(in srgb, #16a34a 25%, transparent);
+  color: #16a34a;
+}
+
+.leaks-action-btn--essential:hover:not(:disabled) {
+  background: color-mix(in srgb, #16a34a 8%, transparent);
+}
+
+.leaks-action-btn--essential.leaks-action-btn--active {
+  background: #16a34a;
+  color: #fff;
+  border-color: #16a34a;
+}
+
+.leaks-action-btn--leak {
+  border-color: color-mix(in srgb, #d97706 25%, transparent);
+  color: #d97706;
+}
+
+.leaks-action-btn--leak:hover:not(:disabled) {
+  background: color-mix(in srgb, #d97706 8%, transparent);
+}
+
+.leaks-action-btn--leak.leaks-action-btn--active {
+  background: #d97706;
+  color: #fff;
+  border-color: #d97706;
+}
+
+.leaks-action-btn--dismiss {
+  opacity: 0.7;
+}
+
+.leaks-action-btn--dismiss.leaks-action-btn--active {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  opacity: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaks-action-btn--essential {
+    color: #4ade80;
+    border-color: color-mix(in srgb, #4ade80 30%, transparent);
+  }
+  .leaks-action-btn--essential.leaks-action-btn--active {
+    background: #16a34a;
+    color: #fff;
+  }
+  .leaks-action-btn--leak {
+    color: #fbbf24;
+    border-color: color-mix(in srgb, #fbbf24 30%, transparent);
+  }
+  .leaks-action-btn--leak.leaks-action-btn--active {
+    background: #d97706;
+    color: #fff;
+  }
+}
+
+.leaks-empty {
+  padding: 2rem;
+  text-align: center;
+  opacity: 0.6;
+  font-size: 0.95rem;
+}
+
+.leaks-loading {
+  padding: 2rem;
+  text-align: center;
+  opacity: 0.6;
+  font-size: 0.95rem;
+}
+
+.leaks-error {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+  color: #dc2626;
+  font-weight: 500;
+}
+
+@media (prefers-color-scheme: dark) {
+  .leaks-error {
+    color: #f87171;
+  }
+}

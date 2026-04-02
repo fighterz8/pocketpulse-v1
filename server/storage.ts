@@ -3,6 +3,7 @@ import { DatabaseError } from "pg";
 
 import {
   accounts,
+  recurringReviews,
   transactions,
   uploads,
   USER_PREFERENCE_DEFAULTS,
@@ -475,4 +476,39 @@ export async function listAllTransactionsForExport(options: ListTransactionsOpti
     .from(transactions)
     .where(where)
     .orderBy(desc(transactions.date), desc(transactions.id));
+}
+
+export async function upsertRecurringReview(
+  userId: number,
+  candidateKey: string,
+  status: string,
+  notes?: string | null,
+) {
+  const [row] = await db
+    .insert(recurringReviews)
+    .values({
+      userId,
+      candidateKey,
+      status,
+      notes: notes ?? null,
+      reviewedAt: status !== "unreviewed" ? new Date() : null,
+    })
+    .onConflictDoUpdate({
+      target: [recurringReviews.userId, recurringReviews.candidateKey],
+      set: {
+        status,
+        notes: notes !== undefined ? (notes ?? null) : sql`${recurringReviews.notes}`,
+        reviewedAt: new Date(),
+      },
+    })
+    .returning();
+  return row;
+}
+
+export async function listRecurringReviewsForUser(userId: number) {
+  return db
+    .select()
+    .from(recurringReviews)
+    .where(eq(recurringReviews.userId, userId))
+    .orderBy(desc(recurringReviews.reviewedAt));
 }
