@@ -7,6 +7,15 @@ Small-business cashflow analysis web application.
 **Phase 1** (auth + account setup) merged to `main`.
 **Phase 2** (upload + import) on branch `feature/phase-2-upload-import`.
 **Phase 3** (ledger review) on branch `feature/phase-3-ledger-review`.
+**Phase 4** (recurring leak review + CSV bug fix) on branch `feature/phase-4-recurring-leak-review`.
+
+### Phase 4 -- what's implemented
+
+- **CSV parser bug fix** (`server/csvParser.ts`): debit/credit columns now take priority over unsigned Amount columns. Fixes the bug where all transactions were classified as income because the parser ignored direction information in debit/credit columns.
+- **Recurring detection engine** (`server/recurrenceDetector.ts`): groups outflow transactions by normalized merchant key, sub-groups by amount bucket (25% tolerance), detects frequency via median interval matching (weekly/monthly/quarterly/annual), and scores confidence from 4 weighted signals (interval regularity 0.35, amount consistency 0.25, count 0.20, recency 0.20). Candidate key format: `merchantKey|roundedAmount`.
+- **Review persistence** (`shared/schema.ts`, `server/storage.ts`): `recurring_reviews` table with unique index on `(userId, candidateKey)`. Atomic upsert via `onConflictDoUpdate`. Statuses: unreviewed, essential, leak, dismissed.
+- **API routes** (`server/routes.ts`): `GET /api/recurring-candidates` (runs detector, merges reviews), `PATCH /api/recurring-reviews/:candidateKey` (upsert review), `GET /api/recurring-reviews` (list all).
+- **Leaks page** (`client/src/pages/Leaks.tsx`): card-based review UI with filter tabs (All/Unreviewed/Essential/Leak/Dismissed), summary bar with status counts, candidate cards showing merchant name, average amount, frequency, confidence badge, reason flagged, and action buttons.
 
 ### Phase 3 -- what's implemented
 
@@ -34,7 +43,7 @@ Small-business cashflow analysis web application.
 - **Backend:** Express app with auth routes (`register`, `login`, `logout`, `me`), account CRUD, health check. Sessions in PostgreSQL via `connect-pg-simple`.
 - **Frontend:** React + Wouter + TanStack Query; auth gating, first-account onboarding, protected app shell with sidebar navigation.
 
-**Still deferred:** recurring leak detection (Phase 4), dashboard/reporting (Phase 5).
+**Still deferred:** dashboard/reporting (Phase 5).
 
 ## Setup
 
@@ -62,6 +71,17 @@ With PostgreSQL available and `npm run dev` running (default [http://localhost:5
 7. **View results** -- After import, see success banner with link to "Review in Ledger".
 8. **Upload history** -- `GET /api/uploads` returns prior upload records.
 9. **Transaction listing** -- `GET /api/transactions` returns paginated transactions from the import.
+
+### Phase 4 checks (recurring leak review)
+1. **Re-upload CSV files** -- If your CSV has Debit/Credit columns, verify transactions now have correct inflow/outflow classification (not all income).
+2. **Navigate to Recurring Leak Review** -- Click "Leaks" in the sidebar; see detected recurring patterns (or empty state if no recurring charges in data).
+3. **Review summary** -- Summary bar at the top shows counts: Total, Unreviewed, Essential, Leaks, Dismissed.
+4. **Candidate cards** -- Each card shows merchant name, average amount, frequency, confidence badge, last seen date, expected next charge, and reason flagged.
+5. **Mark as essential** -- Click "Essential" on a card; card gets green left border, button stays highlighted.
+6. **Mark as leak** -- Click "Leak" on a card; card gets amber left border.
+7. **Dismiss** -- Click "Dismiss"; card fades out.
+8. **Filter tabs** -- Click Unreviewed/Essential/Leaks/Dismissed tabs to filter the view. Verify review decisions persist across tab switches.
+9. **Persistence** -- Reload the page; review decisions are still applied.
 
 ### Phase 3 checks (ledger)
 1. **Navigate to Ledger** -- Click "Ledger" in the sidebar; see the transaction table (or empty state if no data).
@@ -108,3 +128,5 @@ Phase logs and design specs live in `docs/`. See:
 - `docs/superpowers/specs/2026-04-01-phase-1-auth-account-setup-design.md`
 - `docs/superpowers/specs/2026-04-02-phase-2-upload-import-design.md`
 - `docs/superpowers/specs/2026-04-02-phase-3-ledger-review-design.md`
+- `docs/phase-logs/phase-4-recurring-leak-review-progress.md`
+- `docs/superpowers/specs/2026-04-02-phase-4-recurring-leak-review-design.md`
