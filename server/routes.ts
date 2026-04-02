@@ -532,6 +532,7 @@ export function createApp(options?: CreateAppOptions) {
           errors.push("amount must be a valid number");
         } else {
           fields.amount = parsed.toFixed(2);
+          fields.flowType = parsed < 0 ? "outflow" : "inflow";
         }
       }
       if (body.category !== undefined) {

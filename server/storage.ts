@@ -374,6 +374,7 @@ export type UpdateTransactionInput = {
   date?: string;
   merchant?: string;
   amount?: string;
+  flowType?: string;
   category?: string;
   transactionClass?: string;
   recurrenceType?: string;
@@ -403,6 +404,7 @@ export async function updateTransaction(
   if (fields.date !== undefined) setValues.date = fields.date;
   if (fields.merchant !== undefined) setValues.merchant = fields.merchant;
   if (fields.amount !== undefined) setValues.amount = fields.amount;
+  if (fields.flowType !== undefined) setValues.flowType = fields.flowType;
   if (fields.category !== undefined) setValues.category = fields.category;
   if (fields.transactionClass !== undefined) setValues.transactionClass = fields.transactionClass;
   if (fields.recurrenceType !== undefined) setValues.recurrenceType = fields.recurrenceType;
