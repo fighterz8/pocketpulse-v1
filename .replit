@@ -62,7 +62,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace/.worktrees/phase-1-auth-account-setup && PORT=5001 SKIP_VITE=1 npx tsx server/index.ts"
+args = "cd /home/runner/.cursor/worktrees/workspace__SSH__62a59de6-74f8-4147-b39b-eaa0464852fd-00-1zih0nm80aas8.worf.replit.dev_/tar && PORT=5001 SKIP_VITE=1 npx tsx server/index.ts"
 waitForPort = 5001
 
 [[workflows.workflow]]
@@ -74,7 +74,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace/.worktrees/phase-1-auth-account-setup && npx vite"
+args = "cd /home/runner/.cursor/worktrees/workspace__SSH__62a59de6-74f8-4147-b39b-eaa0464852fd-00-1zih0nm80aas8.worf.replit.dev_/tar && npx vite"
 waitForPort = 5000
 
 [agent]
