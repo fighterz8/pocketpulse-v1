@@ -84,6 +84,7 @@ export type UseAuthReturn = {
     Error,
     CreateAccountInput
   >;
+  logout: UseMutationResult<void, Error, void>;
 };
 
 export function useAuth(): UseAuthReturn {
@@ -161,6 +162,19 @@ export function useAuth(): UseAuthReturn {
     },
   });
 
+  const logout = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      if (!res.ok) {
+        throw new Error(await readJsonError(res));
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
+      void queryClient.invalidateQueries({ queryKey: accountsListQueryRoot });
+    },
+  });
+
   const createAccount = useMutation({
     mutationFn: async (input: CreateAccountInput) => {
       const lastFourDigits =
@@ -215,5 +229,6 @@ export function useAuth(): UseAuthReturn {
     login,
     register,
     createAccount,
+    logout,
   };
 }

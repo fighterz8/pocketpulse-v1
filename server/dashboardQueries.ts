@@ -1,7 +1,12 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 
 import { accounts, transactions } from "../shared/schema.js";
 import { db } from "./db.js";
+
+export type DashboardDateRange = {
+  dateFrom?: string;
+  dateTo?: string;
+};
 
 export type DashboardSummary = {
   totals: {
@@ -34,11 +39,15 @@ export type DashboardSummary = {
 
 export async function buildDashboardSummary(
   userId: number,
+  range?: DashboardDateRange,
 ): Promise<DashboardSummary> {
-  const baseWhere = and(
+  const conditions = [
     eq(transactions.userId, userId),
     eq(transactions.excludedFromAnalysis, false),
-  );
+  ];
+  if (range?.dateFrom) conditions.push(gte(transactions.date, range.dateFrom));
+  if (range?.dateTo) conditions.push(lte(transactions.date, range.dateTo));
+  const baseWhere = and(...conditions);
 
   const [
     totalsResult,

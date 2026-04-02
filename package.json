@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "tsx server/index.ts",
+    "dev:vite": "vite --host 0.0.0.0 --port 5000",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/server/index.js",
     "check": "tsc --noEmit",

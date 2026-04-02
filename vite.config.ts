@@ -19,6 +19,7 @@ export default defineConfig({
     allowedHosts: [
       "62a59de6-74f8-4147-b39b-eaa0464852fd-00-1zih0nm80aas8.worf.replit.dev",
     ],
+    // Used only by `npm run dev:vite`; default `npm run dev` serves API + Vite on `PORT` (5000).
     proxy: {
       "/api": {
         target: `http://localhost:${process.env.API_PORT ?? "5001"}`,

@@ -57,6 +57,7 @@ export type UpdateTransactionInput = {
   date?: string;
   merchant?: string;
   amount?: string;
+  flowType?: string;
   category?: string;
   transactionClass?: string;
   recurrenceType?: string;

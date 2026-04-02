@@ -479,7 +479,11 @@ export function createApp(options?: CreateAppOptions) {
 
       await reclassifyTransactions(userId);
 
-      const summary = await buildDashboardSummary(userId);
+      const q = req.query;
+      const dateFrom = typeof q.dateFrom === "string" && /^\d{4}-\d{2}-\d{2}$/.test(q.dateFrom) ? q.dateFrom : undefined;
+      const dateTo = typeof q.dateTo === "string" && /^\d{4}-\d{2}-\d{2}$/.test(q.dateTo) ? q.dateTo : undefined;
+
+      const summary = await buildDashboardSummary(userId, { dateFrom, dateTo });
       res.json(summary);
     } catch (e) {
       next(e);
@@ -532,6 +536,7 @@ export function createApp(options?: CreateAppOptions) {
           errors.push("amount must be a valid number");
         } else {
           fields.amount = parsed.toFixed(2);
+          fields.flowType = parsed < 0 ? "outflow" : "inflow";
         }
       }
       if (body.category !== undefined) {

@@ -2,7 +2,15 @@ import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "../../lib/utils";
 
-export function AppLayout({ children }: { children: ReactNode }) {
+export function AppLayout({
+  children,
+  onLogout,
+  logoutPending = false,
+}: {
+  children: ReactNode;
+  onLogout: () => void;
+  logoutPending?: boolean;
+}) {
   const [location] = useLocation();
 
   const linkClass = (path: string) =>
@@ -40,8 +48,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </ul>
         </nav>
         <div className="app-sidebar-footer">
-          <button type="button" className="app-nav-logout">
-            Logout
+          <button
+            type="button"
+            className="app-nav-logout"
+            disabled={logoutPending}
+            onClick={() => onLogout()}
+          >
+            {logoutPending ? "Signing out…" : "Logout"}
           </button>
         </div>
       </aside>

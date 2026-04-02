@@ -14,8 +14,13 @@ import { createQueryClient } from "./lib/queryClient";
 import { cn } from "./lib/utils";
 
 function AppAuthenticated() {
+  const { logout } = useAuth();
+
   return (
-    <AppLayout>
+    <AppLayout
+      onLogout={() => void logout.mutateAsync()}
+      logoutPending={logout.isPending}
+    >
       <Switch>
         <Route path="/">
           <Dashboard />

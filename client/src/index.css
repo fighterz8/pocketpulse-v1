@@ -40,6 +40,15 @@ body {
   flex: 1;
   min-height: 100vh;
   align-items: stretch;
+  position: relative;
+  isolation: isolate;
+  color-scheme: light;
+  color: #0f172a;
+  background:
+    radial-gradient(circle at 16% 18%, rgb(125 211 252 / 0.28), transparent 32%),
+    radial-gradient(circle at 84% 20%, rgb(96 165 250 / 0.24), transparent 30%),
+    radial-gradient(circle at 76% 78%, rgb(56 189 248 / 0.18), transparent 28%),
+    linear-gradient(145deg, #dbeafe 0%, #e0f2fe 26%, #f1f5f9 70%, #e2e8f0 100%);
 }
 
 .app-sidebar {
@@ -48,8 +57,14 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   padding: 1.25rem 1rem;
-  border-right: 1px solid color-mix(in srgb, currentColor 14%, transparent);
-  background: color-mix(in srgb, currentColor 5%, transparent);
+  border-right: 1px solid rgb(255 255 255 / 0.45);
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.62),
+    rgb(255 255 255 / 0.44)
+  );
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .app-nav-brand {
@@ -91,12 +106,7 @@ body {
   color: #1d4ed8;
 }
 
-@media (prefers-color-scheme: dark) {
-  .app-nav-link--active {
-    background: color-mix(in srgb, #93c5fd 22%, transparent);
-    color: #e2e8f0;
-  }
-}
+
 
 .app-sidebar-footer {
   margin-top: auto;
@@ -879,36 +889,21 @@ body {
   color: #1d4ed8;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-badge {
-    background: color-mix(in srgb, #93c5fd 18%, transparent);
-    color: #bfdbfe;
-  }
-}
+
 
 .ledger-badge--excluded {
   background: color-mix(in srgb, #f59e0b 14%, transparent);
   color: #92400e;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-badge--excluded {
-    background: color-mix(in srgb, #f59e0b 20%, transparent);
-    color: #fcd34d;
-  }
-}
+
 
 .ledger-badge--edited {
   background: color-mix(in srgb, #8b5cf6 12%, transparent);
   color: #6d28d9;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-badge--edited {
-    background: color-mix(in srgb, #a78bfa 18%, transparent);
-    color: #c4b5fd;
-  }
-}
+
 
 .ledger-pagination {
   display: flex;
@@ -1326,12 +1321,7 @@ body {
   color: #1d4ed8;
 }
 
-@media (prefers-color-scheme: dark) {
-  .leaks-tab--active {
-    background: color-mix(in srgb, #93c5fd 20%, transparent);
-    color: #e2e8f0;
-  }
-}
+
 
 .leaks-grid {
   display: grid;
@@ -1450,11 +1440,7 @@ body {
   font-size: 0.78rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  .leaks-card-category {
-    color: #93c5fd;
-  }
-}
+
 
 .leaks-card-date {
   opacity: 0.6;
@@ -1853,54 +1839,4 @@ body {
   color: #1d4ed8;
 }
 
-@media (prefers-color-scheme: dark) {
-  .dash-kpi,
-  .dash-card {
-    border-color: rgb(255 255 255 / 0.12);
-    background: linear-gradient(
-      180deg,
-      rgb(15 23 42 / 0.82),
-      rgb(15 23 42 / 0.62)
-    );
-    box-shadow:
-      0 18px 40px rgb(0 0 0 / 0.35),
-      0 2px 8px rgb(0 0 0 / 0.2);
-  }
 
-  .dash-kpi:hover {
-    box-shadow:
-      0 22px 48px rgb(0 0 0 / 0.45),
-      0 2px 10px rgb(0 0 0 / 0.25);
-  }
-
-  .dash-kpi-label,
-  .dash-section-title {
-    color: #cbd5e1;
-  }
-
-  .dash-kpi--inflow {
-    border-left-color: #4ade80;
-  }
-
-  .dash-kpi--outflow {
-    border-left-color: #f87171;
-  }
-
-  .dash-kpi--net {
-    border-left-color: #60a5fa;
-  }
-
-  .dash-view-all {
-    color: #93c5fd;
-  }
-
-  .dash-cat-badge {
-    background: color-mix(in srgb, #93c5fd 18%, transparent);
-    color: #e2e8f0;
-  }
-
-  .dash-trend-table th,
-  .dash-recent-table th {
-    color: #94a3b8;
-  }
-}
