@@ -198,4 +198,35 @@ describe("parseCSV", () => {
     expect(rows[0]!.amount).toBe(15.99);
     expect(rows[1]!.amount).toBe(3500.0);
   });
+
+  it("detects Type column and uses it for sign (Debit/Credit values)", async () => {
+    const csv = makeCsv([
+      "Date,Description,Amount,Type",
+      "01/15/2026,NETFLIX INC,15.99,Debit",
+      "01/16/2026,PAYROLL DEPOSIT,3500.00,Credit",
+    ]);
+
+    const result = await parseCSV(csv, "test.csv");
+
+    expect(result.ok).toBe(true);
+    const { rows } = result as CSVParseResult & { ok: true };
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.amount).toBe(-15.99);
+    expect(rows[1]!.amount).toBe(3500.0);
+  });
+
+  it("detects Transaction Type column with DR/CR values", async () => {
+    const csv = makeCsv([
+      "Date,Description,Amount,Transaction Type",
+      "01/15/2026,NETFLIX INC,15.99,DR",
+      "01/16/2026,PAYROLL DEPOSIT,3500.00,CR",
+    ]);
+
+    const result = await parseCSV(csv, "test.csv");
+
+    expect(result.ok).toBe(true);
+    const { rows } = result as CSVParseResult & { ok: true };
+    expect(rows[0]!.amount).toBe(-15.99);
+    expect(rows[1]!.amount).toBe(3500.0);
+  });
 });

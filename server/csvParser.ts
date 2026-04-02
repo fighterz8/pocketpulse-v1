@@ -34,6 +34,7 @@ type ColumnMapping = {
   amountIdx: number | null;
   debitIdx: number | null;
   creditIdx: number | null;
+  typeIdx: number | null;
 };
 
 const DATE_PATTERNS = [
@@ -55,6 +56,7 @@ const DESC_PATTERNS = [
 const AMOUNT_PATTERNS = ["amount", "transaction amount", "total"];
 const DEBIT_PATTERNS = ["debit", "debit amount", "withdrawal"];
 const CREDIT_PATTERNS = ["credit", "credit amount", "deposit"];
+const TYPE_PATTERNS = ["type", "transaction type", "trans type", "dr/cr"];
 
 function findColumnIndex(headers: string[], patterns: string[]): number {
   const normalized = headers.map((h) => h.toLowerCase().trim());
@@ -79,6 +81,7 @@ function detectColumns(headers: string[]): ColumnMapping | string {
   const amountIdx = findColumnIndex(headers, AMOUNT_PATTERNS);
   const debitIdx = findColumnIndex(headers, DEBIT_PATTERNS);
   const creditIdx = findColumnIndex(headers, CREDIT_PATTERNS);
+  const typeIdx = findColumnIndex(headers, TYPE_PATTERNS);
 
   if (amountIdx === -1 && debitIdx === -1 && creditIdx === -1) {
     return "Could not detect an amount column. Expected headers like: Amount, Debit/Credit, or Withdrawal/Deposit";
@@ -90,6 +93,7 @@ function detectColumns(headers: string[]): ColumnMapping | string {
     amountIdx: amountIdx !== -1 ? amountIdx : null,
     debitIdx: debitIdx !== -1 ? debitIdx : null,
     creditIdx: creditIdx !== -1 ? creditIdx : null,
+    typeIdx: typeIdx !== -1 ? typeIdx : null,
   };
 }
 
@@ -158,6 +162,7 @@ export async function parseCSV(
 
     let amount: number;
     if (mapping.debitIdx !== null || mapping.creditIdx !== null) {
+      // Priority 1: Explicit debit/credit columns
       const rawDebit = mapping.debitIdx !== null ? row[mapping.debitIdx] ?? "" : "";
       const rawCredit = mapping.creditIdx !== null ? row[mapping.creditIdx] ?? "" : "";
       const debitVal = rawDebit ? normalizeAmount(rawDebit) : 0;
@@ -166,7 +171,15 @@ export async function parseCSV(
         debit: isNaN(debitVal) ? 0 : debitVal,
         credit: isNaN(creditVal) ? 0 : creditVal,
       });
+    } else if (mapping.amountIdx !== null && mapping.typeIdx !== null) {
+      // Priority 2: Amount + Type column (Debit/Credit or DR/CR)
+      const rawAmount = row[mapping.amountIdx] ?? "";
+      const rawType = (row[mapping.typeIdx] ?? "").trim().toLowerCase();
+      const parsed = normalizeAmount(rawAmount);
+      const isDebit = rawType === "debit" || rawType === "dr" || rawType === "deb";
+      amount = isDebit ? -Math.abs(parsed) : Math.abs(parsed);
     } else if (mapping.amountIdx !== null) {
+      // Priority 3: Amount column only (sign comes from the value itself)
       const rawAmount = row[mapping.amountIdx] ?? "";
       amount = normalizeAmount(rawAmount);
     } else {
