@@ -6,6 +6,19 @@ Small-business cashflow analysis web application.
 
 **Phase 1** (auth + account setup) merged to `main`.
 **Phase 2** (upload + import) on branch `feature/phase-2-upload-import`.
+**Phase 3** (ledger review) on branch `feature/phase-3-ledger-review`.
+
+### Phase 3 -- what's implemented
+
+- **Ledger table** (`client/src/pages/Ledger.tsx`): full transaction table with columns for date, merchant, amount, category, class, recurrence, and status badges. Paginated with previous/next controls.
+- **Search and filters:** debounced merchant/description search, filter dropdowns for account, category, transaction class, recurrence type, excluded status, and date range (from/to). Clear filters button.
+- **Inline editing:** click any row to expand an edit panel with all approved fields (date, merchant, amount, category, class, recurrence, exclusion toggle + reason). Saves via `PATCH /api/transactions/:id` and sets `userCorrected=true`, `labelSource=manual`.
+- **Exclusion toggle:** per-row quick exclude/include button directly in the table without opening the full editor.
+- **CSV export:** export button downloads filtered transactions as CSV via `GET /api/export/transactions`.
+- **Wipe/reset:** Data Management danger zone with two-click confirmation for "Wipe Imported Data" (transactions + uploads) and "Reset Workspace" (everything including accounts).
+- **Enhanced API:** `PATCH /api/transactions/:id` (edit with validation), `DELETE /api/transactions` (wipe), `DELETE /api/workspace-data` (reset), `GET /api/export/transactions` (CSV), enhanced `GET /api/transactions` with full filter query params.
+- **Storage layer:** `updateTransaction`, `getTransactionById`, `deleteAllTransactionsForUser`, `deleteWorkspaceDataForUser`, `listAllTransactionsForExport`, enhanced `listTransactionsForUser` with 8 filter dimensions.
+- **use-transactions hook** (`client/src/hooks/use-transactions.ts`): TanStack Query integration with mutations for update, wipe, and reset.
 
 ### Phase 2 -- what's implemented
 
@@ -21,7 +34,7 @@ Small-business cashflow analysis web application.
 - **Backend:** Express app with auth routes (`register`, `login`, `logout`, `me`), account CRUD, health check. Sessions in PostgreSQL via `connect-pg-simple`.
 - **Frontend:** React + Wouter + TanStack Query; auth gating, first-account onboarding, protected app shell with sidebar navigation.
 
-**Still deferred:** ledger editing/filtering (Phase 3), recurring leak detection (Phase 4), dashboard/export (Phase 5).
+**Still deferred:** recurring leak detection (Phase 4), dashboard/reporting (Phase 5).
 
 ## Setup
 
@@ -49,6 +62,18 @@ With PostgreSQL available and `npm run dev` running (default [http://localhost:5
 7. **View results** -- After import, see success banner with link to "Review in Ledger".
 8. **Upload history** -- `GET /api/uploads` returns prior upload records.
 9. **Transaction listing** -- `GET /api/transactions` returns paginated transactions from the import.
+
+### Phase 3 checks (ledger)
+1. **Navigate to Ledger** -- Click "Ledger" in the sidebar; see the transaction table (or empty state if no data).
+2. **Pagination** -- If >50 transactions, use Previous/Next to page through.
+3. **Search** -- Type in the search box; table filters by merchant/description after brief debounce.
+4. **Filter dropdowns** -- Select values in account, category, class, recurrence, excluded status, or date range filters; table updates.
+5. **Clear filters** -- "Clear filters" button resets all filters.
+6. **Inline edit** -- Click a row; edit panel expands below. Change any field and click Save. Verify the row shows "edited" badge.
+7. **Exclusion toggle** -- Click the checkbox column on a row to toggle exclude/include. Verify "excluded" badge appears.
+8. **CSV export** -- Click "Export CSV"; browser downloads `pocketpulse-transactions.csv` with current filters applied.
+9. **Wipe data** -- In the danger zone, click "Wipe Imported Data", then "Confirm Wipe". Transactions and uploads are deleted; accounts remain.
+10. **Reset workspace** -- Click "Reset Workspace", then "Confirm Reset". All data is deleted; redirected to home page.
 
 Automated checks: `npm test` and `npm run check`. Optional: `npm run build` for a production bundle sanity check.
 
@@ -79,5 +104,7 @@ TypeScript, Node.js, Express, React, Vite, Wouter, TanStack Query, PostgreSQL, D
 Phase logs and design specs live in `docs/`. See:
 - `docs/phase-logs/phase-1-auth-account-setup-progress.md`
 - `docs/phase-logs/phase-2-upload-import-progress.md`
+- `docs/phase-logs/phase-3-ledger-review-progress.md`
 - `docs/superpowers/specs/2026-04-01-phase-1-auth-account-setup-design.md`
 - `docs/superpowers/specs/2026-04-02-phase-2-upload-import-design.md`
+- `docs/superpowers/specs/2026-04-02-phase-3-ledger-review-design.md`

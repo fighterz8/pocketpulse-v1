@@ -658,3 +658,591 @@ body {
   margin: 0.25rem 0 0;
   padding-left: 1.25rem;
 }
+
+/* ---- Ledger page (Phase 3) ---- */
+
+.ledger-error {
+  margin: 0.5rem 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: #b91c1c;
+}
+
+.ledger-loading {
+  margin: 2rem 0;
+  opacity: 0.65;
+}
+
+.ledger-empty {
+  margin: 2rem 0;
+  text-align: center;
+  padding: 3rem 1.5rem;
+  border: 2px dashed color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 0.75rem;
+}
+
+.ledger-empty-text {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.ledger-empty-hint {
+  margin: 0;
+  opacity: 0.6;
+  font-size: 0.92rem;
+}
+
+.ledger-filters {
+  margin-bottom: 0.75rem;
+}
+
+.ledger-search-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.ledger-search-input {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  font-size: 0.92rem;
+  border-radius: 0.45rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-search-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 0.15rem color-mix(in srgb, #2563eb 18%, transparent);
+}
+
+.ledger-clear-btn {
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: Field;
+  color: FieldText;
+  white-space: nowrap;
+}
+
+.ledger-clear-btn:hover {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.ledger-filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ledger-filter-select {
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  background: Field;
+  color: FieldText;
+  max-width: 12rem;
+}
+
+.ledger-date-range {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ledger-date-input {
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-date-sep {
+  font-size: 0.78rem;
+  opacity: 0.55;
+}
+
+.ledger-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 0.625rem;
+}
+
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.ledger-table th {
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  border-bottom: 2px solid color-mix(in srgb, currentColor 14%, transparent);
+  white-space: nowrap;
+}
+
+.ledger-th-right {
+  text-align: right !important;
+}
+
+.ledger-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 7%, transparent);
+  vertical-align: middle;
+}
+
+.ledger-table tbody tr:hover {
+  background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.ledger-row--excluded {
+  opacity: 0.5;
+}
+
+.ledger-td-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-td-merchant {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-td-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ledger-amount--inflow {
+  color: #16a34a;
+}
+
+.ledger-amount--outflow {
+  color: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-amount--inflow {
+    color: #4ade80;
+  }
+  .ledger-amount--outflow {
+    color: #f87171;
+  }
+}
+
+.ledger-td-category,
+.ledger-td-class,
+.ledger-td-recurrence {
+  white-space: nowrap;
+}
+
+.ledger-td-status {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.ledger-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  color: #1d4ed8;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-badge {
+    background: color-mix(in srgb, #93c5fd 18%, transparent);
+    color: #bfdbfe;
+  }
+}
+
+.ledger-badge--excluded {
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  color: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-badge--excluded {
+    background: color-mix(in srgb, #f59e0b 20%, transparent);
+    color: #fcd34d;
+  }
+}
+
+.ledger-badge--edited {
+  background: color-mix(in srgb, #8b5cf6 12%, transparent);
+  color: #6d28d9;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-badge--edited {
+    background: color-mix(in srgb, #a78bfa 18%, transparent);
+    color: #c4b5fd;
+  }
+}
+
+.ledger-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.75rem 0;
+}
+
+.ledger-pagination-btn {
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ledger-pagination-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.ledger-pagination-info {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-total-info {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  opacity: 0.55;
+  text-align: center;
+}
+
+/* Inline editing */
+
+.ledger-row--clickable {
+  cursor: pointer;
+}
+
+.ledger-row--selected {
+  background: color-mix(in srgb, #2563eb 6%, transparent) !important;
+}
+
+.ledger-edit-row td {
+  padding: 0 !important;
+  border-bottom: 2px solid color-mix(in srgb, #2563eb 25%, transparent);
+}
+
+.ledger-edit-panel {
+  padding: 1rem 1.125rem;
+  background: color-mix(in srgb, currentColor 2%, transparent);
+}
+
+.ledger-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 0.65rem;
+}
+
+.ledger-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ledger-edit-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.ledger-edit-input {
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.88rem;
+  border-radius: 0.35rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-edit-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 0.12rem color-mix(in srgb, #2563eb 16%, transparent);
+}
+
+.ledger-edit-exclude-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.ledger-edit-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.ledger-edit-reason {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.ledger-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ledger-edit-save {
+  padding: 0.4rem 1rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  color: #fff;
+}
+
+.ledger-edit-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ledger-edit-cancel {
+  padding: 0.4rem 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-edit-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ledger-edit-raw {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* Exclusion toggle */
+
+.ledger-th-toggle {
+  width: 2.25rem;
+  padding: 0 0.4rem !important;
+}
+
+.ledger-td-toggle {
+  width: 2.25rem;
+  padding: 0.35rem 0.4rem !important;
+  text-align: center;
+}
+
+.ledger-exclude-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 0.25rem;
+  border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: Field;
+  color: FieldText;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+.ledger-exclude-toggle:hover {
+  border-color: #f59e0b;
+  background: color-mix(in srgb, #f59e0b 10%, transparent);
+}
+
+.ledger-exclude-toggle--active {
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-exclude-toggle--active {
+    background: color-mix(in srgb, #f59e0b 22%, transparent);
+    color: #fcd34d;
+  }
+}
+
+/* Export button */
+
+.ledger-export-btn {
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, #16a34a 30%, transparent);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: color-mix(in srgb, #16a34a 8%, transparent);
+  color: #16a34a;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ledger-export-btn:hover {
+  background: color-mix(in srgb, #16a34a 14%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-export-btn {
+    color: #4ade80;
+    border-color: color-mix(in srgb, #4ade80 30%, transparent);
+    background: color-mix(in srgb, #4ade80 10%, transparent);
+  }
+}
+
+/* Danger zone */
+
+.ledger-danger-zone {
+  margin-top: 3rem;
+  padding: 1.25rem;
+  border: 1px solid color-mix(in srgb, #dc2626 18%, transparent);
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, #dc2626 3%, transparent);
+}
+
+.ledger-danger-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-danger-title {
+    color: #f87171;
+  }
+}
+
+.ledger-danger-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.ledger-danger-btn {
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.ledger-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ledger-danger-btn--warn {
+  border: 1px solid color-mix(in srgb, #dc2626 25%, transparent);
+  background: Field;
+  color: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-danger-btn--warn {
+    color: #f87171;
+  }
+}
+
+.ledger-danger-btn--warn:hover:not(:disabled) {
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+}
+
+.ledger-danger-btn--destructive {
+  border: none;
+  background: #dc2626;
+  color: #fff;
+}
+
+.ledger-danger-btn--destructive:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.ledger-danger-btn--cancel {
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-danger-confirm {
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, #dc2626 22%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, #dc2626 5%, transparent);
+}
+
+.ledger-danger-msg {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.ledger-danger-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}

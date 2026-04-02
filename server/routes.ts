@@ -7,18 +7,25 @@ import { hashPassword, verifyPassword } from "./auth.js";
 import { classifyTransaction } from "./classifier.js";
 import { parseCSV } from "./csvParser.js";
 import { ensureUserPreferences, pool } from "./db.js";
+import { V1_CATEGORIES } from "../shared/schema.js";
 import {
   createAccountForUser,
   createTransactionBatch,
   createUpload,
   createUser,
+  deleteAllTransactionsForUser,
+  deleteWorkspaceDataForUser,
   DuplicateEmailError,
+  getTransactionById,
   getUserByEmailForAuth,
   getUserById,
   listAccountsForUser,
+  listAllTransactionsForExport,
   listTransactionsForUser,
   listUploadsForUser,
+  updateTransaction,
   updateUploadStatus,
+  type UpdateTransactionInput,
 } from "./storage.js";
 import {
   inferFlowType,
@@ -433,20 +440,204 @@ export function createApp(options?: CreateAppOptions) {
   app.get("/api/transactions", requireAuth, async (req, res, next) => {
     try {
       const userId = req.session.userId!;
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
-      const accountId = req.query.accountId
-        ? parseInt(req.query.accountId as string)
-        : undefined;
+      const q = req.query;
 
       const result = await listTransactionsForUser({
         userId,
-        accountId,
-        page,
-        limit,
+        page: parseInt(q.page as string) || 1,
+        limit: parseInt(q.limit as string) || 50,
+        accountId: q.accountId ? parseInt(q.accountId as string) : undefined,
+        search: (q.search as string) || undefined,
+        category: (q.category as string) || undefined,
+        transactionClass: (q.transactionClass as string) || undefined,
+        recurrenceType: (q.recurrenceType as string) || undefined,
+        dateFrom: (q.dateFrom as string) || undefined,
+        dateTo: (q.dateTo as string) || undefined,
+        excluded: (q.excluded as "true" | "false" | "all") || undefined,
       });
 
       res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Transaction editing (Phase 3)
+  // -----------------------------------------------------------------------
+
+  const VALID_CLASSES = ["income", "expense", "transfer", "refund"];
+  const VALID_RECURRENCE = ["recurring", "one-time"];
+
+  app.patch("/api/transactions/:id", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const id = parseInt(req.params.id as string);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid transaction ID" });
+        return;
+      }
+
+      const existing = await getTransactionById(id, userId);
+      if (!existing) {
+        res.status(404).json({ error: "Transaction not found" });
+        return;
+      }
+
+      const body = req.body ?? {};
+      const fields: UpdateTransactionInput = {};
+      const errors: string[] = [];
+
+      if (body.date !== undefined) {
+        if (typeof body.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+          errors.push("date must be YYYY-MM-DD format");
+        } else {
+          fields.date = body.date;
+        }
+      }
+      if (body.merchant !== undefined) {
+        if (typeof body.merchant !== "string" || !body.merchant.trim()) {
+          errors.push("merchant must be a non-empty string");
+        } else {
+          fields.merchant = body.merchant.trim();
+        }
+      }
+      if (body.amount !== undefined) {
+        const parsed = parseFloat(body.amount);
+        if (isNaN(parsed)) {
+          errors.push("amount must be a valid number");
+        } else {
+          fields.amount = parsed.toFixed(2);
+        }
+      }
+      if (body.category !== undefined) {
+        if (!V1_CATEGORIES.includes(body.category)) {
+          errors.push(`category must be one of: ${V1_CATEGORIES.join(", ")}`);
+        } else {
+          fields.category = body.category;
+        }
+      }
+      if (body.transactionClass !== undefined) {
+        if (!VALID_CLASSES.includes(body.transactionClass)) {
+          errors.push(`transactionClass must be one of: ${VALID_CLASSES.join(", ")}`);
+        } else {
+          fields.transactionClass = body.transactionClass;
+        }
+      }
+      if (body.recurrenceType !== undefined) {
+        if (!VALID_RECURRENCE.includes(body.recurrenceType)) {
+          errors.push(`recurrenceType must be one of: ${VALID_RECURRENCE.join(", ")}`);
+        } else {
+          fields.recurrenceType = body.recurrenceType;
+        }
+      }
+      if (body.excludedFromAnalysis !== undefined) {
+        if (typeof body.excludedFromAnalysis !== "boolean") {
+          errors.push("excludedFromAnalysis must be a boolean");
+        } else {
+          fields.excludedFromAnalysis = body.excludedFromAnalysis;
+        }
+      }
+      if (body.excludedReason !== undefined) {
+        fields.excludedReason = body.excludedReason === null ? null : String(body.excludedReason);
+      }
+
+      if (errors.length > 0) {
+        res.status(400).json({ errors });
+        return;
+      }
+
+      if (Object.keys(fields).length === 0) {
+        res.status(400).json({ error: "No editable fields provided" });
+        return;
+      }
+
+      const updated = await updateTransaction(id, userId, fields);
+      res.json({ transaction: updated });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Destructive actions (Phase 3)
+  // -----------------------------------------------------------------------
+
+  app.delete("/api/transactions", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      if (req.body?.confirm !== true) {
+        res.status(400).json({ error: "Must send { confirm: true } to wipe data" });
+        return;
+      }
+      const result = await deleteAllTransactionsForUser(userId);
+      res.json({ message: "Transactions and uploads deleted", ...result });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  app.delete("/api/workspace-data", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      if (req.body?.confirm !== true) {
+        res.status(400).json({ error: "Must send { confirm: true } to reset workspace" });
+        return;
+      }
+      const result = await deleteWorkspaceDataForUser(userId);
+      res.json({ message: "Workspace data deleted", ...result });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // CSV Export (Phase 3)
+  // -----------------------------------------------------------------------
+
+  app.get("/api/export/transactions", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const q = req.query;
+
+      const rows = await listAllTransactionsForExport({
+        userId,
+        accountId: q.accountId ? parseInt(q.accountId as string) : undefined,
+        search: (q.search as string) || undefined,
+        category: (q.category as string) || undefined,
+        transactionClass: (q.transactionClass as string) || undefined,
+        recurrenceType: (q.recurrenceType as string) || undefined,
+        dateFrom: (q.dateFrom as string) || undefined,
+        dateTo: (q.dateTo as string) || undefined,
+        excluded: (q.excluded as "true" | "false" | "all") || undefined,
+      });
+
+      const header = "date,merchant,amount,category,class,recurrence,account_id,excluded,excluded_reason,raw_description";
+      const csvLines = rows.map((r) => {
+        const escape = (v: string | null | undefined) => {
+          const s = v ?? "";
+          return s.includes(",") || s.includes('"') || s.includes("\n")
+            ? `"${s.replace(/"/g, '""')}"`
+            : s;
+        };
+        return [
+          r.date,
+          escape(r.merchant),
+          r.amount,
+          r.category,
+          r.transactionClass,
+          r.recurrenceType,
+          r.accountId,
+          r.excludedFromAnalysis ? "yes" : "no",
+          escape(r.excludedReason),
+          escape(r.rawDescription),
+        ].join(",");
+      });
+
+      const csv = [header, ...csvLines].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", 'attachment; filename="pocketpulse-transactions.csv"');
+      res.send(csv);
     } catch (e) {
       next(e);
     }
