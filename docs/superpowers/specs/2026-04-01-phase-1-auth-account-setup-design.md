@@ -1,7 +1,7 @@
 # PocketPulse Phase 1 Design: Authentication and Account Setup
 
 **Date:** 2026-04-01  
-**Status:** Drafted from approved brainstorming decisions  
+**Status:** Approved design baseline with Phase 1 implementation clarifications  
 **Phase:** Phase 1  
 **Primary Goal:** Establish the secure workspace foundation for PocketPulse through authentication, session handling, protected routing, and initial account setup.
 
@@ -87,29 +87,30 @@ The ERD includes broader entities than Phase 1 needs. For this phase, the implem
 - `display_name`
 - `company_name`
 - `created_at`
+- `updated_at`
 
 #### `user_preferences`
-- `id`
 - `user_id`
-- `default_date_preset`
-- `buffer_amount`
-- `include_transfers`
-- `include_refunds`
+- `theme`
+- `week_starts_on`
+- `default_currency`
 
 #### `accounts`
 - `id`
 - `user_id`
-- `name`
+- `label`
 - `account_type`
 - `last_four`
 - `created_at`
+- `updated_at`
 
-#### `user_sessions`
-- managed by `connect-pg-simple` or an equivalent PostgreSQL-backed session store
-- linked to authenticated users through server-side session handling
+#### `session`
+- PostgreSQL-backed session table used by `connect-pg-simple`
+- includes `sid`, `sess`, and `expire`
+- indexed on expiry for session-store cleanup behavior
 
 ### Reconciliation note
-The V1 repository map lists a smaller initial schema shape for `users` and `accounts`. This Phase 1 design keeps that baseline but explicitly allows `display_name`, `account_type`, and timestamps because they support onboarding clarity, auditability, and future reporting without changing the core single-owner model. In implementation, `shared/schema.ts` should be treated as the final authority once Phase 1 schema work is approved and written.
+The V1 repository map lists a smaller initial schema shape for `users` and `accounts`. This Phase 1 design keeps that baseline but explicitly allows `display_name`, `account_type`, and timestamps because they support onboarding clarity, auditability, and future reporting without changing the core single-owner model. The implemented work also narrowed `user_preferences` to concrete Phase 1 defaults (`theme`, `week_starts_on`, `default_currency`) instead of carrying forward broader prototype-style preference fields. In implementation, `shared/schema.ts` is the final schema authority for this branch and should override older conceptual column lists when there is a mismatch.
 
 ### Preferences lifecycle
 If `user_preferences` is included in the initial schema, the preferred Phase 1 behavior is to create a default preferences row at registration time. If that adds unnecessary complexity to the first implementation pass, the row may be created lazily on first authenticated use, but the fallback behavior must be deterministic and documented.
@@ -365,3 +366,13 @@ After this design is approved in written form, the next step should be a detaile
 - account setup
 - protected shell placeholders
 - testing and verification
+
+## 17. Phase 1 implementation notes (branch clarification)
+These details refine §6–§9 based on the `feature/phase-1-auth-account-setup` implementation; they are transport and infrastructure specifics, not scope changes.
+
+- **Sessions:** The session cookie is named `pocketpulse.sid`. Sessions are stored in PostgreSQL via `connect-pg-simple` using the `session` table from the shared Drizzle schema. The server does not auto-create that table at runtime (`createTableIfMissing: false`); apply schema with `npm run db:push`. Cookie defaults include `httpOnly`, `sameSite: lax`, `secure` in production, and a defined max age (currently one week in code).
+- **`GET /api/auth/me`:** No active session returns **200** with `{ authenticated: false }` so the client can treat “signed out” without treating it as an error. If `session.userId` points at a missing user, the server destroys the session and clears the cookie before returning unauthenticated.
+- **Protected account APIs:** Unauthenticated calls to `/api/accounts` receive **401** with `{ error: "Unauthorized" }`.
+- **Invalid login:** Failed credential checks respond with **401** and `{ error: "Invalid email or password" }` (single message for unknown user and bad password).
+- **Client gating:** The app resolves the current user, then loads accounts; only after both succeed does it choose among the auth view, first-account setup, or the protected shell—so refresh preserves onboarding and shell boundaries consistently.
+- **Automated tests:** Route-level tests can inject an in-memory session store. Broader storage or database-backed tests require a configured `DATABASE_URL` and `POCKETPULSE_STORAGE_TESTS=1` (see repository test docs or `server/*.test.ts` headers).
