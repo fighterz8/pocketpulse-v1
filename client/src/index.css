@@ -1152,3 +1152,97 @@ body {
     background: color-mix(in srgb, #4ade80 10%, transparent);
   }
 }
+
+/* Danger zone */
+
+.ledger-danger-zone {
+  margin-top: 3rem;
+  padding: 1.25rem;
+  border: 1px solid color-mix(in srgb, #dc2626 18%, transparent);
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, #dc2626 3%, transparent);
+}
+
+.ledger-danger-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-danger-title {
+    color: #f87171;
+  }
+}
+
+.ledger-danger-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.ledger-danger-btn {
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.ledger-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ledger-danger-btn--warn {
+  border: 1px solid color-mix(in srgb, #dc2626 25%, transparent);
+  background: Field;
+  color: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ledger-danger-btn--warn {
+    color: #f87171;
+  }
+}
+
+.ledger-danger-btn--warn:hover:not(:disabled) {
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+}
+
+.ledger-danger-btn--destructive {
+  border: none;
+  background: #dc2626;
+  color: #fff;
+}
+
+.ledger-danger-btn--destructive:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.ledger-danger-btn--cancel {
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-danger-confirm {
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, #dc2626 22%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, #dc2626 5%, transparent);
+}
+
+.ledger-danger-msg {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.ledger-danger-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}

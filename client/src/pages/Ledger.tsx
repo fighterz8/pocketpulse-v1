@@ -65,12 +65,17 @@ export function Ledger() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
+  const [wipeConfirm, setWipeConfirm] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState(false);
+
   const {
     transactions,
     pagination,
     isLoading,
     error,
     updateTransaction,
+    wipeData,
+    resetWorkspace,
   } = useTransactions(filters);
 
   const exportUrl = useExportUrl(filters);
@@ -286,6 +291,87 @@ export function Ledger() {
           )}
         </>
       )}
+
+      {/* Danger zone */}
+      <div className="ledger-danger-zone">
+        <h3 className="ledger-danger-title">Data Management</h3>
+        <div className="ledger-danger-actions">
+          {!wipeConfirm ? (
+            <button
+              className="ledger-danger-btn ledger-danger-btn--warn"
+              onClick={() => setWipeConfirm(true)}
+              disabled={wipeData.isPending || resetWorkspace.isPending}
+            >
+              Wipe Imported Data
+            </button>
+          ) : (
+            <div className="ledger-danger-confirm">
+              <p className="ledger-danger-msg">
+                This will permanently delete all transactions and uploads. Your accounts will be kept.
+              </p>
+              <div className="ledger-danger-confirm-actions">
+                <button
+                  className="ledger-danger-btn ledger-danger-btn--destructive"
+                  onClick={() => {
+                    wipeData.mutate(undefined, {
+                      onSuccess: () => setWipeConfirm(false),
+                    });
+                  }}
+                  disabled={wipeData.isPending}
+                >
+                  {wipeData.isPending ? "Wiping..." : "Confirm Wipe"}
+                </button>
+                <button
+                  className="ledger-danger-btn ledger-danger-btn--cancel"
+                  onClick={() => setWipeConfirm(false)}
+                  disabled={wipeData.isPending}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!resetConfirm ? (
+            <button
+              className="ledger-danger-btn ledger-danger-btn--warn"
+              onClick={() => setResetConfirm(true)}
+              disabled={wipeData.isPending || resetWorkspace.isPending}
+            >
+              Reset Workspace
+            </button>
+          ) : (
+            <div className="ledger-danger-confirm">
+              <p className="ledger-danger-msg">
+                This will permanently delete all transactions, uploads, and accounts. You will need to set up accounts again.
+              </p>
+              <div className="ledger-danger-confirm-actions">
+                <button
+                  className="ledger-danger-btn ledger-danger-btn--destructive"
+                  onClick={() => {
+                    resetWorkspace.mutate(undefined, {
+                      onSuccess: () => {
+                        setResetConfirm(false);
+                        window.location.href = "/";
+                      },
+                    });
+                  }}
+                  disabled={resetWorkspace.isPending}
+                >
+                  {resetWorkspace.isPending ? "Resetting..." : "Confirm Reset"}
+                </button>
+                <button
+                  className="ledger-danger-btn ledger-danger-btn--cancel"
+                  onClick={() => setResetConfirm(false)}
+                  disabled={resetWorkspace.isPending}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 }
