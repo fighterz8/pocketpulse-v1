@@ -1,5 +1,5 @@
 /**
- * Phase 1 schema authority — import from here only (including Drizzle Kit).
+ * Schema authority — import from here only (including Drizzle Kit).
  *
  * ## User preferences lifecycle
  *
@@ -13,9 +13,11 @@
  * registration-time path.
  */
 import {
+  boolean,
   index,
   integer,
   json,
+  numeric,
   pgTable,
   serial,
   smallint,
@@ -78,6 +80,95 @@ export const accounts = pgTable(
       .defaultNow(),
   },
   (t) => [index("accounts_user_id_idx").on(t.userId)],
+);
+
+/** V1 category set — used by classifier and ledger UI. */
+export const V1_CATEGORIES = [
+  "income",
+  "transfers",
+  "utilities",
+  "subscriptions",
+  "insurance",
+  "housing",
+  "groceries",
+  "transportation",
+  "dining",
+  "shopping",
+  "health",
+  "debt",
+  "business_software",
+  "entertainment",
+  "fees",
+  "other",
+] as const;
+
+export type V1Category = (typeof V1_CATEGORIES)[number];
+
+export const uploads = pgTable(
+  "uploads",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    rowCount: integer("row_count").notNull().default(0),
+    status: text("status").notNull().default("pending"),
+    errorMessage: text("error_message"),
+    uploadedAt: timestamp("uploaded_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("uploads_user_id_idx").on(t.userId),
+    index("uploads_account_id_idx").on(t.accountId),
+  ],
+);
+
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    uploadId: integer("upload_id")
+      .notNull()
+      .references(() => uploads.id, { onDelete: "cascade" }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    merchant: text("merchant").notNull(),
+    rawDescription: text("raw_description").notNull(),
+    flowType: text("flow_type").notNull(),
+    transactionClass: text("transaction_class").notNull(),
+    recurrenceType: text("recurrence_type").notNull().default("one-time"),
+    category: text("category").notNull().default("other"),
+    labelSource: text("label_source").notNull().default("rule"),
+    labelConfidence: numeric("label_confidence", { precision: 5, scale: 2 }),
+    labelReason: text("label_reason"),
+    aiAssisted: boolean("ai_assisted").notNull().default(false),
+    userCorrected: boolean("user_corrected").notNull().default(false),
+    excludedFromAnalysis: boolean("excluded_from_analysis")
+      .notNull()
+      .default(false),
+    excludedReason: text("excluded_reason"),
+    excludedAt: timestamp("excluded_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("transactions_user_id_idx").on(t.userId),
+    index("transactions_upload_id_idx").on(t.uploadId),
+    index("transactions_account_id_idx").on(t.accountId),
+    index("transactions_date_idx").on(t.date),
+  ],
 );
 
 /**

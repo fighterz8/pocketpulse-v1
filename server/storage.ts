@@ -1,8 +1,10 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, count, desc, eq, sql } from "drizzle-orm";
 import { DatabaseError } from "pg";
 
 import {
   accounts,
+  transactions,
+  uploads,
   USER_PREFERENCE_DEFAULTS,
   userPreferences,
   users,
@@ -158,4 +160,166 @@ export async function createAccountForUser(
   }
 
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// Uploads
+// ---------------------------------------------------------------------------
+
+export type CreateUploadInput = {
+  userId: number;
+  accountId: number;
+  filename: string;
+  status?: string;
+  errorMessage?: string | null;
+};
+
+export async function createUpload(input: CreateUploadInput) {
+  const [row] = await db
+    .insert(uploads)
+    .values({
+      userId: input.userId,
+      accountId: input.accountId,
+      filename: input.filename,
+      status: input.status ?? "pending",
+      errorMessage: input.errorMessage ?? null,
+    })
+    .returning();
+
+  if (!row) {
+    throw new Error("createUpload: insert did not return a row");
+  }
+
+  return row;
+}
+
+export async function updateUploadStatus(
+  uploadId: number,
+  status: string,
+  rowCount?: number,
+  errorMessage?: string | null,
+) {
+  const values: Record<string, unknown> = { status };
+  if (rowCount !== undefined) values.rowCount = rowCount;
+  if (errorMessage !== undefined) values.errorMessage = errorMessage;
+
+  const [row] = await db
+    .update(uploads)
+    .set(values)
+    .where(eq(uploads.id, uploadId))
+    .returning();
+
+  return row ?? null;
+}
+
+export async function listUploadsForUser(userId: number) {
+  return db
+    .select()
+    .from(uploads)
+    .where(eq(uploads.userId, userId))
+    .orderBy(desc(uploads.uploadedAt));
+}
+
+export async function getUploadById(uploadId: number) {
+  const [row] = await db
+    .select()
+    .from(uploads)
+    .where(eq(uploads.id, uploadId))
+    .limit(1);
+  return row ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Transactions
+// ---------------------------------------------------------------------------
+
+export type CreateTransactionInput = {
+  userId: number;
+  uploadId: number;
+  accountId: number;
+  date: string;
+  amount: string;
+  merchant: string;
+  rawDescription: string;
+  flowType: string;
+  transactionClass: string;
+  recurrenceType?: string;
+  category?: string;
+  labelSource?: string;
+  labelConfidence?: string | null;
+  labelReason?: string | null;
+};
+
+export async function createTransactionBatch(
+  txns: CreateTransactionInput[],
+): Promise<number> {
+  if (txns.length === 0) return 0;
+
+  const values = txns.map((t) => ({
+    userId: t.userId,
+    uploadId: t.uploadId,
+    accountId: t.accountId,
+    date: t.date,
+    amount: t.amount,
+    merchant: t.merchant,
+    rawDescription: t.rawDescription,
+    flowType: t.flowType,
+    transactionClass: t.transactionClass,
+    recurrenceType: t.recurrenceType ?? "one-time",
+    category: t.category ?? "other",
+    labelSource: t.labelSource ?? "rule",
+    labelConfidence: t.labelConfidence ?? null,
+    labelReason: t.labelReason ?? null,
+  }));
+
+  const result = await db.insert(transactions).values(values).returning({ id: transactions.id });
+  return result.length;
+}
+
+export type ListTransactionsOptions = {
+  userId: number;
+  accountId?: number;
+  page?: number;
+  limit?: number;
+};
+
+export async function listTransactionsForUser(options: ListTransactionsOptions) {
+  const page = Math.max(1, options.page ?? 1);
+  const limit = Math.min(100, Math.max(1, options.limit ?? 50));
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(transactions.userId, options.userId)];
+  if (options.accountId !== undefined) {
+    conditions.push(eq(transactions.accountId, options.accountId));
+  }
+
+  const where = conditions.length === 1
+    ? conditions[0]!
+    : sql`${conditions[0]} AND ${conditions[1]}`;
+
+  const [rows, totalResult] = await Promise.all([
+    db
+      .select()
+      .from(transactions)
+      .where(where)
+      .orderBy(desc(transactions.date), desc(transactions.id))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ total: count() })
+      .from(transactions)
+      .where(where),
+  ]);
+
+  const total = totalResult[0]?.total ?? 0;
+
+  return {
+    transactions: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
