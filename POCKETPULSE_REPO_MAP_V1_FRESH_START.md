@@ -3,7 +3,7 @@
 **Application:** PocketPulse  
 **Version Target:** V1 (class-aligned MVP)  
 **Document Purpose:** Define the fresh-start V1 build specification for the new PocketPulse repository, using the older prototype repository only as a reference point while keeping implementation/reporting traceable throughout the class.  
-**Document Date:** March 31, 2026
+**Document Date:** April 1, 2026
 
 ---
 
@@ -258,11 +258,45 @@ This section describes the **target structure for the fresh V1 repository**. It 
 │
 ├── drizzle.config.ts
 ├── vite.config.ts
-├── vite-plugin-meta-images.ts
+├── vitest.config.ts
 ├── tsconfig.json
-├── postcss.config.js
-├── components.json
+├── tsconfig.build.json
+├── README.md
 └── package.json
+```
+
+### 5.0.1 Current Phase 1 realized structure snapshot
+
+As of the completed Week 1 auth/account-setup pass, the fresh repo also includes the following implemented files and documentation paths:
+
+```text
+/
+├── server/
+│   ├── public-user.ts
+│   ├── project-config.test.ts
+│   ├── schema.test.ts
+│   ├── auth.test.ts
+│   └── routes.test.ts
+│
+├── client/
+│   └── src/
+│       ├── App.test.tsx
+│       ├── test/
+│       │   └── setup.ts
+│       ├── hooks/
+│       │   └── use-auth.test.tsx
+│       └── pages/
+│           └── AccountSetup.tsx
+│
+└── docs/
+    ├── phase-logs/
+    │   └── phase-1-auth-account-setup-progress.md
+    └── superpowers/
+        ├── specs/
+        │   ├── 2026-04-01-phase-1-auth-account-setup-design.md
+        │   └── 2026-04-01-phase-1-auth-visual-foundation-design.md
+        └── plans/
+            └── 2026-04-01-phase-1-auth-visual-foundation-implementation.md
 ```
 
 ### 5.1 Legacy prototype reference repository
@@ -311,7 +345,7 @@ If `Analysis.tsx` or related analysis code is ever pulled from the legacy repo, 
 
 **Primary source:** `shared/schema.ts`
 
-### 7.1 Existing core tables
+### 7.1 Phase 1 implemented core tables
 
 #### `users`
 | Column | Type | Notes |
@@ -319,15 +353,40 @@ If `Analysis.tsx` or related analysis code is ever pulled from the legacy repo, 
 | `id` | serial PK | Auto-increment |
 | `email` | text | Unique, not null |
 | `password` | text | Hashed credential |
+| `display_name` | text | Required workspace-facing user name |
 | `company_name` | text | Single-owner workspace label |
+| `created_at` | timestamp | Auditability / onboarding trace |
+| `updated_at` | timestamp | Record update trace |
+
+#### `user_preferences`
+| Column | Type | Notes |
+|---|---|---|
+| `user_id` | integer PK/FK | FK → users.id |
+| `theme` | text | Default `system` |
+| `week_starts_on` | smallint | Default `0` |
+| `default_currency` | text | Default `USD` |
 
 #### `accounts`
 | Column | Type | Notes |
 |---|---|---|
 | `id` | serial PK | |
 | `user_id` | integer | FK → users.id |
-| `name` | text | Account label |
+| `label` | text | Account label shown in onboarding/shell |
 | `last_four` | text | Optional display/reference value |
+| `account_type` | text | Optional account classification |
+| `created_at` | timestamp | Record creation trace |
+| `updated_at` | timestamp | Record update trace |
+
+#### `session`
+| Column | Type | Notes |
+|---|---|---|
+| `sid` | varchar PK | `connect-pg-simple` session identifier |
+| `sess` | json | Serialized session payload |
+| `expire` | timestamp | Expiry used by session store |
+
+### 7.1.1 Later-phase planned tables
+
+The following remain part of the broader V1 model, but they are **not yet implemented in the completed Phase 1 schema baseline**:
 
 #### `uploads`
 | Column | Type | Notes |
@@ -359,9 +418,6 @@ If `Analysis.tsx` or related analysis code is ever pulled from the legacy repo, 
 | `label_reason` | text | Reason shown to user/admin |
 | `ai_assisted` | boolean | Optional future metadata |
 | `user_corrected` | boolean | Protects reviewed rows from reprocess |
-
-#### `user_sessions`
-Managed by `connect-pg-simple`.
 
 ### 7.2 V1 required additions or confirmation items
 
@@ -427,6 +483,7 @@ Imported source values should remain available for traceability. Any user-edited
 ### 8.2 Session expectations
 - Authenticated session persists until logout or expiration
 - Protected pages require active auth state
+- Authenticated users without any accounts must pass through first-account setup before the wider shell
 - Logout must fully clear the session
 
 ### 8.3 Why this approach fits V1
@@ -581,6 +638,9 @@ V1 policy:
 | `/leaks` | `Leaks` | Recurring Leak Review |
 | `*` | `not-found` | Fallback |
 
+Current Phase 1 implementation note:
+- `Auth` and `AccountSetup` are **gated entry states** controlled by auth/session/account presence, not separate headline routes in the protected app map
+
 ### 11.2 Removed route
 - `/analysis` is no longer an active V1 route.
 
@@ -603,7 +663,8 @@ Provide secure login and workspace entry.
 - allow login
 - show clear invalid-credential errors
 - allow registration where workspace bootstrap is needed
-- route authenticated users into the main app
+- route authenticated users with zero accounts into `AccountSetup`
+- route authenticated users with at least one account into the protected app shell
 
 ### Why it exists
 Sensitive financial data should not be exposed to unauthenticated visitors.
@@ -885,9 +946,8 @@ The system should never silently overwrite reviewed user decisions during routin
 | `SESSION_SECRET` | Yes in production | Session signing |
 | `NODE_ENV` | Yes | Environment mode |
 | `APP_ORIGIN` | Recommended | Trusted origin / deployment URL |
-| `PUBLIC_APP_ORIGIN` | Optional | Public-facing origin |
-| `REPLIT_DOMAINS` | Optional | Trusted origin support |
-| `REPLIT_DEV_DOMAIN` | Optional | Dev origin support |
+| `PORT` | Optional | Unified dev/prod listen port (default `5000`) |
+| `API_PORT` | Optional | Split-dev proxy target for `dev:vite` mode |
 
 ### 16.2 Optional future-only env vars
 These should not be required for V1 acceptance:
@@ -901,10 +961,12 @@ These should not be required for V1 acceptance:
 
 ```json
 {
-  "dev": "NODE_ENV=development tsx server/index.ts",
+  "dev": "tsx server/index.ts",
+  "dev:vite": "vite --host 0.0.0.0 --port 5000",
   "build": "tsx script/build.ts",
-  "start": "NODE_ENV=production node dist/index.cjs",
-  "check": "tsc",
+  "start": "NODE_ENV=production node dist/server/index.js",
+  "check": "tsc --noEmit",
+  "test": "vitest run",
   "db:push": "drizzle-kit push"
 }
 ```
@@ -912,6 +974,8 @@ These should not be required for V1 acceptance:
 ### 16.4 Build expectation
 The repository should support:
 - local development
+- unified Replit/Cursor preview on port `5000`
+- optional split dev mode (`dev:vite` + server on `5001`)
 - schema push
 - production build
 - static serving of the built SPA through the server
@@ -950,11 +1014,28 @@ When a feature materially changes behavior, the same phase must update:
 - relevant README or internal docs
 - the phase summary / change log
 
+Current Phase 1 documentation baseline includes:
+- branch/worktree progress log
+- Week 1 security rationale
+- Week 1 iterative process notes
+- Week 1 testing approach
+- auth visual foundation spec when presentation-facing UI changes are approved
+
 ### 17.4 Testing rule
 A feature is not complete until there is at least one clear validation path for it:
 - manual test steps, or
 - automated tests, or
 - both
+
+Current Phase 1 verification baseline:
+- `Vitest` with separate `server` and `client` projects
+- server coverage for config, schema, auth/storage, and route behavior
+- client coverage for auth gating and logout state
+- manual walkthrough of register → setup → shell → logout
+
+DB-backed auth/storage/route tests require:
+- `DATABASE_URL`
+- `POCKETPULSE_STORAGE_TESTS=1`
 
 ### 17.5 Naming rule
 Use names that map back to requirement IDs where practical:
@@ -1128,6 +1209,16 @@ If a hotfix must go directly to `main`, it still requires:
 - what session behavior is confirmed
 - how Replit/Cursor/GitHub workflow was validated
 - what is intentionally deferred
+
+#### Week 1 implementation status update
+The completed Phase 1 branch now demonstrates:
+- register / login / logout / current-user session flow
+- first-account onboarding gate before protected-shell access
+- protected app shell with placeholder routes for Dashboard, Upload, Ledger, and Leaks
+- README setup/manual verification notes
+- branch-local progress documentation and Week 1 supporting logs
+- automated tests passing for both client and server, including the DB-backed auth/route suites when env-gated integration tests are enabled
+- a presentation-focused auth visual foundation pass that improves screenshot/readability quality without changing auth behavior
 
 ---
 
