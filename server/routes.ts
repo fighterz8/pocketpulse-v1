@@ -378,22 +378,28 @@ export function createApp(options?: CreateAppOptions) {
           // Classify and build transaction records
           const txnInputs = parseResult.rows.map((row) => {
             const merchant = normalizeMerchant(row.description);
-            const flowType = inferFlowType(row.amount);
+            const rawFlowType = inferFlowType(row.amount);
             const classification = classifyTransaction(
               merchant || row.description,
               row.amount,
-              flowType,
+              rawFlowType,
             );
+
+            const effectiveFlowType = classification.flowOverride ?? rawFlowType;
+            const effectiveAmount =
+              effectiveFlowType === "outflow" && row.amount > 0
+                ? -Math.abs(row.amount)
+                : row.amount;
 
             return {
               userId,
               uploadId: uploadRecord.id,
               accountId: fileMeta.accountId,
               date: row.date,
-              amount: row.amount.toFixed(2),
+              amount: effectiveAmount.toFixed(2),
               merchant: merchant || row.description,
               rawDescription: row.description,
-              flowType,
+              flowType: effectiveFlowType,
               transactionClass: classification.transactionClass,
               recurrenceType: classification.recurrenceType,
               category: classification.category,
