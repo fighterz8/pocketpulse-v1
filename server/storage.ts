@@ -1,4 +1,4 @@
-import { asc, count, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { DatabaseError } from "pg";
 
 import {
@@ -281,6 +281,13 @@ export type ListTransactionsOptions = {
   accountId?: number;
   page?: number;
   limit?: number;
+  search?: string;
+  category?: string;
+  transactionClass?: string;
+  recurrenceType?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  excluded?: "true" | "false" | "all";
 };
 
 export async function listTransactionsForUser(options: ListTransactionsOptions) {
@@ -288,14 +295,8 @@ export async function listTransactionsForUser(options: ListTransactionsOptions) 
   const limit = Math.min(100, Math.max(1, options.limit ?? 50));
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(transactions.userId, options.userId)];
-  if (options.accountId !== undefined) {
-    conditions.push(eq(transactions.accountId, options.accountId));
-  }
-
-  const where = conditions.length === 1
-    ? conditions[0]!
-    : sql`${conditions[0]} AND ${conditions[1]}`;
+  const conditions = buildTransactionFilters(options);
+  const where = and(...conditions);
 
   const [rows, totalResult] = await Promise.all([
     db
@@ -322,4 +323,156 @@ export async function listTransactionsForUser(options: ListTransactionsOptions) 
       totalPages: Math.ceil(total / limit),
     },
   };
+}
+
+/** Shared filter builder used by both list and export. */
+export function buildTransactionFilters(options: ListTransactionsOptions) {
+  const conditions = [eq(transactions.userId, options.userId)];
+
+  if (options.accountId !== undefined) {
+    conditions.push(eq(transactions.accountId, options.accountId));
+  }
+  if (options.search) {
+    const pattern = `%${options.search}%`;
+    conditions.push(
+      or(
+        ilike(transactions.merchant, pattern),
+        ilike(transactions.rawDescription, pattern),
+      )!,
+    );
+  }
+  if (options.category) {
+    conditions.push(eq(transactions.category, options.category));
+  }
+  if (options.transactionClass) {
+    conditions.push(eq(transactions.transactionClass, options.transactionClass));
+  }
+  if (options.recurrenceType) {
+    conditions.push(eq(transactions.recurrenceType, options.recurrenceType));
+  }
+  if (options.dateFrom) {
+    conditions.push(gte(transactions.date, options.dateFrom));
+  }
+  if (options.dateTo) {
+    conditions.push(lte(transactions.date, options.dateTo));
+  }
+  if (options.excluded === "true") {
+    conditions.push(eq(transactions.excludedFromAnalysis, true));
+  } else if (options.excluded === "false") {
+    conditions.push(eq(transactions.excludedFromAnalysis, false));
+  }
+
+  return conditions;
+}
+
+// ---------------------------------------------------------------------------
+// Transaction editing
+// ---------------------------------------------------------------------------
+
+export type UpdateTransactionInput = {
+  date?: string;
+  merchant?: string;
+  amount?: string;
+  category?: string;
+  transactionClass?: string;
+  recurrenceType?: string;
+  excludedFromAnalysis?: boolean;
+  excludedReason?: string | null;
+};
+
+export async function getTransactionById(id: number, userId: number) {
+  const [row] = await db
+    .select()
+    .from(transactions)
+    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function updateTransaction(
+  id: number,
+  userId: number,
+  fields: UpdateTransactionInput,
+) {
+  const setValues: Record<string, unknown> = {
+    userCorrected: true,
+    labelSource: "manual",
+  };
+
+  if (fields.date !== undefined) setValues.date = fields.date;
+  if (fields.merchant !== undefined) setValues.merchant = fields.merchant;
+  if (fields.amount !== undefined) setValues.amount = fields.amount;
+  if (fields.category !== undefined) setValues.category = fields.category;
+  if (fields.transactionClass !== undefined) setValues.transactionClass = fields.transactionClass;
+  if (fields.recurrenceType !== undefined) setValues.recurrenceType = fields.recurrenceType;
+  if (fields.excludedFromAnalysis !== undefined) {
+    setValues.excludedFromAnalysis = fields.excludedFromAnalysis;
+    setValues.excludedAt = fields.excludedFromAnalysis ? new Date() : null;
+  }
+  if (fields.excludedReason !== undefined) setValues.excludedReason = fields.excludedReason;
+
+  const [row] = await db
+    .update(transactions)
+    .set(setValues)
+    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .returning();
+
+  return row ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Destructive actions
+// ---------------------------------------------------------------------------
+
+/** Wipe transactions + uploads for a user. Accounts are preserved. */
+export async function deleteAllTransactionsForUser(userId: number) {
+  return db.transaction(async (tx) => {
+    const txnResult = await tx
+      .delete(transactions)
+      .where(eq(transactions.userId, userId))
+      .returning({ id: transactions.id });
+    const uploadResult = await tx
+      .delete(uploads)
+      .where(eq(uploads.userId, userId))
+      .returning({ id: uploads.id });
+    return {
+      deletedTransactions: txnResult.length,
+      deletedUploads: uploadResult.length,
+    };
+  });
+}
+
+/** Full workspace reset: wipe transactions + uploads + accounts. */
+export async function deleteWorkspaceDataForUser(userId: number) {
+  return db.transaction(async (tx) => {
+    const txnResult = await tx
+      .delete(transactions)
+      .where(eq(transactions.userId, userId))
+      .returning({ id: transactions.id });
+    const uploadResult = await tx
+      .delete(uploads)
+      .where(eq(uploads.userId, userId))
+      .returning({ id: uploads.id });
+    const acctResult = await tx
+      .delete(accounts)
+      .where(eq(accounts.userId, userId))
+      .returning({ id: accounts.id });
+    return {
+      deletedTransactions: txnResult.length,
+      deletedUploads: uploadResult.length,
+      deletedAccounts: acctResult.length,
+    };
+  });
+}
+
+/** Return all filtered transactions (no pagination) for CSV export. */
+export async function listAllTransactionsForExport(options: ListTransactionsOptions) {
+  const conditions = buildTransactionFilters(options);
+  const where = and(...conditions);
+
+  return db
+    .select()
+    .from(transactions)
+    .where(where)
+    .orderBy(desc(transactions.date), desc(transactions.id));
 }
