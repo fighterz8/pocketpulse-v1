@@ -693,6 +693,90 @@ body {
   font-size: 0.92rem;
 }
 
+.ledger-filters {
+  margin-bottom: 0.75rem;
+}
+
+.ledger-search-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+
+.ledger-search-input {
+  flex: 1;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  font-size: 0.92rem;
+  border-radius: 0.45rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-search-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 0.15rem color-mix(in srgb, #2563eb 18%, transparent);
+}
+
+.ledger-clear-btn {
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: Field;
+  color: FieldText;
+  white-space: nowrap;
+}
+
+.ledger-clear-btn:hover {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.ledger-filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ledger-filter-select {
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  background: Field;
+  color: FieldText;
+  max-width: 12rem;
+}
+
+.ledger-date-range {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ledger-date-input {
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  background: Field;
+  color: FieldText;
+}
+
+.ledger-date-sep {
+  font-size: 0.78rem;
+  opacity: 0.55;
+}
+
 .ledger-table-wrap {
   overflow-x: auto;
   margin-top: 0.75rem;
