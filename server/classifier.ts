@@ -780,14 +780,10 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.8,
   },
 
-  // Education
+  // Online education subscriptions
   {
-    category: "other",
+    category: "subscriptions",
     keywords: [
-      "tuition",
-      "university",
-      "college",
-      "school fees",
       "coursera",
       "udemy",
       "skillshare",
@@ -801,12 +797,27 @@ const CATEGORY_RULES: CategoryRule[] = [
       "chegg",
       "course hero",
       "quizlet",
+      "masterclass",
+      "brilliant.org",
+      "duolingo",
+    ],
+    confidence: 0.82,
+  },
+  // Physical education / institution expenses
+  {
+    category: "shopping",
+    keywords: [
+      "tuition",
+      "university",
+      "college",
+      "school fees",
       "textbook",
       "bookstore",
       "student fee",
       "enrollment fee",
+      "campus",
     ],
-    confidence: 0.75,
+    confidence: 0.72,
   },
 
   // Fees

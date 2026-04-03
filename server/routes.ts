@@ -36,6 +36,7 @@ import {
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { detectRecurringCandidates } from "./recurrenceDetector.js";
 import { reclassifyTransactions } from "./reclassify.js";
+import { enrichUploadWithAi } from "./aiEnrichment.js";
 import {
   inferFlowType,
   normalizeMerchant,
@@ -374,6 +375,7 @@ export function createApp(options?: CreateAppOptions) {
           error?: string;
           warnings?: string[];
         }> = [];
+        const successfulUploadIds: number[] = [];
 
         for (const file of files) {
           const fileMeta = metadata[file.originalname];
@@ -470,6 +472,7 @@ export function createApp(options?: CreateAppOptions) {
             insertedCount,
           );
 
+          successfulUploadIds.push(uploadRecord.id);
           results.push({
             filename: file.originalname,
             uploadId: uploadRecord.id,
@@ -482,7 +485,13 @@ export function createApp(options?: CreateAppOptions) {
           });
         }
 
+        // Respond immediately — upload is complete from the user's perspective
         res.status(201).json({ results });
+
+        // Fire-and-forget: AI enrichment for low-confidence rows (background)
+        for (const uploadId of successfulUploadIds) {
+          void enrichUploadWithAi(userId, uploadId);
+        }
       } catch (e) {
         next(e);
       }

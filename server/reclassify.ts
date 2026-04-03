@@ -140,11 +140,15 @@ export async function reclassifyTransactions(
       }
     }
 
+    // Consider AI-applied metadata changes as "changed" even if category is same,
+    // so that aiAssisted=true / labelSource=ai / updated confidence are persisted.
     const finalChanged =
       newAmount !== String(txn.amount) ||
       effectiveFlowType !== txn.flowType ||
       transactionClass !== txn.transactionClass ||
-      category !== txn.category;
+      category !== txn.category ||
+      (aiAssisted && !txn.aiAssisted) ||
+      labelSource !== txn.labelSource;
 
     if (!finalChanged) {
       result.unchanged++;

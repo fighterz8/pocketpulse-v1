@@ -521,6 +521,30 @@ export async function listAllTransactionsForExport(options: ListTransactionsOpti
     .orderBy(desc(transactions.date), desc(transactions.id));
 }
 
+/**
+ * Fetch low-confidence or uncategorised transactions for a specific upload.
+ * Used by the background AI enrichment pass after an upload completes.
+ */
+export async function listLowConfidenceTransactionsForUpload(
+  userId: number,
+  uploadId: number,
+  confidenceThreshold = 0.5,
+) {
+  return db
+    .select()
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.uploadId, uploadId),
+        or(
+          eq(transactions.category, "other"),
+          sql`cast(${transactions.labelConfidence} as float) < ${confidenceThreshold}`,
+        ),
+      ),
+    );
+}
+
 export async function upsertRecurringReview(
   userId: number,
   candidateKey: string,
