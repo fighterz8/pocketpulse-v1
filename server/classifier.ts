@@ -820,6 +820,55 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.72,
   },
 
+  // Childcare / family services
+  {
+    category: "shopping",
+    keywords: [
+      "daycare",
+      "day care",
+      "childcare",
+      "child care",
+      "babysitter",
+      "nanny",
+      "au pair",
+      "preschool",
+      "nursery school",
+      "after school",
+      "summer camp",
+      "bright horizons",
+      "kindercare",
+      "learning care",
+    ],
+    confidence: 0.78,
+  },
+
+  // Charity / donations
+  {
+    category: "shopping",
+    keywords: [
+      "donation",
+      "donate",
+      "charity",
+      "charitable",
+      "nonprofit",
+      "non-profit",
+      "gofundme",
+      "patreon",
+      "united way",
+      "red cross",
+      "salvation army",
+      "goodwill",
+      "habitat for humanity",
+      "oxfam",
+      "doctors without borders",
+      "msf usa",
+      "unicef",
+      "planned parenthood",
+      "aclu",
+    ],
+    confidence: 0.68,
+  },
+
   // Fees
   {
     category: "fees",
