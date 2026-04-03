@@ -53,23 +53,90 @@ export function inferFlowType(signedAmount: number): "inflow" | "outflow" {
 }
 
 /**
- * Clean up a raw merchant/description string: trim, collapse whitespace,
- * strip trailing reference numbers (e.g. #12345) and common POS prefixes
- * (e.g. SQ *), then title-case.
+ * Common bank/POS prefixes that appear before the real merchant name.
+ * Ordered from most specific to most general to avoid partial stripping.
+ * Each entry is a regex source string; they are joined into one pattern.
+ */
+const POS_PREFIX_PATTERNS: string[] = [
+  // Square POS variants
+  "SQ\\s*\\*[\\s*]*",
+  // Toast POS
+  "TST\\s*\\*[\\s*]*",
+  // Stripe / Shopify / various
+  "SP\\s*\\*[\\s*]*",
+  // Stripe
+  "STR\\s*\\*[\\s*]*",
+  // PayPal
+  "PAYPAL\\s*\\*[\\s*]*",
+  "PP\\.[\\s*]*",
+  // Amazon
+  "AMZN MKTPLACE\\s*",
+  "AMZN\\s*\\*[\\s*]*",
+  "AMAZON\\.COM\\*[\\s*]*",
+  // Apple iTunes/App Store coded entries
+  "APPLE\\.COM/BILL\\s*",
+  // Recurring ACH descriptors
+  "DES:\\s*",
+  "ACH\\s+(?:DEBIT|CREDIT|PMT|PYMT)\\s+",
+  // Point-of-sale terminals
+  "POS\\s+(?:PURCHASE|DEBIT|CREDIT|PMT)?\\s*",
+  "PUR\\s+",
+  // Check card / debit card qualifiers
+  "CHK\\s+CARD\\s+\\d+\\s+",
+  "CHECK\\s+CARD\\s+\\d+\\s+",
+  "DEBIT\\s+CARD\\s+\\d+\\s+",
+  "CHECKCARD\\s+\\d+\\s+",
+  // Misc
+  "ORIG\\s+CO\\s+NAME:\\s*",
+  "ORIG\\s*:\\s*",
+  "PMT\\s*:\\s*",
+  "ONLINE\\s+PAYMENT\\s*[-–]?\\s*",
+  "ONLINE\\s+BANKING\\s+PAYMENT\\s*[-–]?\\s*",
+  "RECURRING\\s+",
+  "AUTOPAY\\s*[-–]?\\s*",
+];
+
+const POS_PREFIX_REGEX = new RegExp(
+  `^(?:${POS_PREFIX_PATTERNS.join("|")})`,
+  "i",
+);
+
+/** Trailing noise: card last-four, reference/auth codes, date stamps. */
+const TRAILING_NOISE_REGEX =
+  /\s*(?:[#*]\s*\d+|\bREF\b\s*#?\s*\w+|\bAUTH\b\s*#?\s*\w+|\b\d{4,}\b)\s*$/i;
+
+/** State/location suffix like " CA", " TX 12345" appended by some banks. */
+const LOCATION_SUFFIX_REGEX = /\s+[A-Z]{2}(?:\s+\d{5})?\s*$/;
+
+/**
+ * Clean up a raw merchant/description string: trim, strip bank-specific POS
+ * prefixes, location suffixes, reference codes, then title-case.
+ *
+ * Multiple passes are applied until no further change occurs so that stacked
+ * prefixes (e.g. "POS PURCHASE SQ * Coffee Shop") are fully stripped.
  */
 export function normalizeMerchant(raw: string): string {
   if (!raw.trim()) return "";
 
   let cleaned = raw.trim();
 
-  // Strip common POS prefixes
-  cleaned = cleaned.replace(/^(SQ\s*\*|TST\s*\*|SP\s*\*)\s*/i, "");
+  // Iteratively strip leading POS prefixes (handles stacked prefixes)
+  let prev = "";
+  while (cleaned !== prev) {
+    prev = cleaned;
+    cleaned = cleaned.replace(POS_PREFIX_REGEX, "").trim();
+  }
 
-  // Strip trailing reference numbers (#xxx, *xxx, or trailing digits after space)
-  cleaned = cleaned.replace(/\s*[#*]\s*\d+\s*$/, "");
+  // Strip trailing location suffix (e.g. " CA", " TX 77001")
+  cleaned = cleaned.replace(LOCATION_SUFFIX_REGEX, "").trim();
+
+  // Strip trailing reference/auth codes
+  cleaned = cleaned.replace(TRAILING_NOISE_REGEX, "").trim();
 
   // Collapse internal whitespace
   cleaned = cleaned.replace(/\s+/g, " ").trim();
+
+  if (!cleaned) return raw.trim();
 
   // Title case
   cleaned = cleaned
@@ -81,7 +148,7 @@ export function normalizeMerchant(raw: string): string {
 
 /**
  * Parse a date string from common CSV formats into ISO YYYY-MM-DD.
- * Supports: MM/DD/YYYY, M/D/YYYY, MM-DD-YYYY, YYYY-MM-DD.
+ * Supports: MM/DD/YYYY, M/D/YYYY, MM-DD-YYYY, YYYY-MM-DD, MM/DD/YY.
  * Returns null if the date cannot be parsed.
  */
 export function parseDate(raw: string): string | null {
@@ -103,6 +170,19 @@ export function parseDate(raw: string): string | null {
     const month = +m!;
     const day = +d!;
     const year = +y!;
+    if (isValidDate(year, month, day)) {
+      return `${year}-${pad(month)}-${pad(day)}`;
+    }
+    return null;
+  }
+
+  // MM/DD/YY (2-digit year)
+  const shortYearMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (shortYearMatch) {
+    const [, m, d, y] = shortYearMatch;
+    const month = +m!;
+    const day = +d!;
+    const year = +y! + (+y! >= 50 ? 1900 : 2000);
     if (isValidDate(year, month, day)) {
       return `${year}-${pad(month)}-${pad(day)}`;
     }

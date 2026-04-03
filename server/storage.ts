@@ -249,6 +249,7 @@ export type CreateTransactionInput = {
   labelSource?: string;
   labelConfidence?: string | null;
   labelReason?: string | null;
+  aiAssisted?: boolean;
 };
 
 export async function createTransactionBatch(
@@ -271,6 +272,7 @@ export async function createTransactionBatch(
     labelSource: t.labelSource ?? "rule",
     labelConfidence: t.labelConfidence ?? null,
     labelReason: t.labelReason ?? null,
+    aiAssisted: t.aiAssisted ?? false,
   }));
 
   const result = await db.insert(transactions).values(values).returning({ id: transactions.id });
@@ -433,6 +435,7 @@ export type BulkTransactionUpdate = {
   labelSource: string;
   labelConfidence: string;
   labelReason: string;
+  aiAssisted?: boolean;
 };
 
 export async function bulkUpdateTransactions(
@@ -454,6 +457,7 @@ export async function bulkUpdateTransactions(
           labelSource: u.labelSource,
           labelConfidence: u.labelConfidence,
           labelReason: u.labelReason,
+          ...(u.aiAssisted !== undefined ? { aiAssisted: u.aiAssisted } : {}),
         })
         .where(and(eq(transactions.id, u.id), eq(transactions.userId, userId)));
     }
