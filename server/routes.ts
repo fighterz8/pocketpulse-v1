@@ -1,4 +1,5 @@
 import connectPgSimple from "connect-pg-simple";
+import cookieParser from "cookie-parser";
 import express, { type RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
 import session from "express-session";
@@ -142,6 +143,7 @@ export function createApp(options?: CreateAppOptions) {
   });
   app.use(globalLimiter);
   app.use(express.json());
+  app.use(cookieParser());
   app.use(sessionMiddleware(store));
 
   app.use(doubleCsrfProtection);

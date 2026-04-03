@@ -14,8 +14,10 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.2",
+    "@types/cookie-parser": "^1.4.10",
     "bcrypt": "^6.0.0",
     "connect-pg-simple": "^10.0.0",
+    "cookie-parser": "^1.4.7",
     "csrf-csrf": "^3.2.2",
     "csv-parse": "^6.2.1",
     "drizzle-orm": "^0.41.0",
