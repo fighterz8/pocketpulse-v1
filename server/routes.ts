@@ -36,7 +36,7 @@ import {
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { detectRecurringCandidates } from "./recurrenceDetector.js";
 import { reclassifyTransactions } from "./reclassify.js";
-import { enrichUploadWithAi } from "./aiEnrichment.js";
+import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
 import {
   inferFlowType,
   normalizeMerchant,
@@ -375,7 +375,6 @@ export function createApp(options?: CreateAppOptions) {
           error?: string;
           warnings?: string[];
         }> = [];
-        const successfulUploadIds: number[] = [];
 
         for (const file of files) {
           const fileMeta = metadata[file.originalname];
@@ -429,8 +428,25 @@ export function createApp(options?: CreateAppOptions) {
             continue;
           }
 
-          // Rules-based classification — fast, synchronous, no external calls
-          const txnInputs = parseResult.rows.map((row) => {
+          // Phase 1: rules-based classification (fast, synchronous)
+          const AI_THRESHOLD = 0.5;
+          const txnInputs: Array<{
+            userId: number;
+            uploadId: number;
+            accountId: number;
+            date: string;
+            amount: string;
+            merchant: string;
+            rawDescription: string;
+            flowType: string;
+            transactionClass: string;
+            recurrenceType: string;
+            category: string;
+            labelSource: string;
+            labelConfidence: string;
+            labelReason: string;
+            aiAssisted: boolean;
+          }> = parseResult.rows.map((row) => {
             const merchant = normalizeMerchant(row.description);
             const rawFlowType = inferFlowType(row.amount);
             const classification = classifyTransaction(
@@ -464,6 +480,55 @@ export function createApp(options?: CreateAppOptions) {
             };
           });
 
+          // Phase 2: AI fallback for low-confidence rows — runs inline before
+          // insert, but races against a 6-second timeout so the upload cannot
+          // be blocked by a slow or unavailable OpenAI response.
+          const aiCandidates: AiClassificationInput[] = [];
+          const txnIndexToAiIdx = new Map<number, number>();
+
+          for (let i = 0; i < txnInputs.length; i++) {
+            const t = txnInputs[i]!;
+            const conf = parseFloat(t.labelConfidence);
+            if (conf < AI_THRESHOLD || t.category === "other") {
+              const aiIdx = aiCandidates.length;
+              txnIndexToAiIdx.set(i, aiIdx);
+              aiCandidates.push({
+                index: aiIdx,
+                merchant: t.merchant,
+                rawDescription: t.rawDescription,
+                amount: parseFloat(t.amount),
+                flowType: t.flowType as "inflow" | "outflow",
+              });
+            }
+          }
+
+          if (aiCandidates.length > 0) {
+            const AI_TIMEOUT_MS = 6000;
+            try {
+              const timeout = new Promise<Map<number, AiClassificationResult>>(
+                (resolve) => setTimeout(() => resolve(new Map()), AI_TIMEOUT_MS),
+              );
+              const aiResults = await Promise.race([
+                aiClassifyBatch(aiCandidates),
+                timeout,
+              ]);
+              for (const [txnIdx, aiIdx] of txnIndexToAiIdx) {
+                const aiResult = aiResults.get(aiIdx);
+                if (!aiResult) continue;
+                const t = txnInputs[txnIdx]!;
+                t.category = aiResult.category;
+                t.transactionClass = aiResult.transactionClass;
+                t.recurrenceType = aiResult.recurrenceType;
+                t.labelConfidence = aiResult.labelConfidence.toFixed(2);
+                t.labelReason = aiResult.labelReason;
+                t.labelSource = "ai";
+                t.aiAssisted = true;
+              }
+            } catch {
+              // AI unavailable — keep rules results, upload succeeds regardless
+            }
+          }
+
           const insertedCount = await createTransactionBatch(txnInputs);
 
           await updateUploadStatus(
@@ -472,7 +537,6 @@ export function createApp(options?: CreateAppOptions) {
             insertedCount,
           );
 
-          successfulUploadIds.push(uploadRecord.id);
           results.push({
             filename: file.originalname,
             uploadId: uploadRecord.id,
@@ -485,13 +549,7 @@ export function createApp(options?: CreateAppOptions) {
           });
         }
 
-        // Respond immediately — upload is complete from the user's perspective
         res.status(201).json({ results });
-
-        // Fire-and-forget: AI enrichment for low-confidence rows (background)
-        for (const uploadId of successfulUploadIds) {
-          void enrichUploadWithAi(userId, uploadId);
-        }
       } catch (e) {
         next(e);
       }
