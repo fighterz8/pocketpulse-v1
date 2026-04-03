@@ -28,6 +28,11 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
     return createApp({ sessionStore: new session.MemoryStore() });
   }
 
+  async function withCsrf(agent: ReturnType<typeof request.agent>) {
+    const res = await agent.get("/api/csrf-token");
+    return res.body.token as string;
+  }
+
   it("throws if SESSION_SECRET is missing in production", () => {
     const origNodeEnv = process.env.NODE_ENV;
     const origSecret = process.env.SESSION_SECRET;
@@ -66,7 +71,9 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
     expect(getRes.body).toEqual({ error: "Not found" });
     expect(getRes.type).toMatch(/json/);
 
-    const postRes = await request(app).post("/api/also-missing").send({});
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
+    const postRes = await agent.post("/api/also-missing").set("X-CSRF-Token", csrf).send({});
     expect(postRes.status).toBe(404);
     expect(postRes.body).toEqual({ error: "Not found" });
   });
@@ -81,8 +88,9 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
   it("POST /api/auth/register creates user, sets session, and never exposes a password hash", async () => {
     const app = testApp();
     const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `route-reg-${crypto.randomUUID()}@example.com`;
-    const res = await agent.post("/api/auth/register").send({
+    const res = await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email: `  ${email.toUpperCase()}  `,
       password: "secure-password-99",
       displayName: "Reg User",
@@ -105,9 +113,12 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/register returns 409 for duplicate email (normalized)", async () => {
     const app = testApp();
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const base = `route-dup-${crypto.randomUUID()}@example.com`;
-    await request(app)
+    await agent
       .post("/api/auth/register")
+      .set("X-CSRF-Token", csrf)
       .send({
         email: `  ${base.toUpperCase()}  `,
         password: "password-one",
@@ -115,7 +126,9 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
       })
       .expect(201);
 
-    const res = await request(app).post("/api/auth/register").send({
+    const agent2 = request.agent(app);
+    const csrf2 = await withCsrf(agent2);
+    const res = await agent2.post("/api/auth/register").set("X-CSRF-Token", csrf2).send({
       email: base,
       password: "password-two",
       displayName: "Two",
@@ -128,8 +141,10 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/register rejects passwords shorter than 8 characters", async () => {
     const app = testApp();
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `val-pw-${crypto.randomUUID()}@example.com`;
-    const res = await request(app).post("/api/auth/register").send({
+    const res = await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email,
       password: "short",
       displayName: "Test",
@@ -141,7 +156,9 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/register rejects invalid email format", async () => {
     const app = testApp();
-    const res = await request(app).post("/api/auth/register").send({
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
+    const res = await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email: "not-an-email",
       password: "long-enough-pw",
       displayName: "Test",
@@ -152,8 +169,10 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/register accepts valid 8+ char password", async () => {
     const app = testApp();
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `val-ok-${crypto.randomUUID()}@example.com`;
-    const res = await request(app).post("/api/auth/register").send({
+    const res = await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email,
       password: "exactly8",
       displayName: "Test",
@@ -163,16 +182,19 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/login uses auth lookup and returns user without password hash", async () => {
     const app = testApp();
+    const regAgent = request.agent(app);
+    const regCsrf = await withCsrf(regAgent);
     const email = `route-login-${crypto.randomUUID()}@example.com`;
     const password = "login-secret-xyz";
-    await request(app).post("/api/auth/register").send({
+    await regAgent.post("/api/auth/register").set("X-CSRF-Token", regCsrf).send({
       email,
       password,
       displayName: "Login User",
     });
 
     const agent = request.agent(app);
-    const res = await agent.post("/api/auth/login").send({
+    const csrf = await withCsrf(agent);
+    const res = await agent.post("/api/auth/login").set("X-CSRF-Token", csrf).send({
       email: ` ${email.toUpperCase()} `,
       password,
     });
@@ -188,14 +210,18 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/login returns 401 for wrong password without leaking existence details", async () => {
     const app = testApp();
+    const regAgent = request.agent(app);
+    const regCsrf = await withCsrf(regAgent);
     const email = `route-bad-pw-${crypto.randomUUID()}@example.com`;
-    await request(app).post("/api/auth/register").send({
+    await regAgent.post("/api/auth/register").set("X-CSRF-Token", regCsrf).send({
       email,
       password: "right-password",
       displayName: "X",
     });
 
-    const res = await request(app).post("/api/auth/login").send({
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
+    const res = await agent.post("/api/auth/login").set("X-CSRF-Token", csrf).send({
       email,
       password: "wrong-password",
     });
@@ -205,12 +231,15 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("login endpoint returns 429 after too many failed attempts", async () => {
     const app = testApp();
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `rate-${crypto.randomUUID()}@example.com`;
 
     let got429 = false;
     for (let i = 0; i < 12; i++) {
-      const res = await request(app)
+      const res = await agent
         .post("/api/auth/login")
+        .set("X-CSRF-Token", csrf)
         .send({ email, password: "wrong-password-here" });
       if (res.status === 429) {
         got429 = true;
@@ -222,21 +251,27 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/auth/login returns the same safe error for unknown email as for wrong password", async () => {
     const app = testApp();
+    const agent1 = request.agent(app);
+    const csrf1 = await withCsrf(agent1);
     const email = `route-no-user-${crypto.randomUUID()}@example.com`;
-    const unknown = await request(app).post("/api/auth/login").send({
+    const unknown = await agent1.post("/api/auth/login").set("X-CSRF-Token", csrf1).send({
       email,
       password: "any-password",
     });
     expect(unknown.status).toBe(401);
     expect(unknown.body).toEqual({ error: "Invalid email or password" });
 
+    const agent2 = request.agent(app);
+    const csrf2 = await withCsrf(agent2);
     const registered = `route-known-${crypto.randomUUID()}@example.com`;
-    await request(app).post("/api/auth/register").send({
+    await agent2.post("/api/auth/register").set("X-CSRF-Token", csrf2).send({
       email: registered,
       password: "secret-pw",
       displayName: "Y",
     });
-    const wrongPw = await request(app).post("/api/auth/login").send({
+    const agent3 = request.agent(app);
+    const csrf3 = await withCsrf(agent3);
+    const wrongPw = await agent3.post("/api/auth/login").set("X-CSRF-Token", csrf3).send({
       email: registered,
       password: "wrong",
     });
@@ -247,13 +282,14 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
   it("POST /api/auth/logout destroys the session fully", async () => {
     const app = testApp();
     const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `route-logout-${crypto.randomUUID()}@example.com`;
-    await agent.post("/api/auth/register").send({
+    await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email,
       password: "test-pw-99",
       displayName: "L",
     });
-    const logoutRes = await agent.post("/api/auth/logout").expect(204);
+    const logoutRes = await agent.post("/api/auth/logout").set("X-CSRF-Token", csrf).expect(204);
     expect(logoutRes.headers["set-cookie"]).toBeDefined();
 
     const me = await agent.get("/api/auth/me");
@@ -274,8 +310,9 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
   it("GET /api/accounts returns an empty list for a new user (onboarding detection)", async () => {
     const app = testApp();
     const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `route-acct-${crypto.randomUUID()}@example.com`;
-    await agent.post("/api/auth/register").send({
+    await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email,
       password: "test-pw-99",
       displayName: "Acct",
@@ -289,14 +326,15 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
   it("POST /api/accounts creates an account and GET lists it in stable order", async () => {
     const app = testApp();
     const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
     const email = `route-acct2-${crypto.randomUUID()}@example.com`;
-    await agent.post("/api/auth/register").send({
+    await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email,
       password: "test-pw-99",
       displayName: "Acct2",
     });
 
-    const created = await agent.post("/api/accounts").send({
+    const created = await agent.post("/api/accounts").set("X-CSRF-Token", csrf).send({
       label: "Checking",
       lastFour: "4242",
       accountType: "checking",
@@ -316,8 +354,36 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
 
   it("POST /api/accounts returns 401 when unauthenticated", async () => {
     const app = testApp();
-    const res = await request(app).post("/api/accounts").send({ label: "X" });
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
+    const res = await agent.post("/api/accounts").set("X-CSRF-Token", csrf).send({ label: "X" });
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ error: "Unauthorized" });
+  });
+
+  it("mutating requests without CSRF token return 403", async () => {
+    const app = testApp();
+    const res = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "a@b.com", password: "12345678" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/csrf/i);
+  });
+
+  it("mutating requests with valid CSRF token succeed", async () => {
+    const app = testApp();
+    const agent = request.agent(app);
+    const csrf = await withCsrf(agent);
+
+    const email = `csrf-${crypto.randomUUID()}@example.com`;
+    const res = await agent
+      .post("/api/auth/register")
+      .set("X-CSRF-Token", csrf)
+      .send({
+        email,
+        password: "secure-password",
+        displayName: "CSRF Test",
+      });
+    expect(res.status).toBe(201);
   });
 });

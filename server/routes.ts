@@ -5,6 +5,7 @@ import session from "express-session";
 import multer from "multer";
 import helmet from "helmet";
 
+import { doubleCsrfProtection, generateToken, invalidCsrfTokenError } from "./csrf.js";
 import { hashPassword, verifyPassword } from "./auth.js";
 import { classifyTransaction } from "./classifier.js";
 import { parseCSV } from "./csvParser.js";
@@ -142,6 +143,13 @@ export function createApp(options?: CreateAppOptions) {
   app.use(globalLimiter);
   app.use(express.json());
   app.use(sessionMiddleware(store));
+
+  app.use(doubleCsrfProtection);
+
+  app.get("/api/csrf-token", (req, res) => {
+    const token = generateToken(req, res);
+    res.json({ token });
+  });
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
@@ -785,6 +793,10 @@ export function createApp(options?: CreateAppOptions) {
       res: express.Response,
       _next: express.NextFunction,
     ) => {
+      if (err === invalidCsrfTokenError) {
+        res.status(403).json({ error: "Invalid or missing CSRF token" });
+        return;
+      }
       console.error(err);
       res.status(500).json({ error: "Internal server error" });
     },
