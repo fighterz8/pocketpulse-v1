@@ -737,56 +737,8 @@ export function createApp(options?: CreateAppOptions) {
   });
 
   // -----------------------------------------------------------------------
-  // CSV Export (Phase 3)
+  // Recurring candidates (Phase 4)
   // -----------------------------------------------------------------------
-
-  app.get("/api/export/transactions", requireAuth, async (req, res, next) => {
-    try {
-      const userId = req.session.userId!;
-      const q = req.query;
-
-      const rows = await listAllTransactionsForExport({
-        userId,
-        accountId: q.accountId ? parseInt(q.accountId as string) : undefined,
-        search: (q.search as string) || undefined,
-        category: (q.category as string) || undefined,
-        transactionClass: (q.transactionClass as string) || undefined,
-        recurrenceType: (q.recurrenceType as string) || undefined,
-        dateFrom: (q.dateFrom as string) || undefined,
-        dateTo: (q.dateTo as string) || undefined,
-        excluded: (q.excluded as "true" | "false" | "all") || undefined,
-      });
-
-      const header = "date,merchant,amount,category,class,recurrence,account_id,excluded,excluded_reason,raw_description";
-      const csvLines = rows.map((r) => {
-        const escape = (v: string | null | undefined) => {
-          const s = v ?? "";
-          return s.includes(",") || s.includes('"') || s.includes("\n")
-            ? `"${s.replace(/"/g, '""')}"`
-            : s;
-        };
-        return [
-          r.date,
-          escape(r.merchant),
-          r.amount,
-          r.category,
-          r.transactionClass,
-          r.recurrenceType,
-          r.accountId,
-          r.excludedFromAnalysis ? "yes" : "no",
-          escape(r.excludedReason),
-          escape(r.rawDescription),
-        ].join(",");
-      });
-
-      const csv = [header, ...csvLines].join("\n");
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", 'attachment; filename="pocketpulse-transactions.csv"');
-      res.send(csv);
-    } catch (e) {
-      next(e);
-    }
-  });
 
   app.get("/api/recurring-candidates", requireAuth, async (req, res, next) => {
     try {

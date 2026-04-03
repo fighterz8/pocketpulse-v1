@@ -60,7 +60,8 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.85,
   },
 
-  // Debt payments
+  // Debt payments — matched before TRANSFER_KEYWORDS so "TRANSFER TO AUTO LOAN"
+  // is correctly treated as a debt expense rather than a transfer
   {
     category: "debt",
     keywords: [
@@ -68,7 +69,22 @@ const CATEGORY_RULES: CategoryRule[] = [
       "student loan",
       "auto loan",
       "car payment",
+      "car loan",
+      "vehicle loan",
+      "vehicle payment",
+      "auto payment",
+      "mortgage payment",
+      "home loan",
+      "heloc",
       "credit card payment",
+      "credit card pymt",
+      "card payment",
+      "payment to loan",
+      "payment to auto",
+      "payment to mortgage",
+      "transfer to loan",
+      "transfer to auto",
+      "transfer to mortgage",
       "sallie mae",
       "navient",
       "great lakes",
@@ -1208,7 +1224,12 @@ export function classifyTransaction(
 
   if (matchesAny(merchant, REFUND_KEYWORDS) && flowType === "inflow") {
     transactionClass = "refund";
-  } else if (matchesAny(merchant, TRANSFER_KEYWORDS)) {
+  } else if (
+    matchesAny(merchant, TRANSFER_KEYWORDS) &&
+    // Don't override a specific expense/debt keyword match with transfer.
+    // e.g. "TRANSFER TO AUTO LOAN" should stay debt, not become a transfer.
+    (!matchedKeyword || category === "transfers")
+  ) {
     transactionClass = "transfer";
     if (!matchedKeyword) {
       category = "transfers";

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../hooks/use-auth";
 import {
-  useExportUrl,
   useTransactions,
   type Transaction,
   type TransactionFilters,
@@ -73,8 +72,6 @@ export function Ledger() {
     resetWorkspace,
   } = useTransactions(filters);
 
-  const exportUrl = useExportUrl(filters);
-
   const setPage = (p: number) => setFilters((f) => ({ ...f, page: p }));
 
   const handleRowClick = (id: number) => {
@@ -116,11 +113,6 @@ export function Ledger() {
             <button className="ledger-clear-btn" onClick={clearFilters}>
               Clear filters
             </button>
-          )}
-          {transactions.length > 0 && (
-            <a href={exportUrl} className="ledger-export-btn" download>
-              Export CSV
-            </a>
           )}
         </div>
 

@@ -162,6 +162,3 @@ export function useTransactions(filters: TransactionFilters) {
   };
 }
 
-export function useExportUrl(filters: TransactionFilters): string {
-  return `/api/export/transactions${buildQueryString(filters)}`;
-}
