@@ -5,6 +5,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { useAuth } from "./hooks/use-auth";
 import { AccountSetup } from "./pages/AccountSetup";
 import { Auth } from "./pages/Auth";
+import { AccuracyReport } from "./pages/AccuracyReport";
 import { Dashboard } from "./pages/Dashboard";
 import { Ledger } from "./pages/Ledger";
 import { Leaks } from "./pages/Leaks";
@@ -33,6 +34,9 @@ function AppAuthenticated() {
         </Route>
         <Route path="/leaks">
           <Leaks />
+        </Route>
+        <Route path="/accuracy">
+          <AccuracyReport />
         </Route>
         <Route>
           <NotFoundPage />

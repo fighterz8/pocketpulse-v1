@@ -47,6 +47,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/transactions", label: "Ledger" },
   { href: "/upload", label: "Upload" },
+  { href: "/accuracy", label: "Accuracy" },
 ] as const;
 
 export function AppLayout({
