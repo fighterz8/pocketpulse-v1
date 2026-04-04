@@ -849,6 +849,12 @@ export function createApp(options?: CreateAppOptions) {
   // Recurring candidates (Phase 4)
   // -----------------------------------------------------------------------
 
+  // Categories that are obvious necessary recurring expenses — no manual review needed.
+  // These get auto-labeled as "essential" unless the user has manually reviewed them.
+  const AUTO_ESSENTIAL_CATEGORIES = new Set([
+    "housing", "utilities", "insurance", "medical", "debt",
+  ]);
+
   app.get("/api/recurring-candidates", requireAuth, async (req, res, next) => {
     try {
       const userId = req.session.userId!;
@@ -861,10 +867,13 @@ export function createApp(options?: CreateAppOptions) {
 
       const merged = candidates.map((c) => {
         const review = reviewMap.get(c.candidateKey);
+        // Auto-label necessary categories as essential when not yet manually reviewed
+        const autoEssential = AUTO_ESSENTIAL_CATEGORIES.has(c.category) && !review;
         return {
           ...c,
-          reviewStatus: review?.status ?? "unreviewed",
+          reviewStatus: review?.status ?? (autoEssential ? "essential" : "unreviewed"),
           reviewNotes: review?.notes ?? null,
+          autoEssential,
         };
       });
 

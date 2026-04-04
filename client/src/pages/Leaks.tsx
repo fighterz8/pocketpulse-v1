@@ -170,7 +170,12 @@ function CandidateCard({
               Possibly cancelled
             </span>
           )}
-          {c.isActive && c.reviewStatus === "unreviewed" && (
+          {c.autoEssential && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
+              Auto-labeled
+            </span>
+          )}
+          {c.isActive && c.reviewStatus === "unreviewed" && !c.autoEssential && (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
               Needs review
             </span>
@@ -255,7 +260,7 @@ function CandidateCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function Leaks() {
-  const [activeTab, setActiveTab] = useState<FilterTab>("active");
+  const [activeTab, setActiveTab] = useState<FilterTab>("unreviewed");
   const [sortBy, setSortBy] = useState<"cost" | "confidence" | "lastSeen">("cost");
 
   const { data, isLoading, error } = useRecurringCandidates();

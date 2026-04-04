@@ -23,6 +23,8 @@ export type RecurringCandidate = {
   daysSinceExpected: number;
   reviewStatus: ReviewStatus;
   reviewNotes: string | null;
+  /** Auto-labeled as essential by category (housing, utilities, insurance, etc.) */
+  autoEssential: boolean;
 };
 
 export type CandidatesResponse = {
@@ -81,7 +83,8 @@ export function useReviewMutation() {
       status: ReviewStatus;
       notes?: string;
     }) => {
-      const res = await fetch(
+      // Must use apiFetch — the PATCH endpoint requires a CSRF token
+      const res = await apiFetch(
         `/api/recurring-reviews/${encodeURIComponent(candidateKey)}`,
         {
           method: "PATCH",
