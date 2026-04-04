@@ -748,6 +748,25 @@ body {
   background: color-mix(in srgb, currentColor 6%, transparent);
 }
 
+.ledger-export-btn {
+  padding: 0.45rem 0.85rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid #2563eb;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  background: white;
+  color: #2563eb;
+  white-space: nowrap;
+  margin-left: auto;
+  transition: background 0.12s, color 0.12s;
+}
+.ledger-export-btn:hover {
+  background: #2563eb;
+  color: white;
+}
+
 .ledger-filter-bar {
   display: flex;
   gap: 0.5rem;
@@ -924,6 +943,32 @@ body {
 .ledger-ai-status--error {
   color: #dc2626;
   font-weight: 500;
+}
+
+.ledger-ai-progress-wrap {
+  position: relative;
+  margin-top: 0.75rem;
+  height: 6px;
+  background: color-mix(in srgb, #2563eb 15%, white);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ledger-ai-progress-bar {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 999px;
+  transition: width 0.12s linear;
+}
+.ledger-ai-progress-bar--done {
+  background: #15803d;
+  transition: width 0.3s ease;
+}
+.ledger-ai-progress-label {
+  position: absolute;
+  top: 9px;
+  left: 0;
+  font-size: 0.75rem;
+  color: #475569;
 }
 
 .ledger-td-category,

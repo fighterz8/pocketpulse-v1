@@ -33,25 +33,30 @@ Given a list of bank transactions, classify each one using ONLY the following ca
 ${V1_CATEGORIES.map((c) => `- ${c}`).join("\n")}
 
 Category definitions:
-- income: Money received — salary, revenue, freelance pay, deposits
-- transfers: Moving money between accounts — Zelle, Venmo, PayPal, wire transfers
-- utilities: Electric, water, gas, internet, phone bills
-- subscriptions: Streaming (Netflix, Spotify), software subscriptions, membership fees
-- insurance: Health, auto, home, life insurance premiums
+- income: Money received — salary, revenue, freelance pay, business deposits
+- transfers: Moving money between own accounts — Zelle, Venmo, PayPal, wire transfers
 - housing: Rent, mortgage payments, HOA fees, home maintenance
-- groceries: Grocery stores, wholesale clubs (Costco), supermarkets
-- transportation: Gas stations, Uber/Lyft, parking, tolls, car maintenance, airlines, hotels
-- dining: Restaurants, coffee shops, food delivery (DoorDash, UberEats), fast food
+- utilities: Electric, water, gas bill, internet, phone bills
+- groceries: Grocery stores, supermarkets, wholesale clubs (Costco)
+- dining: Restaurants, fast food, bars, sit-down meals
+- coffee: Coffee shops — Starbucks, Dunkin, Dutch Bros, cafes
+- delivery: Food delivery apps — DoorDash, UberEats, Grubhub, Postmates
+- convenience: Convenience stores — 7-Eleven, Circle K, Wawa, Sheetz
+- gas: Gas stations — Shell, Exxon, Chevron, BP, fuel purchases
+- parking: Parking garages, lots, meters, ParkWhiz, SpotHero
+- travel: Airlines, hotels, rental cars, Airbnb, booking platforms
+- auto: Uber/Lyft/rideshare, car maintenance, tolls, transit passes, DMV
+- fitness: Gyms, fitness studios, Peloton, yoga, personal training
+- medical: Doctors, dentists, pharmacies, hospitals, therapy, copays, prescriptions
+- insurance: Health, auto, home, life, renters insurance premiums
 - shopping: Retail stores, Amazon, online shopping, clothing, electronics, hardware
-- health: Doctors, dentists, pharmacies, gyms, therapy, medical equipment
-- debt: Loan payments, student loan, credit card payments, financing
-- business_software: SaaS tools, cloud hosting, dev tools, business subscriptions
-- entertainment: Movies, concerts, events, tickets, video games, sports
-- fees: Bank fees, overdraft, ATM fees, late fees, service charges
+- entertainment: Movies, concerts, events, tickets, video games, streaming (Netflix/Hulu)
+- software: SaaS tools, cloud storage, dev tools, productivity apps, Spotify, Adobe
+- fees: Bank fees, overdraft, ATM fees, late fees, loan payments, service charges
 - other: Cannot be determined from available information
 
 For each transaction return:
-- category: one of the 16 values above (use lowercase with underscores)
+- category: one of the 21 values above (use lowercase, no underscores except none needed)
 - transactionClass: "income", "expense", "transfer", or "refund"
 - recurrenceType: "recurring" or "one-time"
 - labelConfidence: 0.0–1.0 (your confidence in this classification)

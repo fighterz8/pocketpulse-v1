@@ -87,13 +87,11 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.85,
   },
 
-  // Debt payments. transactionClass is explicitly set to "expense" so that
-  // "TRANSFER TO AUTO LOAN" (which matches Pass 1 transfer detection) is
-  // correctly overridden back to expense in Pass 6. Without the explicit
-  // transactionClass here the auto-lock would not fire because the
-  // transactionClass from Pass 1 is "transfer", not "income".
+  // Loan / debt payments — categorized as fees (loan payments are outflows, not a separate class)
+  // transactionClass is explicitly set to "expense" so that "TRANSFER TO AUTO LOAN" (which
+  // matches Pass 1 transfer detection) is correctly overridden back to expense in Pass 6.
   {
-    category: "debt",
+    category: "fees",
     transactionClass: "expense",
     keywords: [
       "loan payment",
@@ -128,7 +126,6 @@ const CATEGORY_RULES: CategoryRule[] = [
       "sofi loan",
       "earnest loan",
       "personal loan",
-      "debt",
     ],
     confidence: 0.9,
   },
@@ -171,43 +168,22 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.9,
   },
 
-  // Subscriptions & streaming (before business_software so netflix etc. win)
+  // Entertainment subscriptions & streaming (before software so media wins)
   {
-    category: "subscriptions",
+    category: "entertainment",
+    recurrenceType: "recurring",
     keywords: [
       "netflix",
-      "spotify",
       "hulu",
       "disney+",
       "disney plus",
       "disneyplus",
-      "apple music",
-      "apple tv",
-      "apple one",
-      "youtube premium",
-      "youtube music",
       "hbo max",
       "max.com",
       "paramount+",
       "paramount plus",
       "peacock",
       "peacocktv",
-      "audible",
-      "kindle unlimited",
-      "amazon prime",
-      "amazon music",
-      "siriusxm",
-      "pandora",
-      "tidal",
-      "deezer",
-      "icloud",
-      "google one",
-      "google storage",
-      "microsoft 365",
-      "office 365",
-      "xbox game pass",
-      "playstation plus",
-      "nintendo switch online",
       "crunchyroll",
       "funimation",
       "mubi",
@@ -218,18 +194,50 @@ const CATEGORY_RULES: CategoryRule[] = [
       "philo",
       "sling tv",
       "directv stream",
-      "subscription",
+      "xbox game pass",
+      "playstation plus",
+      "nintendo switch online",
+      "twitch",
       "substack",
       "patreon",
       "onlyfans",
+    ],
+    confidence: 0.9,
+  },
+
+  // Software / cloud / productivity subscriptions
+  {
+    category: "software",
+    recurrenceType: "recurring",
+    keywords: [
+      "spotify",
+      "apple music",
+      "apple tv",
+      "apple one",
+      "youtube premium",
+      "youtube music",
+      "amazon music",
+      "siriusxm",
+      "pandora",
+      "tidal",
+      "deezer",
+      "audible",
+      "kindle unlimited",
+      "amazon prime",
+      "icloud",
+      "google one",
+      "google storage",
+      "microsoft 365",
+      "office 365",
       "masterclass",
+      "subscription",
     ],
     confidence: 0.9,
   },
 
   // Business software / SaaS
   {
-    category: "business_software",
+    category: "software",
     keywords: [
       "github",
       "gitlab",
@@ -407,9 +415,9 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.85,
   },
 
-  // Travel (before transportation/dining to catch airlines, hotels first)
+  // Travel — flights, hotels, rental cars, booking platforms
   {
-    category: "transportation",
+    category: "travel",
     keywords: [
       "airline",
       "airways",
@@ -460,6 +468,8 @@ const CATEGORY_RULES: CategoryRule[] = [
       "hotwire",
       "trivago",
       "orbitz",
+      "airbnb",
+      "vrbo",
       "amtrak",
       "greyhound",
       "megabus",
@@ -474,6 +484,14 @@ const CATEGORY_RULES: CategoryRule[] = [
       "dollar rental",
       "zipcar",
       "turo",
+    ],
+    confidence: 0.85,
+  },
+
+  // Gas stations
+  {
+    category: "gas",
+    keywords: [
       "gas station",
       "shell ",
       "exxon",
@@ -482,13 +500,8 @@ const CATEGORY_RULES: CategoryRule[] = [
       "mobil",
       "citgo",
       "sunoco",
-      "wawa",
       "speedway",
       "marathon gas",
-      "casey's general",
-      "kwik trip",
-      "circle k",
-      "7-eleven gas",
       "racetrac",
       "pilot flying j",
       "loves travel",
@@ -496,15 +509,36 @@ const CATEGORY_RULES: CategoryRule[] = [
       "fuel",
       "gasoline",
       "petrol",
+    ],
+    confidence: 0.85,
+  },
+
+  // Parking
+  {
+    category: "parking",
+    keywords: [
+      "parking",
+      "park & ride",
+      "parkwhiz",
+      "spothero",
+      "parkmobile",
+      "bestparking",
+      "laparking",
+      "impark",
+      "indigo park",
+    ],
+    confidence: 0.85,
+  },
+
+  // Auto — rideshare, car maintenance, tolls, transit
+  {
+    category: "auto",
+    keywords: [
       "uber",
       "lyft",
       "taxi",
       "cab ",
       "rideshare",
-      "parking",
-      "park & ride",
-      "parkwhiz",
-      "spothero",
       "toll",
       "e-zpass",
       "ezpass",
@@ -622,7 +656,78 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.85,
   },
 
-  // Dining
+  // Coffee shops (before dining so Starbucks/Dunkin win here)
+  {
+    category: "coffee",
+    keywords: [
+      "starbucks",
+      "sbux",
+      "dunkin",
+      "dunkin donuts",
+      "dunkin'",
+      "dutch bros",
+      "peet's coffee",
+      "peets coffee",
+      "caribou coffee",
+      "tim hortons",
+      "coffee bean",
+      "biggby",
+      "scooter's coffee",
+      "human bean",
+      "black rock coffee",
+      "portafilter",
+      "coffee shop",
+      "cafe ",
+      "espresso",
+    ],
+    confidence: 0.85,
+  },
+
+  // Food delivery apps (before dining so DoorDash/UberEats win here)
+  {
+    category: "delivery",
+    keywords: [
+      "doordash",
+      "ubereats",
+      "uber eats",
+      "grubhub",
+      "postmates",
+      "seamless",
+      "caviar food",
+      "drizly",
+      "gopuff",
+      "instacart",
+      "shipt",
+    ],
+    confidence: 0.9,
+  },
+
+  // Convenience stores (before dining so 7-Eleven wins here)
+  {
+    category: "convenience",
+    keywords: [
+      "7-eleven",
+      "7 eleven",
+      "7-11",
+      "circle k",
+      "wawa",
+      "kwik trip",
+      "kwik star",
+      "casey's general",
+      "casey's",
+      "sheetz",
+      "holiday station",
+      "cumberland farms",
+      "thorntons",
+      "united dairy farmers",
+      "sunoco",
+      "bp convenience",
+      "exxon convenience",
+    ],
+    confidence: 0.85,
+  },
+
+  // Dining — sit-down restaurants, fast food, cafes, bars
   {
     category: "dining",
     keywords: [
@@ -631,10 +736,6 @@ const CATEGORY_RULES: CategoryRule[] = [
       "mcdonald",
       "mcdonalds",
       "mcd ",
-      "starbucks",
-      "sbux",
-      "dunkin",
-      "dunkin donuts",
       "subway sandwich",
       "domino",
       "pizza hut",
@@ -644,24 +745,10 @@ const CATEGORY_RULES: CategoryRule[] = [
       "burger king",
       "burger",
       "taco bell",
-      "7-eleven",
-      "7 eleven",
-      "7-11",
       "wendy",
       "chick-fil-a",
       "chickfila",
       "panera",
-      "grubhub",
-      "doordash",
-      "ubereats",
-      "uber eats",
-      "postmates",
-      "instacart",
-      "drizly",
-      "seamless",
-      "caviar food",
-      "cafe",
-      "coffee",
       "diner",
       "grill ",
       "kitchen",
@@ -740,13 +827,14 @@ const CATEGORY_RULES: CategoryRule[] = [
       "sandwich",
       "sub shop",
       "catering",
+      "coffee",
     ],
     confidence: 0.8,
   },
 
-  // Health & Medical
+  // Medical — pharmacies, doctors, hospitals, dental, vision, mental health
   {
-    category: "health",
+    category: "medical",
     keywords: [
       "pharmacy",
       "cvs",
@@ -785,9 +873,30 @@ const CATEGORY_RULES: CategoryRule[] = [
       "talkspace",
       "betterhelp",
       "cerebral health",
-      "noom",
-      "weight watcher",
-      "nutrisystem",
+      "lab work",
+      "blood test",
+      "x-ray",
+      "radiology",
+      "surgery",
+      "anesthesia",
+      "copay",
+      "co-pay",
+      "prescription",
+      "rx",
+      "vitamin",
+      "supplement",
+      "gnc",
+      "vitamin shoppe",
+      "healthcare",
+    ],
+    confidence: 0.8,
+  },
+
+  // Fitness — gyms, wellness studios, fitness apps
+  {
+    category: "fitness",
+    recurrenceType: "recurring",
+    keywords: [
       "gym",
       "fitness",
       "planet fitness",
@@ -812,30 +921,17 @@ const CATEGORY_RULES: CategoryRule[] = [
       "chiropractor",
       "physical therapy",
       "rehabilitation",
-      "lab work",
-      "blood test",
-      "x-ray",
-      "radiology",
-      "surgery",
-      "anesthesia",
-      "copay",
-      "co-pay",
-      "prescription",
-      "rx",
-      "vitamin",
-      "supplement",
-      "gnc",
-      "vitamin shoppe",
-      "natural health",
-      "health food",
-      "healthcare",
+      "noom",
+      "weight watcher",
+      "nutrisystem",
     ],
-    confidence: 0.8,
+    confidence: 0.82,
   },
 
-  // Online education subscriptions
+  // Online education & learning tools → software
   {
-    category: "subscriptions",
+    category: "software",
+    recurrenceType: "recurring",
     keywords: [
       "coursera",
       "udemy",
@@ -850,7 +946,6 @@ const CATEGORY_RULES: CategoryRule[] = [
       "chegg",
       "course hero",
       "quizlet",
-      "masterclass",
       "brilliant.org",
       "duolingo",
     ],

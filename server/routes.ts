@@ -725,6 +725,71 @@ export function createApp(options?: CreateAppOptions) {
     }
   });
 
+  // Export filtered ledger as CSV
+  app.get("/api/transactions/export", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const q = req.query as Record<string, string>;
+
+      const [rows, userAccounts] = await Promise.all([
+        listAllTransactionsForExport({
+          userId,
+          accountId: q.accountId ? parseInt(q.accountId) : undefined,
+          search: q.search || undefined,
+          category: q.category || undefined,
+          transactionClass: q.transactionClass || undefined,
+          recurrenceType: q.recurrenceType || undefined,
+          dateFrom: q.dateFrom || undefined,
+          dateTo: q.dateTo || undefined,
+          excluded: (q.excluded as "true" | "false" | "all") || undefined,
+        }),
+        listAccountsForUser(userId),
+      ]);
+
+      const accountMap = new Map(userAccounts.map((a) => [a.id, a.label]));
+
+      const header = [
+        "Date",
+        "Merchant",
+        "Amount",
+        "Category",
+        "Class",
+        "Recurrence",
+        "Account",
+        "Excluded",
+      ].join(",");
+
+      const escape = (v: string | number | boolean | null | undefined) => {
+        const s = String(v ?? "");
+        return s.includes(",") || s.includes('"') || s.includes("\n")
+          ? `"${s.replace(/"/g, '""')}"`
+          : s;
+      };
+
+      const csvLines = rows.map((r) =>
+        [
+          escape(r.date),
+          escape(r.merchant),
+          escape(r.amount),
+          escape(r.category),
+          escape(r.transactionClass),
+          escape(r.recurrenceType),
+          escape(accountMap.get(r.accountId ?? 0) ?? ""),
+          escape(r.excludedFromAnalysis ? "yes" : "no"),
+        ].join(","),
+      );
+
+      const csv = [header, ...csvLines].join("\n");
+      const filename = `pocketpulse-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Destructive actions (Phase 3)
   // -----------------------------------------------------------------------

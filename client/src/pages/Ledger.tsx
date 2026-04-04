@@ -63,6 +63,8 @@ export function Ledger() {
   const [wipeConfirm, setWipeConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [reclassifyResult, setReclassifyResult] = useState<{ updated: number; total: number } | null>(null);
+  const [aiProgress, setAiProgress] = useState(0);
+  const aiProgressRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const {
     transactions,
@@ -99,6 +101,51 @@ export function Ledger() {
     setFilters({ page: 1, limit: 50 });
   };
 
+  useEffect(() => {
+    if (reclassify.isPending) {
+      setAiProgress(0);
+      const start = Date.now();
+      const DURATION = 35_000;
+      const MAX_PCT = 92;
+      aiProgressRef.current = setInterval(() => {
+        const elapsed = Date.now() - start;
+        const pct = Math.min(MAX_PCT, (elapsed / DURATION) * MAX_PCT);
+        setAiProgress(pct);
+      }, 120);
+    } else {
+      if (aiProgressRef.current) {
+        clearInterval(aiProgressRef.current);
+        aiProgressRef.current = null;
+      }
+      if (aiProgress > 0) {
+        setAiProgress(100);
+        setTimeout(() => setAiProgress(0), 1200);
+      }
+    }
+    return () => {
+      if (aiProgressRef.current) clearInterval(aiProgressRef.current);
+    };
+  }, [reclassify.isPending]);
+
+  const handleExport = () => {
+    const params = new URLSearchParams();
+    if (filters.search)          params.set("search", filters.search);
+    if (filters.category)        params.set("category", filters.category);
+    if (filters.transactionClass) params.set("transactionClass", filters.transactionClass);
+    if (filters.recurrenceType)  params.set("recurrenceType", filters.recurrenceType);
+    if (filters.dateFrom)        params.set("dateFrom", filters.dateFrom);
+    if (filters.dateTo)          params.set("dateTo", filters.dateTo);
+    if (filters.excluded)        params.set("excluded", filters.excluded);
+    if (filters.accountId)       params.set("accountId", String(filters.accountId));
+    const url = `/api/transactions/export?${params.toString()}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   return (
     <>
       <h1 className="app-page-title">Ledger</h1>
@@ -117,6 +164,14 @@ export function Ledger() {
               Clear filters
             </button>
           )}
+          <button
+            className="ledger-export-btn"
+            onClick={handleExport}
+            data-testid="btn-export-csv"
+            title="Download filtered ledger as CSV"
+          >
+            Export CSV
+          </button>
         </div>
 
         <div className="ledger-filter-bar">
@@ -217,15 +272,25 @@ export function Ledger() {
             disabled={reclassify.isPending}
             data-testid="btn-reclassify"
           >
-            {reclassify.isPending ? "Running AI categorization..." : "Re-run AI Categorization"}
+            {reclassify.isPending ? "Analyzing…" : "Re-run AI Categorization"}
           </button>
         </div>
-        {reclassify.isPending && (
-          <p className="ledger-ai-status">
-            Analyzing merchants and assigning categories — this may take 15–30 seconds for large datasets.
-          </p>
+
+        {(reclassify.isPending || aiProgress > 0) && (
+          <div className="ledger-ai-progress-wrap">
+            <div
+              className={`ledger-ai-progress-bar${aiProgress >= 100 ? " ledger-ai-progress-bar--done" : ""}`}
+              style={{ width: `${aiProgress}%` }}
+            />
+            <span className="ledger-ai-progress-label">
+              {aiProgress >= 100
+                ? "Complete"
+                : `Analyzing merchants… ${Math.round(aiProgress)}%`}
+            </span>
+          </div>
         )}
-        {reclassifyResult && !reclassify.isPending && (
+
+        {reclassifyResult && !reclassify.isPending && aiProgress === 0 && (
           <p className="ledger-ai-status ledger-ai-status--success">
             Done — updated {reclassifyResult.updated} of {reclassifyResult.total} transactions.
           </p>
