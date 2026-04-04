@@ -361,22 +361,35 @@ export function Dashboard() {
         {/* Expense Leaks — links to /leaks page */}
         <GlassCard className="flex flex-col justify-between" index={2} href="/leaks">
           <div>
-            <p className="kpi-label">Expense Leaks</p>
-            <p data-testid="leak-count" className="dash-hero-value text-slate-900">
-              {expenseLeaks.count > 0 ? expenseLeaks.count : "—"}
-            </p>
-            <p className="text-sm text-slate-500 mt-1">
-              {expenseLeaks.count > 0
-                ? `${expenseLeaks.count} recurring charge${expenseLeaks.count !== 1 ? "s" : ""} marked as leaks`
-                : "No leaks flagged yet"}
-            </p>
-            {expenseLeaks.monthlyAmount > 0 && (
-              <p className="text-sm text-red-500 font-semibold mt-1">
-                ~{currency(expenseLeaks.monthlyAmount / Math.max(1, totals.periodDays / 30))}/mo in recurring charges
-              </p>
+            <p className="kpi-label">Subscription Review</p>
+            {expenseLeaks.count > 0 ? (
+              <>
+                <p data-testid="leak-count" className="dash-hero-value text-red-500">
+                  {expenseLeaks.count}
+                </p>
+                <p className="text-sm text-slate-500 mt-1">
+                  {expenseLeaks.count} recurring charge{expenseLeaks.count !== 1 ? "s" : ""} flagged as leaks
+                </p>
+                {expenseLeaks.monthlyAmount > 0 && (
+                  <p className="text-sm text-red-500 font-semibold mt-1">
+                    ~{currency(expenseLeaks.monthlyAmount / Math.max(1, totals.periodDays / 30))}/mo wasted
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p data-testid="leak-count" className="dash-hero-value text-slate-400 text-3xl leading-tight mt-1">
+                  Review needed
+                </p>
+                <p className="text-sm text-slate-500 mt-1">
+                  Recurring charges are waiting for your review — you may find subscriptions you forgot about.
+                </p>
+              </>
             )}
           </div>
-          <p className="kpi-drill">Review recurring →</p>
+          <p className="kpi-drill">
+            {expenseLeaks.count > 0 ? "See flagged leaks →" : "Start reviewing →"}
+          </p>
         </GlassCard>
       </div>
 

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
+import { Link } from "wouter";
 
 import {
   useRecurringCandidates,
@@ -8,6 +9,8 @@ import {
   type RecurringCandidate,
   type ReviewStatus,
 } from "../hooks/use-recurring";
+
+import { useAvailableMonths, formatMonthLabel } from "../hooks/use-dashboard";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -41,21 +44,24 @@ function dayLabel(days: number): string {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  software: "bg-violet-100 text-violet-700",
-  utilities: "bg-sky-100 text-sky-700",
-  fitness: "bg-green-100 text-green-700",
-  insurance: "bg-blue-100 text-blue-700",
+  software:      "bg-violet-100 text-violet-700",
+  utilities:     "bg-sky-100 text-sky-700",
+  fitness:       "bg-green-100 text-green-700",
+  insurance:     "bg-blue-100 text-blue-700",
   entertainment: "bg-pink-100 text-pink-700",
-  dining: "bg-orange-100 text-orange-700",
-  medical: "bg-red-100 text-red-700",
-  housing: "bg-amber-100 text-amber-700",
-  shopping: "bg-lime-100 text-lime-700",
-  other: "bg-slate-100 text-slate-600",
+  dining:        "bg-orange-100 text-orange-700",
+  medical:       "bg-red-100 text-red-700",
+  housing:       "bg-amber-100 text-amber-700",
+  shopping:      "bg-lime-100 text-lime-700",
+  other:         "bg-slate-100 text-slate-600",
 };
 
 function categoryColor(cat: string): string {
   return CATEGORY_COLORS[cat] ?? "bg-slate-100 text-slate-600";
 }
+
+// These categories are automatically handled and hidden from the main review queue.
+const AUTO_HIDDEN_CATEGORIES = new Set(["housing"]);
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -70,9 +76,9 @@ const fadeUp = {
 type FilterTab = "all" | "active" | ReviewStatus;
 
 const TABS: { key: FilterTab; label: string }[] = [
+  { key: "unreviewed",  label: "Unreviewed" },
   { key: "all",         label: "All" },
   { key: "active",      label: "Active" },
-  { key: "unreviewed",  label: "Unreviewed" },
   { key: "essential",   label: "Essential" },
   { key: "leak",        label: "Leaks" },
   { key: "dismissed",   label: "Not Recurring" },
@@ -82,6 +88,63 @@ function applyFilter(candidates: RecurringCandidate[], tab: FilterTab): Recurrin
   if (tab === "all")    return candidates;
   if (tab === "active") return candidates.filter((c) => c.isActive);
   return candidates.filter((c) => c.reviewStatus === tab);
+}
+
+/** Filter candidates active during the selected month (or all if no month selected). */
+function applyMonthFilter(candidates: RecurringCandidate[], month: string | null): RecurringCandidate[] {
+  if (!month) return candidates;
+  const [yr, mo] = month.split("-").map(Number);
+  const monthStart = new Date(yr, mo - 1, 1).toISOString().slice(0, 10);
+  const monthEnd   = new Date(yr, mo, 0).toISOString().slice(0, 10);
+  return candidates.filter(
+    (c) => c.firstSeen <= monthEnd && c.lastSeen >= monthStart
+  );
+}
+
+// ─── Month pill selector ──────────────────────────────────────────────────────
+
+function MonthPills({
+  months,
+  selected,
+  onSelect,
+}: {
+  months: { month: string }[];
+  selected: string | null;
+  onSelect: (m: string | null) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div
+      ref={scrollRef}
+      className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide"
+      data-testid="month-pills"
+    >
+      <button
+        data-testid="month-pill-all"
+        onClick={() => onSelect(null)}
+        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap
+          ${!selected
+            ? "bg-blue-600 text-white border-blue-600"
+            : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"}`}
+      >
+        All months
+      </button>
+      {months.map(({ month }) => (
+        <button
+          key={month}
+          data-testid={`month-pill-${month}`}
+          onClick={() => onSelect(month === selected ? null : month)}
+          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap
+            ${selected === month
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"}`}
+        >
+          {formatMonthLabel(month)}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ─── Summary KPI bar ─────────────────────────────────────────────────────────
@@ -260,12 +323,14 @@ function CandidateCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function Leaks() {
-  const [activeTab, setActiveTab] = useState<FilterTab>("unreviewed");
-  const [sortBy, setSortBy] = useState<"cost" | "confidence" | "lastSeen">("cost");
+  const [activeTab, setActiveTab]   = useState<FilterTab>("unreviewed");
+  const [sortBy, setSortBy]         = useState<"cost" | "confidence" | "lastSeen">("cost");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useRecurringCandidates();
-  const reviewMutation  = useReviewMutation();
-  const syncMutation    = useSyncRecurringMutation();
+  const { data, isLoading, error }  = useRecurringCandidates();
+  const { data: months = [] }       = useAvailableMonths();
+  const reviewMutation              = useReviewMutation();
+  const syncMutation                = useSyncRecurringMutation();
 
   const handleReview = (candidateKey: string, status: ReviewStatus) => {
     reviewMutation.mutate({ candidateKey, status });
@@ -273,7 +338,6 @@ export function Leaks() {
 
   const handleSync = () => { syncMutation.mutate(); };
 
-  // ── Sort
   function sortCandidates(list: RecurringCandidate[]): RecurringCandidate[] {
     return [...list].sort((a, b) => {
       if (sortBy === "cost")       return b.monthlyEquivalent - a.monthlyEquivalent;
@@ -310,14 +374,38 @@ export function Leaks() {
     <div>{pageHeader}<p className="leaks-loading">Analyzing transaction patterns…</p></div>
   );
 
-  const { candidates, summary } = data;
-  const filtered = sortCandidates(applyFilter(candidates, activeTab));
+  const { summary } = data;
+
+  // Remove auto-hidden categories (housing) from the reviewable list entirely.
+  // They're necessary expenses — no review needed.
+  const reviewableCandidates = data.candidates.filter(
+    (c) => !AUTO_HIDDEN_CATEGORIES.has(c.category)
+  );
+  const hiddenCount = data.candidates.length - reviewableCandidates.length;
+
+  // Apply month filter, then tab filter, then sort.
+  const monthFiltered = applyMonthFilter(reviewableCandidates, selectedMonth);
+  const filtered      = sortCandidates(applyFilter(monthFiltered, activeTab));
+
+  // Unreviewed count only over reviewable+month-filtered candidates (for the tab badge).
+  const unreviewedInView = monthFiltered.filter((c) => c.reviewStatus === "unreviewed").length;
 
   return (
     <div>
       {pageHeader}
 
       <SummaryBar summary={summary} />
+
+      {/* Month range selector */}
+      {months.length > 0 && (
+        <motion.div className="mb-4" variants={fadeUp} initial="hidden" animate="visible" custom={1}>
+          <MonthPills
+            months={[...months].reverse()}
+            selected={selectedMonth}
+            onSelect={setSelectedMonth}
+          />
+        </motion.div>
+      )}
 
       {/* Tabs + sort */}
       <motion.div className="flex items-center justify-between gap-3 mb-3 flex-wrap"
@@ -336,9 +424,9 @@ export function Leaks() {
                   {summary.leak}
                 </span>
               )}
-              {tab.key === "unreviewed" && summary.unreviewed > 0 && (
+              {tab.key === "unreviewed" && unreviewedInView > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-white text-[9px] font-bold">
-                  {summary.unreviewed}
+                  {unreviewedInView}
                 </span>
               )}
             </button>
@@ -370,11 +458,37 @@ export function Leaks() {
 
       {/* Cards */}
       {filtered.length === 0 ? (
-        <motion.p className="leaks-empty" variants={fadeUp} initial="hidden" animate="visible" custom={3}>
-          {activeTab === "all"
-            ? "No recurring patterns detected. Upload more transactions for better results."
-            : `No ${activeTab === "active" ? "active" : activeTab} candidates.`}
-        </motion.p>
+        <motion.div
+          className="glass-card text-center py-10"
+          variants={fadeUp} initial="hidden" animate="visible" custom={3}
+        >
+          {activeTab === "unreviewed" ? (
+            <>
+              <p className="text-2xl mb-2">✓</p>
+              <p className="font-semibold text-slate-700 mb-1">All caught up!</p>
+              <p className="text-sm text-slate-500">
+                {selectedMonth
+                  ? `No unreviewed subscriptions in ${formatMonthLabel(selectedMonth)}.`
+                  : "Every recurring charge has been reviewed. Switch to the Leaks tab to see what you've flagged."}
+              </p>
+            </>
+          ) : activeTab === "all" ? (
+            <>
+              <p className="text-2xl mb-2">📭</p>
+              <p className="font-semibold text-slate-700 mb-1">No recurring patterns detected</p>
+              <p className="text-sm text-slate-500">
+                {selectedMonth
+                  ? `No recurring charges found in ${formatMonthLabel(selectedMonth)}.`
+                  : "Upload more bank statements to detect recurring charges."}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">
+              No {activeTab === "active" ? "active" : activeTab} candidates
+              {selectedMonth ? ` in ${formatMonthLabel(selectedMonth)}` : ""}.
+            </p>
+          )}
+        </motion.div>
       ) : (
         <div className="flex flex-col gap-3">
           {filtered.map((c, i) => (
@@ -387,6 +501,16 @@ export function Leaks() {
             />
           ))}
         </div>
+      )}
+
+      {/* Note about auto-handled categories */}
+      {hiddenCount > 0 && (
+        <motion.p
+          className="mt-4 text-xs text-slate-400 text-center"
+          variants={fadeUp} initial="hidden" animate="visible" custom={10}
+        >
+          {hiddenCount} housing charge{hiddenCount !== 1 ? "s" : ""} automatically categorized as a recurring essential — no review needed.
+        </motion.p>
       )}
     </div>
   );

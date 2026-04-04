@@ -1,11 +1,36 @@
 import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "../../lib/utils";
+import { useRecurringCandidates } from "../../hooks/use-recurring";
+
+function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
+  // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
+  const { data } = useRecurringCandidates();
+  const unreviewedCount = data?.summary.unreviewed ?? 0;
+  const needsReview = unreviewedCount > 0;
+
+  return (
+    <Link
+      href={href}
+      data-testid="nav-link-recurring-leak-review"
+      className={cn("app-nav-link", isActive && "app-nav-link--active")}
+    >
+      <span className="flex items-center gap-2">
+        {label}
+        {needsReview && (
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+          </span>
+        )}
+      </span>
+    </Link>
+  );
+}
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/transactions", label: "Ledger" },
-  { href: "/leaks", label: "Recurring Leak Review" },
   { href: "/upload", label: "Upload" },
 ] as const;
 
@@ -44,6 +69,14 @@ export function AppLayout({
                 </li>
               );
             })}
+            {/* Recurring Leak Review — gets a live indicator dot when items need review */}
+            <li>
+              <RecurringNavItem
+                href="/leaks"
+                label="Recurring & Leaks"
+                isActive={location === "/leaks"}
+              />
+            </li>
           </ul>
         </nav>
 
