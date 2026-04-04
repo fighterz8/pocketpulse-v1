@@ -4,6 +4,7 @@ module.exports = {
     "./client/**/*.{ts,tsx,js,jsx}",
     "./client/index.html",
   ],
+  darkMode: "class",
   corePlugins: {
     preflight: false,
   },

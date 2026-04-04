@@ -5,6 +5,7 @@ import { DEV_MODE_ENABLED } from "@shared/devConfig";
 import { cn } from "../../lib/utils";
 import { useRecurringCandidates } from "../../hooks/use-recurring";
 import { useAuth } from "../../hooks/use-auth";
+import { useTheme } from "../../hooks/use-theme";
 
 function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
   // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
@@ -62,6 +63,7 @@ export function AppLayout({
 }) {
   const [location] = useLocation();
   const { user } = useAuth();
+  const { isDark, toggleDark } = useTheme();
   const showAccuracy = DEV_MODE_ENABLED && user?.isDev === true;
 
   return (
@@ -132,6 +134,24 @@ export function AppLayout({
         </nav>
 
         <div className="app-sidebar-footer">
+          <button
+            type="button"
+            className="app-theme-toggle"
+            onClick={toggleDark}
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            data-testid="btn-theme-toggle"
+          >
+            {isDark ? (
+              <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" width="15" height="15">
+                <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4.22 1.78a1 1 0 011.42 1.42l-.7.7a1 1 0 11-1.42-1.42l.7-.7zM18 9a1 1 0 110 2h-1a1 1 0 110-2h1zM4.22 15.78a1 1 0 001.42-1.42l-.7-.7a1 1 0 00-1.42 1.42l.7.7zM11 17a1 1 0 11-2 0v-1a1 1 0 112 0v1zM4.22 4.22a1 1 0 00-1.42 1.42l.7.7a1 1 0 001.42-1.42l-.7-.7zM3 10a1 1 0 110 2H2a1 1 0 110-2h1zm11.78 5.78a1 1 0 001.42-1.42l-.7-.7a1 1 0 00-1.42 1.42l.7.7zM10 6a4 4 0 100 8 4 4 0 000-8z" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" width="15" height="15">
+                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+              </svg>
+            )}
+            {isDark ? "Light mode" : "Dark mode"}
+          </button>
           <button
             type="button"
             className="app-nav-logout"

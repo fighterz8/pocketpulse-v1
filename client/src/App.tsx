@@ -3,6 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
 import { AppLayout } from "./components/layout/AppLayout";
 import { useAuth } from "./hooks/use-auth";
+import { useTheme } from "./hooks/use-theme";
 import { AccountSetup } from "./pages/AccountSetup";
 import { Auth } from "./pages/Auth";
 import { AccuracyReport } from "./pages/AccuracyReport";
@@ -112,11 +113,17 @@ function AppGate() {
   return <AppAuthenticated />;
 }
 
+function ThemeInit() {
+  useTheme();
+  return null;
+}
+
 export function App() {
   const [queryClient] = useState(() => createQueryClient());
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeInit />
       <div className={cn("app-shell")} data-testid="app-root">
         <AppGate />
       </div>

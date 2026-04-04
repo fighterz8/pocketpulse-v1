@@ -11,11 +11,10 @@
   background-color: #f8fafc;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #e2e8f0;
-    background-color: #0f172a;
-  }
+html.dark {
+  color-scheme: dark;
+  color: #e2e8f0;
+  background-color: #0f172a;
 }
 
 *,
@@ -43,7 +42,7 @@ body {
   display: block;
   min-height: 100vh;
   isolation: isolate;
-  color-scheme: light;
+  color-scheme: light dark;
   color: #0f172a;
   background:
     radial-gradient(circle at 16% 18%, rgb(125 211 252 / 0.28), transparent 32%),
@@ -1145,13 +1144,11 @@ body {
   color: #dc2626;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-amount--inflow {
-    color: #4ade80;
-  }
-  .ledger-amount--outflow {
-    color: #f87171;
-  }
+html.dark .ledger-amount--inflow {
+  color: #4ade80;
+}
+html.dark .ledger-amount--outflow {
+  color: #f87171;
 }
 
 .ledger-ai-section {
@@ -1531,11 +1528,9 @@ body {
   color: #92400e;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-exclude-toggle--active {
-    background: color-mix(in srgb, #f59e0b 22%, transparent);
-    color: #fcd34d;
-  }
+html.dark .ledger-exclude-toggle--active {
+  background: color-mix(in srgb, #f59e0b 22%, transparent);
+  color: #fcd34d;
 }
 
 /* Export button */
@@ -1558,12 +1553,10 @@ body {
   background: color-mix(in srgb, #16a34a 14%, transparent);
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-export-btn {
-    color: #4ade80;
-    border-color: color-mix(in srgb, #4ade80 30%, transparent);
-    background: color-mix(in srgb, #4ade80 10%, transparent);
-  }
+html.dark .ledger-export-btn {
+  color: #4ade80;
+  border-color: color-mix(in srgb, #4ade80 30%, transparent);
+  background: color-mix(in srgb, #4ade80 10%, transparent);
 }
 
 /* Danger zone */
@@ -1583,10 +1576,8 @@ body {
   color: #dc2626;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-danger-title {
-    color: #f87171;
-  }
+html.dark .ledger-danger-title {
+  color: #f87171;
 }
 
 .ledger-danger-actions {
@@ -1616,10 +1607,8 @@ body {
   color: #dc2626;
 }
 
-@media (prefers-color-scheme: dark) {
-  .ledger-danger-btn--warn {
-    color: #f87171;
-  }
+html.dark .ledger-danger-btn--warn {
+  color: #f87171;
 }
 
 .ledger-danger-btn--warn:hover:not(:disabled) {
@@ -1796,10 +1785,8 @@ body {
   color: #d97706;
 }
 
-@media (prefers-color-scheme: dark) {
-  .leaks-card-amount {
-    color: #fbbf24;
-  }
+html.dark .leaks-card-amount {
+  color: #fbbf24;
 }
 
 .leaks-card-freq {
@@ -1838,13 +1825,11 @@ body {
   opacity: 0.7;
 }
 
-@media (prefers-color-scheme: dark) {
-  .leaks-confidence--high {
-    color: #4ade80;
-  }
-  .leaks-confidence--medium {
-    color: #fbbf24;
-  }
+html.dark .leaks-confidence--high {
+  color: #4ade80;
+}
+html.dark .leaks-confidence--medium {
+  color: #fbbf24;
 }
 
 .leaks-card-category {
@@ -1937,23 +1922,21 @@ body {
   opacity: 1;
 }
 
-@media (prefers-color-scheme: dark) {
-  .leaks-action-btn--essential {
-    color: #4ade80;
-    border-color: color-mix(in srgb, #4ade80 30%, transparent);
-  }
-  .leaks-action-btn--essential.leaks-action-btn--active {
-    background: #16a34a;
-    color: #fff;
-  }
-  .leaks-action-btn--leak {
-    color: #fbbf24;
-    border-color: color-mix(in srgb, #fbbf24 30%, transparent);
-  }
-  .leaks-action-btn--leak.leaks-action-btn--active {
-    background: #d97706;
-    color: #fff;
-  }
+html.dark .leaks-action-btn--essential {
+  color: #4ade80;
+  border-color: color-mix(in srgb, #4ade80 30%, transparent);
+}
+html.dark .leaks-action-btn--essential.leaks-action-btn--active {
+  background: #16a34a;
+  color: #fff;
+}
+html.dark .leaks-action-btn--leak {
+  color: #fbbf24;
+  border-color: color-mix(in srgb, #fbbf24 30%, transparent);
+}
+html.dark .leaks-action-btn--leak.leaks-action-btn--active {
+  background: #d97706;
+  color: #fff;
 }
 
 .leaks-empty {
@@ -1978,10 +1961,8 @@ body {
   font-weight: 500;
 }
 
-@media (prefers-color-scheme: dark) {
-  .leaks-error {
-    color: #f87171;
-  }
+html.dark .leaks-error {
+  color: #f87171;
 }
 
 /* ─── New leak action buttons ────────────────────────────────────────────── */
@@ -2774,4 +2755,336 @@ body {
   .acc-metrics-grid { grid-template-columns: 1fr; }
   .acc-merchants-table th:last-child,
   .acc-merchants-table td:last-child { display: none; }
+}
+
+/* ─── Theme Toggle Button ────────────────────────────────────────── */
+
+.app-theme-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: left;
+  border: 1px solid rgb(15 23 42 / 0.10);
+  border-radius: 0.45rem;
+  cursor: pointer;
+  background: rgb(255 255 255 / 0.45);
+  color: #64748b;
+  transition: background 120ms ease, color 120ms ease;
+  margin-bottom: 0.4rem;
+}
+
+.app-theme-toggle:hover {
+  background: rgb(255 255 255 / 0.75);
+  color: #334155;
+}
+
+/* ─── Dark Mode Overrides ────────────────────────────────────────── */
+
+html.dark .app-protected {
+  color: #e2e8f0;
+  background:
+    radial-gradient(circle at 16% 18%, rgb(14 165 233 / 0.12), transparent 32%),
+    radial-gradient(circle at 84% 20%, rgb(37 99 235 / 0.10), transparent 30%),
+    radial-gradient(circle at 76% 78%, rgb(30 64 175 / 0.10), transparent 28%),
+    linear-gradient(145deg, #0f172a 0%, #111827 40%, #0f172a 100%);
+}
+
+html.dark .app-sidebar {
+  border-right-color: rgb(255 255 255 / 0.06);
+  background: linear-gradient(
+    180deg,
+    rgb(15 23 42 / 0.88),
+    rgb(15 23 42 / 0.75)
+  );
+  box-shadow: 2px 0 12px rgb(0 0 0 / 0.25);
+}
+
+html.dark .app-nav-brand {
+  color: #f1f5f9;
+}
+
+html.dark .app-nav-link {
+  color: #94a3b8;
+}
+
+html.dark .app-nav-link:hover {
+  background: rgb(255 255 255 / 0.07);
+  color: #e2e8f0;
+}
+
+html.dark .app-nav-link--active {
+  background: #2563eb;
+  color: #ffffff !important;
+}
+
+html.dark .app-sidebar-footer {
+  border-top-color: rgb(255 255 255 / 0.08);
+}
+
+html.dark .app-theme-toggle {
+  border-color: rgb(255 255 255 / 0.10);
+  background: rgb(255 255 255 / 0.05);
+  color: #94a3b8;
+}
+
+html.dark .app-theme-toggle:hover {
+  background: rgb(255 255 255 / 0.10);
+  color: #e2e8f0;
+}
+
+html.dark .app-nav-logout {
+  border-color: rgb(255 255 255 / 0.10);
+  background: rgb(255 255 255 / 0.05);
+  color: #94a3b8;
+}
+
+html.dark .app-nav-logout:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.10);
+  color: #e2e8f0;
+}
+
+html.dark .app-page-title {
+  color: #f1f5f9;
+}
+
+html.dark .glass-card {
+  background: rgb(30 41 59 / 0.75);
+  border-color: rgb(255 255 255 / 0.07);
+  box-shadow:
+    0 4px 24px rgb(0 0 0 / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+
+html.dark .glass-section-title {
+  color: #94a3b8;
+}
+
+html.dark .dash-title {
+  color: #f1f5f9;
+}
+
+html.dark .dash-subtitle {
+  color: #94a3b8;
+}
+
+html.dark .badge-green  { background: rgb(22 163 74 / 0.18); color: #4ade80; }
+html.dark .badge-yellow { background: rgb(202 138 4 / 0.18); color: #fde047; }
+html.dark .badge-orange { background: rgb(194 65 12 / 0.18); color: #fb923c; }
+html.dark .badge-red    { background: rgb(185 28 28 / 0.18); color: #f87171; }
+html.dark .badge-neutral { background: rgb(100 116 139 / 0.18); color: #94a3b8; }
+
+html.dark .dash-leaks-link {
+  color: #60a5fa;
+  border-color: rgb(37 99 235 / 0.3);
+}
+
+html.dark .dash-leaks-link:hover {
+  background: rgb(37 99 235 / 0.10);
+}
+
+html.dark .dash-empty-msg {
+  color: #94a3b8;
+}
+
+html.dark .period-selector {
+  background: rgb(30 41 59 / 0.8);
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+html.dark .period-btn {
+  color: #94a3b8;
+}
+
+html.dark .period-btn:hover {
+  color: #e2e8f0;
+}
+
+html.dark .period-btn--active {
+  background: rgb(37 99 235 / 0.25);
+  color: #93c5fd;
+}
+
+html.dark .kpi-label {
+  color: #94a3b8;
+}
+
+html.dark .kpi-value {
+  color: #f1f5f9;
+}
+
+html.dark .kpi-sub {
+  color: #64748b;
+}
+
+html.dark .kpi-drill {
+  color: #60a5fa;
+}
+
+html.dark .glass-card--clickable:hover {
+  box-shadow:
+    0 6px 32px rgb(0 0 0 / 0.4),
+    inset 0 1px 0 rgb(255 255 255 / 0.10);
+  border-color: rgb(59 130 246 / 0.35);
+}
+
+html.dark .dash-tech-footer {
+  color: #475569;
+}
+
+html.dark .app-main {
+  color: #e2e8f0;
+}
+
+html.dark .app-placeholder {
+  color: #64748b;
+}
+
+html.dark .auth-error {
+  color: #f87171;
+}
+
+html.dark .ledger-filter-label {
+  color: #94a3b8;
+}
+
+html.dark .ledger-filter-input,
+html.dark .ledger-filter-select {
+  background: rgb(30 41 59 / 0.8);
+  border-color: rgb(255 255 255 / 0.10);
+  color: #e2e8f0;
+}
+
+html.dark .ledger-ai-title {
+  color: #93c5fd;
+}
+
+html.dark .ledger-ai-desc {
+  color: #94a3b8;
+}
+
+html.dark .ledger-ai-status {
+  color: #94a3b8;
+}
+
+html.dark .ledger-ai-status--success {
+  color: #4ade80;
+}
+
+html.dark .ledger-ai-status--error {
+  color: #f87171;
+}
+
+html.dark .leaks-section-title {
+  color: #f1f5f9;
+}
+
+html.dark .leaks-section-subtitle {
+  color: #94a3b8;
+}
+
+html.dark .leaks-card {
+  background: rgb(30 41 59 / 0.75);
+  border-color: rgb(255 255 255 / 0.07);
+}
+
+html.dark .leaks-card-name {
+  color: #f1f5f9;
+}
+
+html.dark .leaks-card-reason {
+  color: #94a3b8;
+}
+
+html.dark .acc-page-title {
+  color: #f1f5f9;
+}
+
+html.dark .acc-page-subtitle {
+  color: #94a3b8;
+}
+
+html.dark .acc-score-card {
+  background: rgb(30 41 59 / 0.75);
+  border-color: rgb(255 255 255 / 0.07);
+}
+
+html.dark .acc-score-value {
+  color: #f1f5f9;
+}
+
+html.dark .acc-score-label {
+  color: #94a3b8;
+}
+
+html.dark .acc-metric-card {
+  background: rgb(30 41 59 / 0.6);
+  border-color: rgb(255 255 255 / 0.06);
+}
+
+html.dark .acc-metric-label {
+  color: #94a3b8;
+}
+
+html.dark .acc-metric-value {
+  color: #f1f5f9;
+}
+
+html.dark .acc-signal-name {
+  color: #e2e8f0;
+}
+
+html.dark .acc-merchants-title {
+  color: #f1f5f9;
+}
+
+html.dark .acc-merchants-intro {
+  color: #94a3b8;
+}
+
+html.dark .acc-merchants-table-wrap {
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+html.dark .acc-merchants-table thead tr {
+  background: rgb(15 23 42 / 0.5);
+  border-bottom-color: rgb(255 255 255 / 0.08);
+}
+
+html.dark .acc-merchants-table th {
+  color: #64748b;
+}
+
+html.dark .acc-merchants-table tbody tr {
+  border-bottom-color: rgb(255 255 255 / 0.05);
+}
+
+html.dark .acc-merchant-name {
+  color: #e2e8f0;
+}
+
+html.dark .acc-category-chip {
+  background: rgb(255 255 255 / 0.08);
+  color: #94a3b8;
+}
+
+html.dark .acc-merchant-count {
+  color: #64748b;
+}
+
+html.dark .acc-stale-box {
+  background: rgb(120 53 15 / 0.20);
+  border-color: rgb(180 83 9 / 0.35);
+}
+
+html.dark .acc-stale-title {
+  color: #fbbf24;
+}
+
+html.dark .acc-stale-body {
+  color: #fcd34d;
 }
