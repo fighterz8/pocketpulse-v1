@@ -107,7 +107,11 @@ export async function reclassifyTransactions(
 
   let aiResults: Map<number, AiClassificationResult> = new Map();
   try {
-    aiResults = await aiClassifyBatch(aiCandidates);
+    const AI_TIMEOUT_MS = 90_000;
+    const timeout = new Promise<Map<number, AiClassificationResult>>(
+      (resolve) => setTimeout(() => resolve(new Map()), AI_TIMEOUT_MS),
+    );
+    aiResults = await Promise.race([aiClassifyBatch(aiCandidates), timeout]);
   } catch {
     // AI unavailable — fall through with rules results
   }
