@@ -139,6 +139,12 @@ const POS_PREFIX_PATTERNS: string[] = [
   // Recurring ACH descriptors
   "DES:\\s*",
   "ACH\\s+(?:DEBIT|CREDIT|PMT|PYMT)\\s+",
+  // Bank-specific debit card formats (e.g. "DEBIT-DC 6851 " or "POS DEBIT-DC 4305 ")
+  "DEBIT-DC\\s+\\d+\\s+",
+  "DEBIT-\\s*XX\\s+\\d+\\s+",
+  "POS\\s+DEBIT-DC\\s+\\d+\\s+",
+  // "- VISA CHECK CARD XX51 - " prefix format (Bank of America style)
+  "-\\s*VISA\\s+CHECK\\s+CARD\\s+\\w+\\s+-\\s+",
   // Point-of-sale terminals
   "POS\\s+(?:PURCHASE|DEBIT|CREDIT|PMT)?\\s*",
   "PUR\\s+",
@@ -162,9 +168,9 @@ const POS_PREFIX_REGEX = new RegExp(
   "i",
 );
 
-/** Trailing noise: card last-four, reference/auth codes, date stamps. */
+/** Trailing noise: card last-four, reference/auth codes, date stamps, cardholder names. */
 const TRAILING_NOISE_REGEX =
-  /\s*(?:[#*]\s*\d+|\bREF\b\s*#?\s*\w+|\bAUTH\b\s*#?\s*\w+|\b\d{4,}\b)\s*$/i;
+  /\s*(?:[#*]\s*\d+|\bREF\b\s*#?\s*\w+|\bAUTH\b\s*#?\s*\w+|\b\d{4,}\b|\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:Pos\s+)?Transaction)\s*$/i;
 
 /** State/location suffix like " CA", " TX 12345" appended by some banks. */
 const LOCATION_SUFFIX_REGEX = /\s+[A-Z]{2}(?:\s+\d{5})?\s*$/;
