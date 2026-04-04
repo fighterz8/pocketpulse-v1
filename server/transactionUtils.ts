@@ -11,11 +11,17 @@
  * outflow as income is worse than the reverse. These are unambiguous
  * operational bank terms ("POS", "ACH DEBIT", "withdrawal") that only
  * appear in outflow contexts.
+ *
+ * The checkcard / ach pmt / bill pmt variants below are Navy Federal and
+ * similar bank-specific formats that use unsigned amounts. Without these
+ * patterns a positive-amount "CHECKCARD 0412 STARBUCKS" would default to
+ * income until Pass 6 catches it — adding latency to the correction.
  */
 const STRONG_OUTFLOW_HINT_PATTERNS: RegExp[] = [
   /\btransfer to\b/i,
   /\bpayment to\b/i,
   /\bach debit\b/i,
+  /\bach pmt\b/i,
   /\bpos\b/i,
   /\bpurchase\b/i,
   /\bwithdrawal\b/i,
@@ -23,8 +29,14 @@ const STRONG_OUTFLOW_HINT_PATTERNS: RegExp[] = [
   /\batm fee\b/i,
   /\batm\b/i,
   /\bbill pay\b/i,
+  /\bbill pmt\b/i,
   /\bautopay\b/i,
   /\bdebit\b/i,
+  /\bcheckcard\b/i,
+  /\bcheck card\b/i,
+  /\brecurring pmt\b/i,
+  /\bonline pmt\b/i,
+  /\bpoint of sale\b/i,
 ];
 
 /**

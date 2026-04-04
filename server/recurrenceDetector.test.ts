@@ -60,12 +60,17 @@ describe("recurrenceKey", () => {
 });
 
 describe("buildCandidateKey", () => {
-  it("combines merchant key and rounded amount", () => {
-    expect(buildCandidateKey("netflix", 15.99)).toBe("netflix|15.99");
+  it("returns bare merchantKey for bucket index 0 (primary tier)", () => {
+    expect(buildCandidateKey("netflix", 0)).toBe("netflix");
   });
 
-  it("rounds to 2 decimal places", () => {
-    expect(buildCandidateKey("utilities", 127.333)).toBe("utilities|127.33");
+  it("appends bucket index for secondary tiers", () => {
+    expect(buildCandidateKey("netflix", 1)).toBe("netflix|1");
+    expect(buildCandidateKey("netflix", 2)).toBe("netflix|2");
+  });
+
+  it("handles special housing bucket keys unchanged", () => {
+    expect(buildCandidateKey("__housing_3200", 0)).toBe("__housing_3200");
   });
 });
 

@@ -30,6 +30,20 @@ export type RecurringCandidate = {
   isActive: boolean;
   /** estimated days overdue (positive) or days until next charge (negative) */
   daysSinceExpected: number;
+  /**
+   * true when the charge pattern looks like a digital subscription rather
+   * than a lifestyle habit (coffee, dining, gym visits, etc.).
+   *
+   * Used in the Leaks page to split candidates into "Subscriptions" and
+   * "Habits" sections so the user knows which ones they can cancel vs. change.
+   *
+   * Criteria (any one suffices):
+   *  1. Category is software, entertainment, or streaming-adjacent (fitness)
+   *  2. Monthly/annual and the average amount has a ".99" or ".00" suffix
+   *     (classic SaaS pricing)
+   *  3. Merchant key contains a known subscription brand name
+   */
+  isSubscriptionLike: boolean;
 };
 
 type TransactionLike = {
@@ -85,6 +99,29 @@ const AMOUNT_TOLERANCE_PERCENT = 0.30; // 30% tolerance — more flexible
 const AMOUNT_TOLERANCE_FLOOR   = 3.0;  // at least $3 tolerance
 const CONFIDENCE_THRESHOLD     = 0.30; // lower floor, UI shows confidence badge
 const VARIABLE_AMOUNT_CATEGORIES = new Set(["utilities", "insurance", "medical", "housing"]);
+
+/**
+ * Categories that are almost always digital subscriptions (billed to a card,
+ * cancellable online) rather than in-person lifestyle habits.
+ */
+const SUBSCRIPTION_CATEGORIES = new Set(["software", "entertainment"]);
+
+/**
+ * Merchant key fragments that unambiguously indicate a subscription product.
+ * Matched against the lowercased candidateKey with a simple includes() check.
+ */
+const SUBSCRIPTION_BRAND_FRAGMENTS = [
+  "netflix", "spotify", "hulu", "disney", "hbo", "max.com", "paramount",
+  "peacock", "peacocktv", "audible", "apple music", "apple tv", "icloud",
+  "google one", "youtube", "amazon prime", "openai", "anthropic", "chatgpt",
+  "replit", "github", "notion", "figma", "canva", "adobe", "dropbox",
+  "box.com", "zoom", "slack", "linear", "loom", "1password", "lastpass",
+  "nordvpn", "expressvpn", "surfshark", "proton", "fastmail", "hey.com",
+  "elevenlabs", "shopify", "quickbooks", "freshbooks", "xero", "squarespace",
+  "wix", "godaddy", "namecheap", "cloudflare", "digitalocean", "linode",
+  "aws", "azure", "heroku", "vercel", "netlify", "twilio",
+];
+
 /** Only look at transactions from the past 18 months */
 const LOOKBACK_DAYS = 548; // ~18 months
 
@@ -158,8 +195,23 @@ export function recurrenceKey(merchant: string): string {
   return k.replace(/\s+/g, " ").trim();
 }
 
-export function buildCandidateKey(merchantKey: string, avgAmount: number): string {
-  return `${merchantKey}|${avgAmount.toFixed(2)}`;
+/**
+ * Build a stable candidate key from a merchant key and bucket index.
+ *
+ * The primary (most-common-amount) bucket for a merchant gets the bare
+ * merchantKey so that a price change (e.g. Netflix $9.99 → $11.99) does NOT
+ * create a new key and orphan the user's existing review.
+ *
+ * Secondary buckets (a merchant with truly distinct price tiers, e.g. a gym
+ * that bills both a monthly membership and an annual day-pass fee) get a
+ * numeric suffix: "merchant|1", "merchant|2", etc.
+ *
+ * Migration note: old keys had the format "merchantKey|avgAmount.toFixed(2)".
+ * A one-time startup migration (see routes.ts) strips that suffix so existing
+ * reviews automatically re-attach to the new key format.
+ */
+export function buildCandidateKey(merchantKey: string, bucketIndex: number): string {
+  return bucketIndex === 0 ? merchantKey : `${merchantKey}|${bucketIndex}`;
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -370,9 +422,14 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
   const groups = groupTransactions(txns);
 
   for (const group of groups) {
-    const buckets = bucketByAmount(group.transactions);
+    // Sort buckets largest-first so the highest-spend tier gets bucket index 0
+    // (the bare merchantKey, no suffix). Lower-spend tiers get |1, |2, etc.
+    const buckets = bucketByAmount(group.transactions).sort(
+      (a, b) => b.centroid - a.centroid,
+    );
 
-    for (const bucket of buckets) {
+    for (let bucketIndex = 0; bucketIndex < buckets.length; bucketIndex++) {
+      const bucket = buckets[bucketIndex]!;
       const sorted = bucket.transactions.sort((a, b) => a.date.localeCompare(b.date));
 
       const freq = detectFrequency(sorted);
@@ -409,7 +466,7 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
       const monthlyEquivalent = Math.round(avgAmt * MONTHLY_FACTOR[freq.frequency] * 100) / 100;
       const annualEquivalent  = Math.round(monthlyEquivalent * 12 * 100) / 100;
 
-      const candidateKey = buildCandidateKey(group.key, avgAmt);
+      const candidateKey = buildCandidateKey(group.key, bucketIndex);
 
       // For category-override groups (e.g. __housing_3400), build a clean display name
       // from the most common merchant name in the group rather than the raw bucket key.
@@ -426,12 +483,28 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
         merchantDisplay = sorted[sorted.length - 1]!.merchant;
       }
 
+      // ── isSubscriptionLike signal ──────────────────────────────────────
+      // A charge is "subscription-like" if any of the following hold:
+      //  1. It belongs to a known digital-subscription category
+      //  2. The merchant key matches a known SaaS/streaming brand
+      //  3. It's a fixed monthly/annual charge with a classic ".99" or ".00"
+      //     price point (e.g. $9.99, $14.99, $99.00, $19.00)
+      const roundedAvg = Math.round(avgAmt * 100) / 100;
+      const centsStr   = roundedAvg.toFixed(2).split(".")[1] ?? "";
+      const isSaasPrice =
+        (freq.frequency === "monthly" || freq.frequency === "annual" || freq.frequency === "quarterly") &&
+        (centsStr === "99" || centsStr === "00" || centsStr === "49");
+      const isSubscriptionLike =
+        SUBSCRIPTION_CATEGORIES.has(category) ||
+        SUBSCRIPTION_BRAND_FRAGMENTS.some((frag) => candidateKey.includes(frag)) ||
+        isSaasPrice;
+
       candidates.push({
         candidateKey,
         merchantKey:     group.key,
         merchantDisplay,
         frequency:       freq.frequency,
-        averageAmount:   Math.round(avgAmt * 100) / 100,
+        averageAmount:   roundedAvg,
         amountStdDev:    Math.round(amtStdDev * 100) / 100,
         monthlyEquivalent,
         annualEquivalent,
@@ -444,6 +517,7 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
         category,
         isActive,
         daysSinceExpected,
+        isSubscriptionLike,
       });
     }
   }

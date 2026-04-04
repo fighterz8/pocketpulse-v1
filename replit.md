@@ -20,18 +20,20 @@ https://github.com/fighterz8/pocketpulse-v1
 income, transfers, housing, utilities, groceries, dining, coffee, delivery, convenience, gas, parking, travel, auto, fitness, medical, insurance, shopping, entertainment, software, fees, other
 
 ## Key Files
-- `shared/schema.ts` — DB schema, V1_CATEGORIES, Zod insert schemas
-- `server/classifier.ts` — 12-pass rules-based classifier
+- `shared/schema.ts` — DB schema, V1_CATEGORIES, AUTO_ESSENTIAL_CATEGORIES (single source of truth), Zod insert schemas
+- `server/classifier.ts` — 13-pass rules-based classifier; Pass 6 uses word-boundary COMPILED_RULES; Pass 9b uses amount-range signals
 - `server/ai-classifier.ts` — GPT-4o-mini batch classifier
 - `server/reclassify.ts` — Two-phase rules+AI pipeline (skips user-corrected)
-- `server/routes.ts` — All API routes
+- `server/routes.ts` — All API routes; syncRecurringCandidates() auto-called after upload
 - `server/storage.ts` — Drizzle DB queries
-- `server/transactionUtils.ts` — getDirectionHint() direction detection
+- `server/transactionUtils.ts` — getDirectionHint() direction detection; STRONG_OUTFLOW_HINT_PATTERNS (checkcard, ach pmt, bill pmt, etc.)
+- `server/recurrenceDetector.ts` — Recurring charge detector; candidateKey = merchantKey (bucketIndex only for secondary tiers); isSubscriptionLike signal
+- `server/dashboardQueries.ts` — recurringExpenses from detector's active candidate monthlyEquivalent; leakMonthlyAmount from confirmed-leak candidate monthlyEquivalent
 - `client/src/pages/Ledger.tsx` — Ledger with inline editing, AI progress bar, Export CSV
-- `client/src/pages/Dashboard.tsx` — Tailwind-redesigned: safe-to-spend hero, 30D/60D/90D period selector, recurring/one-time/discretionary KPIs, expense leaks card, category breakdown, trend, recent transactions
-- `client/src/hooks/use-dashboard.ts` — PeriodPreset type, presetToRange helper, enhanced DashboardSummary type
-- `server/dashboardQueries.ts` — Enhanced: recurringIncome, recurringExpenses, oneTimeIncome, oneTimeExpenses, discretionarySpend, safeToSpend, utilitiesMonthly, softwareMonthly, expenseLeaks
-- `client/src/pages/RecurringLeaks.tsx` — Leak review page
+- `client/src/pages/Dashboard.tsx` — Safe-to-spend hero, 30D/60D/90D period selector, recurring/one-time/discretionary KPIs, expense leaks card
+- `client/src/pages/Leaks.tsx` — Subscription Leaks page; split into Digital Subscriptions / Recurring Habits sections
+- `client/src/hooks/use-recurring.ts` — RecurringCandidate type (includes isSubscriptionLike)
+- `server/index.ts` — Startup migration: strips old |amount.toFixed(2) candidateKey suffix from DB
 
 ## Features Implemented
 - User authentication (login/logout, session)

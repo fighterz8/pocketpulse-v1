@@ -1428,6 +1428,47 @@ const CATEGORY_RULES: CategoryRule[] = [
   },
 ];
 
+// ─── Word-boundary compiled rules ────────────────────────────────────────────
+
+/**
+ * Escape special regex characters in a string so it can be embedded safely
+ * inside a RegExp pattern.
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Compile a keyword string into a word-boundary-aware RegExp.
+ *
+ * If the keyword starts with a word character (\w), we prepend \b so it does
+ * not match mid-word (e.g. "bar" won't match "barnes").
+ * If the keyword ends with a word character, we append \b.
+ * Keywords that start/end with spaces or punctuation (e.g. "shell ", "7-eleven")
+ * rely on the surrounding characters to provide natural separation — no \b needed
+ * at those ends.
+ *
+ * Note: the match is performed against `lower` (already lowercased raw description),
+ * so the RegExp is case-insensitive.
+ */
+function compileKeyword(kw: string): RegExp {
+  const trimmed = kw.trim();
+  const prefix = /^\w/.test(trimmed) ? "\\b" : "";
+  const suffix = /\w$/.test(trimmed) ? "\\b" : "";
+  return new RegExp(prefix + escapeRegex(kw) + suffix, "i");
+}
+
+type CompiledCategoryRule = Omit<CategoryRule, "keywords"> & {
+  keywords: string[];
+  compiledPatterns: RegExp[];
+};
+
+/** CATEGORY_RULES with each keyword pre-compiled into a word-boundary RegExp. */
+const COMPILED_RULES: CompiledCategoryRule[] = CATEGORY_RULES.map((rule) => ({
+  ...rule,
+  compiledPatterns: rule.keywords.map(compileKeyword),
+}));
+
 /** Merchants that strongly suggest a recurring charge. */
 const RECURRING_KEYWORDS = [
   "netflix",
@@ -1694,9 +1735,12 @@ export function classifyTransaction(
   //
   // Rules are ordered specific-to-general; first match wins.
   // The "transfers" category rule is skipped — Pass 1 handles it.
-  for (const rule of CATEGORY_RULES) {
-    for (const kw of rule.keywords) {
-      if (lower.includes(kw)) {
+  // Uses COMPILED_RULES which apply word-boundary-aware regex matching so that
+  // short keywords like "bar" don't fire on "barnes", "energy" on "energy drink", etc.
+  for (const rule of COMPILED_RULES) {
+    for (let ki = 0; ki < rule.compiledPatterns.length; ki++) {
+      if (rule.compiledPatterns[ki]!.test(lower)) {
+        const kw = rule.keywords[ki]!;
         category = rule.category;
         matchedKeyword = kw;
         matchedRule = true;
@@ -1775,6 +1819,46 @@ export function classifyTransaction(
   ) {
     if (RECURRING_KEYWORDS.some((kw) => lower.includes(kw))) {
       recurrenceType = "recurring";
+    }
+  }
+
+  // ─── Pass 9b: Amount-range signal ─────────────────────────────────────────
+  // Only fires when NO keyword rule matched AND the transaction is an expense
+  // classified as "other". Uses the absolute dollar amount to infer the most
+  // likely category. These are low-confidence heuristics (~0.40); any later
+  // Pass with a stronger match can still override.
+  //
+  // Rationale:
+  //   • $2–$7: classic beverage / coffee window (espresso, drip, energy drink)
+  //   • $8–$22: quick-service dining / fast food / casual lunch window
+  //   • $23–$60: sit-down dining or delivery order window
+  //   • $25–$80 with "annual" / "yearly" signal: likely annual subscription fee
+  //   • $0.99–$2.99 (round-cent amounts): likely digital micro-purchase / fee
+  if (
+    !matchedRule &&
+    transactionClass === "expense" &&
+    category === "other"
+  ) {
+    const absAmt = Math.abs(amount);
+    if (absAmt >= 2.0 && absAmt <= 7.99) {
+      category = "coffee";
+      labelConfidence = 0.42;
+      labelReason = `Amount in coffee/beverage range ($${absAmt.toFixed(2)})`;
+    } else if (absAmt >= 8.0 && absAmt <= 22.99) {
+      category = "dining";
+      labelConfidence = 0.40;
+      labelReason = `Amount in quick-service dining range ($${absAmt.toFixed(2)})`;
+    } else if (absAmt >= 23.0 && absAmt <= 60.0) {
+      category = "dining";
+      labelConfidence = 0.35;
+      labelReason = `Amount in sit-down dining range ($${absAmt.toFixed(2)})`;
+    } else if (
+      absAmt >= 0.99 && absAmt <= 2.99 &&
+      (lower.includes("fee") || lower.includes("charge"))
+    ) {
+      category = "fees";
+      labelConfidence = 0.45;
+      labelReason = `Small fee-range amount ($${absAmt.toFixed(2)}) with fee keyword`;
     }
   }
 

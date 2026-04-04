@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 
+import { AUTO_ESSENTIAL_CATEGORIES } from "@shared/schema";
 import {
   useRecurringCandidates,
   useReviewMutation,
@@ -59,18 +60,8 @@ function categoryColor(cat: string): string {
 
 // A "leak" is a DISCRETIONARY recurring charge the user may want to cancel —
 // streaming, gym memberships, forgotten SaaS subscriptions, etc.
-// The categories below are NECESSARY recurring obligations (mortgage, bills,
-// insurance, medical, debt repayment). They are auto-labeled as essential on
-// the server and completely hidden from this page — no review ever needed.
-// Must stay in sync with AUTO_ESSENTIAL_CATEGORIES in server/routes.ts
-// and SIDEBAR_HIDDEN_CATEGORIES in AppLayout.tsx.
-const AUTO_HIDDEN_CATEGORIES = new Set([
-  "housing",    // mortgage, rent
-  "utilities",  // electricity, water, gas, internet, phone bills
-  "insurance",  // auto, health, home, renters insurance
-  "medical",    // prescriptions, recurring health services
-  "debt",       // loan payments, credit card minimums
-]);
+// Necessary recurring obligations (mortgage, utilities, insurance, medical, debt)
+// are imported from the shared schema and completely hidden — no review needed.
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -333,7 +324,7 @@ export function Leaks() {
   // Remove auto-hidden categories (housing) from the reviewable list entirely.
   // They're necessary expenses — no review needed.
   const reviewableCandidates = data.candidates.filter(
-    (c) => !AUTO_HIDDEN_CATEGORIES.has(c.category)
+    (c) => !AUTO_ESSENTIAL_CATEGORIES.has(c.category)
   );
   const hiddenCount = data.candidates.length - reviewableCandidates.length;
 
@@ -399,7 +390,7 @@ export function Leaks() {
         </motion.div>
       )}
 
-      {/* Cards */}
+      {/* Cards — split into Subscriptions / Habits sections */}
       {filtered.length === 0 ? (
         <motion.div
           className="glass-card text-center py-10"
@@ -427,19 +418,86 @@ export function Leaks() {
             </p>
           )}
         </motion.div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {filtered.map((c, i) => (
-            <CandidateCard
-              key={c.candidateKey}
-              candidate={c}
-              onReview={handleReview}
-              isPending={reviewMutation.isPending}
-              index={i + 3}
-            />
-          ))}
-        </div>
-      )}
+      ) : (() => {
+        const subscriptions = filtered.filter((c) => c.isSubscriptionLike);
+        const habits        = filtered.filter((c) => !c.isSubscriptionLike);
+        const showSections  = subscriptions.length > 0 && habits.length > 0;
+
+        if (!showSections) {
+          // Only one group — flat list, no section headers
+          return (
+            <div className="flex flex-col gap-3">
+              {filtered.map((c, i) => (
+                <CandidateCard
+                  key={c.candidateKey}
+                  candidate={c}
+                  onReview={handleReview}
+                  isPending={reviewMutation.isPending}
+                  index={i + 3}
+                />
+              ))}
+            </div>
+          );
+        }
+
+        return (
+          <div className="flex flex-col gap-6">
+            {/* Subscriptions section */}
+            <div>
+              <motion.div
+                className="flex items-center gap-2 mb-2"
+                variants={fadeUp} initial="hidden" animate="visible" custom={3}
+              >
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Digital Subscriptions
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-violet-100 text-violet-600 rounded-full font-medium">
+                  {subscriptions.length}
+                </span>
+                <span className="text-xs text-slate-400">— can cancel online</span>
+              </motion.div>
+              <div className="flex flex-col gap-3">
+                {subscriptions.map((c, i) => (
+                  <CandidateCard
+                    key={c.candidateKey}
+                    candidate={c}
+                    onReview={handleReview}
+                    isPending={reviewMutation.isPending}
+                    index={i + 3}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Habits section */}
+            <div>
+              <motion.div
+                className="flex items-center gap-2 mb-2"
+                variants={fadeUp} initial="hidden" animate="visible" custom={3 + subscriptions.length}
+              >
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Recurring Habits
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded-full font-medium">
+                  {habits.length}
+                </span>
+                <span className="text-xs text-slate-400">— lifestyle spending patterns</span>
+              </motion.div>
+              <div className="flex flex-col gap-3">
+                {habits.map((c, i) => (
+                  <CandidateCard
+                    key={c.candidateKey}
+                    candidate={c}
+                    onReview={handleReview}
+                    isPending={reviewMutation.isPending}
+                    index={i + 3 + subscriptions.length}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Note about auto-handled necessary expenses */}
       {hiddenCount > 0 && (

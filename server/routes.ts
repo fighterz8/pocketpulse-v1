@@ -11,7 +11,7 @@ import { hashPassword, verifyPassword } from "./auth.js";
 import { classifyTransaction } from "./classifier.js";
 import { parseCSV } from "./csvParser.js";
 import { ensureUserPreferences, pool } from "./db.js";
-import { REVIEW_STATUSES, V1_CATEGORIES } from "../shared/schema.js";
+import { AUTO_ESSENTIAL_CATEGORIES, REVIEW_STATUSES, V1_CATEGORIES } from "../shared/schema.js";
 import {
   createAccountForUser,
   createTransactionBatch,
@@ -33,11 +33,13 @@ import {
   upsertRecurringReview,
   type UpdateTransactionInput,
 } from "./storage.js";
+import { and, eq, inArray } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
 import { detectRecurringCandidates } from "./recurrenceDetector.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
+import { transactions as txnTable } from "../shared/schema.js";
 
 declare module "express-session" {
   interface SessionData {
@@ -119,6 +121,64 @@ const sessionCookieOptions = {
   sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",
 };
+
+/**
+ * Runs the recurring-expense detector and writes recurrenceType back to every
+ * outflow transaction row for the given user:
+ *   - detected recurring IDs  → "recurring"
+ *   - all other outflow rows  → "one-time"
+ *
+ * Called automatically after every successful upload AND by the manual
+ * POST /api/recurring-candidates/sync endpoint.
+ */
+async function syncRecurringCandidates(
+  userId: number,
+): Promise<{ recurringCount: number; oneTimeCount: number }> {
+  const allTxns = await listAllTransactionsForExport({ userId });
+  const candidates = detectRecurringCandidates(allTxns as any);
+
+  const recurringIds = new Set<number>();
+  for (const c of candidates) {
+    for (const id of c.transactionIds) recurringIds.add(id);
+  }
+
+  // Step 1: reset ALL outflow transactions for this user to "one-time"
+  await db
+    .update(txnTable)
+    .set({ recurrenceType: "one-time" })
+    .where(
+      and(
+        eq(txnTable.userId, userId),
+        eq(txnTable.flowType, "outflow"),
+        eq(txnTable.excludedFromAnalysis, false),
+      ),
+    );
+
+  // Step 2: mark detected IDs as "recurring" (chunked to avoid huge IN clauses)
+  if (recurringIds.size > 0) {
+    const ids = [...recurringIds];
+    for (let i = 0; i < ids.length; i += 500) {
+      await db
+        .update(txnTable)
+        .set({ recurrenceType: "recurring" })
+        .where(
+          and(
+            eq(txnTable.userId, userId),
+            inArray(txnTable.id, ids.slice(i, i + 500)),
+          ),
+        );
+    }
+  }
+
+  const oneTimeCount = (allTxns as any[]).filter(
+    (t) =>
+      t.flowType === "outflow" &&
+      !t.excludedFromAnalysis &&
+      !recurringIds.has(t.id),
+  ).length;
+
+  return { recurringCount: recurringIds.size, oneTimeCount };
+}
 
 export function createApp(options?: CreateAppOptions) {
   const store = options?.sessionStore ?? defaultSessionStore();
@@ -552,6 +612,19 @@ export function createApp(options?: CreateAppOptions) {
           });
         }
 
+        // Auto-sync recurring candidates after all files are processed so the
+        // dashboard reflects the updated recurring-expense baseline immediately
+        // (no manual "Sync to Dashboard" button click required).
+        const anySuccess = results.some((r) => r.status === "complete");
+        if (anySuccess) {
+          try {
+            await syncRecurringCandidates(userId);
+          } catch {
+            // Non-fatal: sync failure should not break the upload response.
+            // The user can manually trigger re-sync from the Leaks page.
+          }
+        }
+
         res.status(201).json({ results });
       } catch (e) {
         next(e);
@@ -849,12 +922,6 @@ export function createApp(options?: CreateAppOptions) {
   // Recurring candidates (Phase 4)
   // -----------------------------------------------------------------------
 
-  // Categories that are obvious necessary recurring expenses — no manual review needed.
-  // These get auto-labeled as "essential" unless the user has manually reviewed them.
-  const AUTO_ESSENTIAL_CATEGORIES = new Set([
-    "housing", "utilities", "insurance", "medical", "debt",
-  ]);
-
   app.get("/api/recurring-candidates", requireAuth, async (req, res, next) => {
     try {
       const userId = req.session.userId!;
@@ -920,55 +987,8 @@ export function createApp(options?: CreateAppOptions) {
   app.post("/api/recurring-candidates/sync", requireAuth, async (req, res, next) => {
     try {
       const userId = req.session.userId!;
-
-      const allTxns = await listAllTransactionsForExport({ userId });
-      const candidates = detectRecurringCandidates(allTxns as any);
-
-      // Collect all transaction IDs marked recurring by the detector
-      const recurringIds = new Set<number>();
-      for (const c of candidates) {
-        for (const id of c.transactionIds) recurringIds.add(id);
-      }
-
-      const { transactions: txnTable } = await import("../shared/schema.js");
-      const { eq, and, inArray, sql: drizzleSql } = await import("drizzle-orm");
-
-      // Step 1: reset ALL outflow transactions for this user to "one-time"
-      await db
-        .update(txnTable)
-        .set({ recurrenceType: "one-time" })
-        .where(
-          and(
-            eq(txnTable.userId, userId),
-            eq(txnTable.flowType, "outflow"),
-            eq(txnTable.excludedFromAnalysis, false),
-          ),
-        );
-
-      // Step 2: mark detected-recurring transaction IDs as "recurring"
-      let recurringCount = 0;
-      if (recurringIds.size > 0) {
-        const ids = [...recurringIds];
-        // Process in chunks of 500 to avoid huge IN clauses
-        for (let i = 0; i < ids.length; i += 500) {
-          await db
-            .update(txnTable)
-            .set({ recurrenceType: "recurring" })
-            .where(
-              and(
-                eq(txnTable.userId, userId),
-                inArray(txnTable.id, ids.slice(i, i + 500)),
-              ),
-            );
-        }
-        recurringCount = ids.length;
-      }
-
-      const oneTimeCount = (allTxns as any[]).filter(
-        (t) => t.flowType === "outflow" && !t.excludedFromAnalysis && !recurringIds.has(t.id),
-      ).length;
-
-      res.json({ recurringCount, oneTimeCount });
+      const result = await syncRecurringCandidates(userId);
+      res.json(result);
     } catch (e) {
       next(e);
     }

@@ -83,6 +83,20 @@ export const accounts = pgTable(
   (t) => [index("accounts_user_id_idx").on(t.userId)],
 );
 
+/**
+ * Necessary recurring expense categories — auto-labeled essential, never shown
+ * on the Subscription Leaks review page.
+ * Single source of truth: imported by server/routes.ts, client/src/pages/Leaks.tsx,
+ * and client/src/components/layout/AppLayout.tsx.
+ */
+export const AUTO_ESSENTIAL_CATEGORIES: ReadonlySet<string> = new Set([
+  "housing",    // mortgage, rent
+  "utilities",  // electricity, water, gas, internet, phone bills
+  "insurance",  // auto, health, home, renters insurance
+  "medical",    // prescriptions, recurring health services
+  "debt",       // loan payments, credit card minimums
+]);
+
 /** V1 category set — used by classifier and ledger UI. */
 export const V1_CATEGORIES = [
   "income",

@@ -2,6 +2,8 @@ import { and, count, desc, eq, gte, lte, sql } from "drizzle-orm";
 
 import { accounts, recurringReviews, transactions } from "../shared/schema.js";
 import { db } from "./db.js";
+import { detectRecurringCandidates } from "./recurrenceDetector.js";
+import { listAllTransactionsForExport } from "./storage.js";
 
 export type DashboardDateRange = {
   dateFrom?: string;
@@ -87,15 +89,14 @@ export async function buildDashboardSummary(
   ] = await Promise.all([
     db
       .select({
-        totalInflow:       sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow' THEN ${transactions.amount} ELSE 0 END),0)`,
-        totalOutflow:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        recurringIncome:   sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow'  AND ${transactions.recurrenceType}='recurring' THEN ${transactions.amount} ELSE 0 END),0)`,
-        recurringExpenses: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${transactions.recurrenceType}='recurring' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        oneTimeIncome:     sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow'  AND ${transactions.recurrenceType}='one-time'  THEN ${transactions.amount} ELSE 0 END),0)`,
-        oneTimeExpenses:   sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        discretionarySpend:sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${discIn} THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        utilitiesTotal:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='utilities' AND ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        softwareTotal:     sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='software'  AND ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        totalInflow:        sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow' THEN ${transactions.amount} ELSE 0 END),0)`,
+        totalOutflow:       sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        recurringIncome:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow'  AND ${transactions.recurrenceType}='recurring' THEN ${transactions.amount} ELSE 0 END),0)`,
+        oneTimeIncome:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow'  AND ${transactions.recurrenceType}='one-time'  THEN ${transactions.amount} ELSE 0 END),0)`,
+        oneTimeExpenses:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        discretionarySpend: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${discIn} THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        utilitiesTotal:     sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='utilities' AND ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        softwareTotal:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='software'  AND ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
         count: count(),
       })
       .from(transactions)
@@ -149,12 +150,11 @@ export async function buildDashboardSummary(
   ]);
 
   const t = totalsResult[0]!;
-  const totalInflow       = parseFloat(t.totalInflow) || 0;
-  const totalOutflow      = parseFloat(t.totalOutflow) || 0;
-  const recurringIncome   = parseFloat(t.recurringIncome) || 0;
-  const recurringExpenses = parseFloat(t.recurringExpenses) || 0;
-  const oneTimeIncome     = parseFloat(t.oneTimeIncome) || 0;
-  const oneTimeExpenses   = parseFloat(t.oneTimeExpenses) || 0;
+  const totalInflow        = parseFloat(t.totalInflow) || 0;
+  const totalOutflow       = parseFloat(t.totalOutflow) || 0;
+  const recurringIncome    = parseFloat(t.recurringIncome) || 0;
+  const oneTimeIncome      = parseFloat(t.oneTimeIncome) || 0;
+  const oneTimeExpenses    = parseFloat(t.oneTimeExpenses) || 0;
   const discretionarySpend = parseFloat(t.discretionarySpend) || 0;
 
   // Calculate period length for monthly baselines
@@ -166,9 +166,40 @@ export async function buildDashboardSummary(
   const utilitiesMonthly = (parseFloat(t.utilitiesTotal) || 0) / months;
   const softwareMonthly  = (parseFloat(t.softwareTotal)  || 0) / months;
 
-  // Expense leaks: use marked leak count + monthly recurring proxy
+  // ── Detector-based recurring & leak calculations ──────────────────────────
+  // Running the detector here ensures recurringExpenses is always a stable
+  // monthly baseline (sum of monthlyEquivalent for active recurring candidates)
+  // rather than a raw sum of transactions that happen to fall in the window.
+  // Quarterly/annual charges are correctly normalised to their monthly fraction.
+  const allTxns     = await listAllTransactionsForExport({ userId });
+  const candidates  = detectRecurringCandidates(allTxns as any);
+  const activeCands = candidates.filter((c) => c.isActive);
+
+  const recurringExpenses = Math.round(
+    activeCands.reduce((sum, c) => sum + c.monthlyEquivalent, 0) * 100,
+  ) / 100;
+
+  // leakMonthlyAmount: sum of monthlyEquivalent for CONFIRMED leaks only —
+  // not a proxy of total recurring outflow.
   const leakCount = Number(leakResult[0]?.count) || 0;
-  const leakMonthlyAmount = recurringExpenses > 0 ? Math.round((recurringExpenses / months) * 100) / 100 : 0;
+  let leakMonthlyAmount = 0;
+  if (leakCount > 0) {
+    const leakReviewRows = await db
+      .select({ candidateKey: recurringReviews.candidateKey })
+      .from(recurringReviews)
+      .where(
+        and(
+          eq(recurringReviews.userId, userId),
+          eq(recurringReviews.status, "leak"),
+        ),
+      );
+    const leakKeys = new Set(leakReviewRows.map((r) => r.candidateKey));
+    leakMonthlyAmount = Math.round(
+      candidates
+        .filter((c) => leakKeys.has(c.candidateKey))
+        .reduce((sum, c) => sum + c.monthlyEquivalent, 0) * 100,
+    ) / 100;
+  }
 
   return {
     totals: {

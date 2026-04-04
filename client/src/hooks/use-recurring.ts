@@ -25,6 +25,8 @@ export type RecurringCandidate = {
   reviewNotes: string | null;
   /** Auto-labeled as essential by category (housing, utilities, insurance, etc.) */
   autoEssential: boolean;
+  /** True when the charge looks like a digital subscription vs. a lifestyle habit */
+  isSubscriptionLike: boolean;
 };
 
 export type CandidatesResponse = {

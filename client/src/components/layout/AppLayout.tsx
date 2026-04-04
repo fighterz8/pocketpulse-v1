@@ -1,12 +1,8 @@
 import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
+import { AUTO_ESSENTIAL_CATEGORIES } from "@shared/schema";
 import { cn } from "../../lib/utils";
 import { useRecurringCandidates } from "../../hooks/use-recurring";
-
-// Must stay in sync with AUTO_HIDDEN_CATEGORIES in Leaks.tsx
-const SIDEBAR_HIDDEN_CATEGORIES = new Set([
-  "housing", "utilities", "insurance", "medical", "debt",
-]);
 
 function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
   // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
@@ -22,7 +18,7 @@ function RecurringNavItem({ href, label, isActive }: { href: string; label: stri
   })();
   const unreviewedCount = data?.candidates.filter(
     (c) =>
-      !SIDEBAR_HIDDEN_CATEGORIES.has(c.category) &&
+      !AUTO_ESSENTIAL_CATEGORIES.has(c.category) &&
       c.reviewStatus === "unreviewed" &&
       c.lastSeen >= sixMonthCutoff,
   ).length ?? 0;
