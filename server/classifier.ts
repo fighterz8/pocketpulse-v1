@@ -1691,9 +1691,17 @@ export function classifyTransaction(
   // it only fires on card-swipe markers (POS, checkcard, -dc, purchase) so that
   // ACH-debit CashApp/Venmo/Zelle transactions ("ACH DEBIT CASHAPP") are NOT exempted.
   const isDebitCardOutflow = isDebitCardDescription(rawDescription);
-  const matchedTransferKw = TRANSFER_KEYWORDS.find((kw) => lower.includes(kw));
-  if (matchedTransferKw) {
-    if (isDebitCardOutflow && P2P_DEBIT_EXEMPT.has(matchedTransferKw)) {
+  if (TRANSFER_KEYWORDS.some((kw) => lower.includes(kw))) {
+    // When a debit-card swipe marker is present, check whether ANY P2P-exempt
+    // keyword appears in the description — not just the first-matched transfer
+    // keyword. This prevents "transfer" (earlier in the list) from masking the
+    // exemption when the description also contains "cash app" or "venmo" (e.g.
+    // "-dc 4305 Cash App Transfer" or "POS PURCHASE Zelle*john TRANSFER").
+    const isP2pCardPayment =
+      isDebitCardOutflow &&
+      [...P2P_DEBIT_EXEMPT].some((kw) => lower.includes(kw));
+
+    if (isP2pCardPayment) {
       // Debit card payment via a P2P app → let Pass 3b classify as expense.
     } else {
       transactionClass = "transfer";
