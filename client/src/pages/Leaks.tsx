@@ -1,6 +1,5 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Link } from "wouter";
 
 import {
   useRecurringCandidates,
@@ -9,8 +8,6 @@ import {
   type RecurringCandidate,
   type ReviewStatus,
 } from "../hooks/use-recurring";
-
-import { useAvailableMonths, formatMonthLabel } from "../hooks/use-dashboard";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -90,61 +87,12 @@ function applyFilter(candidates: RecurringCandidate[], tab: FilterTab): Recurrin
   return candidates.filter((c) => c.reviewStatus === tab);
 }
 
-/** Filter candidates active during the selected month (or all if no month selected). */
-function applyMonthFilter(candidates: RecurringCandidate[], month: string | null): RecurringCandidate[] {
-  if (!month) return candidates;
-  const [yr, mo] = month.split("-").map(Number);
-  const monthStart = new Date(yr, mo - 1, 1).toISOString().slice(0, 10);
-  const monthEnd   = new Date(yr, mo, 0).toISOString().slice(0, 10);
-  return candidates.filter(
-    (c) => c.firstSeen <= monthEnd && c.lastSeen >= monthStart
-  );
-}
-
-// ─── Month pill selector ──────────────────────────────────────────────────────
-
-function MonthPills({
-  months,
-  selected,
-  onSelect,
-}: {
-  months: { month: string }[];
-  selected: string | null;
-  onSelect: (m: string | null) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  return (
-    <div
-      ref={scrollRef}
-      className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide"
-      data-testid="month-pills"
-    >
-      <button
-        data-testid="month-pill-all"
-        onClick={() => onSelect(null)}
-        className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap
-          ${!selected
-            ? "bg-blue-600 text-white border-blue-600"
-            : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"}`}
-      >
-        All months
-      </button>
-      {months.map(({ month }) => (
-        <button
-          key={month}
-          data-testid={`month-pill-${month}`}
-          onClick={() => onSelect(month === selected ? null : month)}
-          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap
-            ${selected === month
-              ? "bg-blue-600 text-white border-blue-600"
-              : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"}`}
-        >
-          {formatMonthLabel(month)}
-        </button>
-      ))}
-    </div>
-  );
+/** Hard cutoff: only show candidates last seen within the past 6 months. */
+function applySixMonthCutoff(candidates: RecurringCandidate[]): RecurringCandidate[] {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 6);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return candidates.filter((c) => c.lastSeen >= cutoffStr);
 }
 
 // ─── Summary KPI bar ─────────────────────────────────────────────────────────
@@ -323,14 +271,12 @@ function CandidateCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function Leaks() {
-  const [activeTab, setActiveTab]   = useState<FilterTab>("unreviewed");
-  const [sortBy, setSortBy]         = useState<"cost" | "confidence" | "lastSeen">("cost");
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<FilterTab>("unreviewed");
+  const [sortBy, setSortBy]       = useState<"cost" | "confidence" | "lastSeen">("cost");
 
-  const { data, isLoading, error }  = useRecurringCandidates();
-  const { data: months = [] }       = useAvailableMonths();
-  const reviewMutation              = useReviewMutation();
-  const syncMutation                = useSyncRecurringMutation();
+  const { data, isLoading, error } = useRecurringCandidates();
+  const reviewMutation             = useReviewMutation();
+  const syncMutation               = useSyncRecurringMutation();
 
   const handleReview = (candidateKey: string, status: ReviewStatus) => {
     reviewMutation.mutate({ candidateKey, status });
@@ -383,29 +329,18 @@ export function Leaks() {
   );
   const hiddenCount = data.candidates.length - reviewableCandidates.length;
 
-  // Apply month filter, then tab filter, then sort.
-  const monthFiltered = applyMonthFilter(reviewableCandidates, selectedMonth);
-  const filtered      = sortCandidates(applyFilter(monthFiltered, activeTab));
+  // Hard cap: only the last 6 months. Apply tab filter, then sort.
+  const sixMonthCandidates = applySixMonthCutoff(reviewableCandidates);
+  const filtered           = sortCandidates(applyFilter(sixMonthCandidates, activeTab));
 
-  // Unreviewed count only over reviewable+month-filtered candidates (for the tab badge).
-  const unreviewedInView = monthFiltered.filter((c) => c.reviewStatus === "unreviewed").length;
+  // Unreviewed count within the 6-month window (for tab badge).
+  const unreviewedInView = sixMonthCandidates.filter((c) => c.reviewStatus === "unreviewed").length;
 
   return (
     <div>
       {pageHeader}
 
       <SummaryBar summary={summary} />
-
-      {/* Month range selector */}
-      {months.length > 0 && (
-        <motion.div className="mb-4" variants={fadeUp} initial="hidden" animate="visible" custom={1}>
-          <MonthPills
-            months={[...months].reverse()}
-            selected={selectedMonth}
-            onSelect={setSelectedMonth}
-          />
-        </motion.div>
-      )}
 
       {/* Tabs + sort */}
       <motion.div className="flex items-center justify-between gap-3 mb-3 flex-wrap"
@@ -467,9 +402,7 @@ export function Leaks() {
               <p className="text-2xl mb-2">✓</p>
               <p className="font-semibold text-slate-700 mb-1">All caught up!</p>
               <p className="text-sm text-slate-500">
-                {selectedMonth
-                  ? `No unreviewed subscriptions in ${formatMonthLabel(selectedMonth)}.`
-                  : "Every recurring charge has been reviewed. Switch to the Leaks tab to see what you've flagged."}
+                Every recurring charge in the last 6 months has been reviewed. Switch to the Leaks tab to see what you've flagged.
               </p>
             </>
           ) : activeTab === "all" ? (
@@ -477,15 +410,12 @@ export function Leaks() {
               <p className="text-2xl mb-2">📭</p>
               <p className="font-semibold text-slate-700 mb-1">No recurring patterns detected</p>
               <p className="text-sm text-slate-500">
-                {selectedMonth
-                  ? `No recurring charges found in ${formatMonthLabel(selectedMonth)}.`
-                  : "Upload more bank statements to detect recurring charges."}
+                Upload more bank statements to detect recurring charges.
               </p>
             </>
           ) : (
             <p className="text-sm text-slate-500">
-              No {activeTab === "active" ? "active" : activeTab} candidates
-              {selectedMonth ? ` in ${formatMonthLabel(selectedMonth)}` : ""}.
+              No {activeTab === "active" ? "active" : activeTab} candidates in the last 6 months.
             </p>
           )}
         </motion.div>

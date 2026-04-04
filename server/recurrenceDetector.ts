@@ -84,7 +84,7 @@ const MONTHLY_FACTOR: Record<RecurringCandidate["frequency"], number> = {
 const AMOUNT_TOLERANCE_PERCENT = 0.30; // 30% tolerance — more flexible
 const AMOUNT_TOLERANCE_FLOOR   = 3.0;  // at least $3 tolerance
 const CONFIDENCE_THRESHOLD     = 0.30; // lower floor, UI shows confidence badge
-const VARIABLE_AMOUNT_CATEGORIES = new Set(["utilities", "insurance", "medical"]);
+const VARIABLE_AMOUNT_CATEGORIES = new Set(["utilities", "insurance", "medical", "housing"]);
 /** Only look at transactions from the past 18 months */
 const LOOKBACK_DAYS = 548; // ~18 months
 
@@ -107,6 +107,9 @@ const WEIGHTS = {
  */
 export function recurrenceKey(merchant: string): string {
   let k = merchant.toLowerCase().trim();
+
+  // Strip leading non-alphanumeric junk (e.g. "- Lakeview Ln" → "Lakeview Ln")
+  k = k.replace(/^[\s\-–—_*#]+/, "");
 
   // Strip leading debit-card prefix: "-dc NNNN " or "debit NNNN "
   k = k.replace(/^-dc\s+\d+\s*/i, "");
@@ -191,6 +194,12 @@ function lookbackCutoff(): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Categories where we group by amount bucket instead of merchant name.
+// Mortgage / rent payments often appear with different merchant names in bank
+// exports (e.g. "Payment To Lakeview Loan Servicing" vs "- Lakeview Ln Srv Mtg Pymt")
+// but always represent the same underlying recurring obligation.
+const CATEGORY_KEY_OVERRIDES = new Set(["housing"]);
+
 // ─── Grouping ────────────────────────────────────────────────────────────────
 
 function groupTransactions(txns: TransactionLike[]): MerchantGroup[] {
@@ -200,7 +209,18 @@ function groupTransactions(txns: TransactionLike[]): MerchantGroup[] {
     if (txn.excludedFromAnalysis) continue;
     if (txn.flowType !== "outflow") continue;
     if (txn.date < cutoff) continue; // ignore data older than 18 months
-    const key = recurrenceKey(txn.merchant);
+
+    let key: string;
+    if (CATEGORY_KEY_OVERRIDES.has(txn.category)) {
+      // Group by category + rounded-amount bucket so mortgage/rent payments
+      // cluster together regardless of how the bank formats the merchant name.
+      // Round to nearest $200 so minor payment adjustments stay in the same group.
+      const amt = Math.abs(parseFloat(txn.amount) || 0);
+      const bucket = Math.round(amt / 200) * 200;
+      key = `__${txn.category}_${bucket}`;
+    } else {
+      key = recurrenceKey(txn.merchant);
+    }
     if (!key) continue;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(txn);
@@ -391,10 +411,25 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
 
       const candidateKey = buildCandidateKey(group.key, avgAmt);
 
+      // For category-override groups (e.g. __housing_3400), build a clean display name
+      // from the most common merchant name in the group rather than the raw bucket key.
+      let merchantDisplay: string;
+      if (group.key.startsWith("__")) {
+        // Pick the most frequently appearing merchant name
+        const nameCounts = new Map<string, number>();
+        for (const t of sorted) {
+          const n = t.merchant.replace(/^[\s\-–—_*#]+/, "").trim();
+          nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
+        }
+        merchantDisplay = [...nameCounts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+      } else {
+        merchantDisplay = sorted[sorted.length - 1]!.merchant;
+      }
+
       candidates.push({
         candidateKey,
         merchantKey:     group.key,
-        merchantDisplay: sorted[sorted.length - 1]!.merchant,
+        merchantDisplay,
         frequency:       freq.frequency,
         averageAmount:   Math.round(avgAmt * 100) / 100,
         amountStdDev:    Math.round(amtStdDev * 100) / 100,
