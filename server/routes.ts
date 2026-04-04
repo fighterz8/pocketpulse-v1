@@ -34,6 +34,7 @@ import {
   type UpdateTransactionInput,
 } from "./storage.js";
 import { buildDashboardSummary } from "./dashboardQueries.js";
+import { db } from "./db.js";
 import { detectRecurringCandidates } from "./recurrenceDetector.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
@@ -895,6 +896,70 @@ export function createApp(options?: CreateAppOptions) {
 
       const row = await upsertRecurringReview(userId, candidateKey, status, notes);
       res.json(row);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  /**
+   * POST /api/recurring-candidates/sync
+   * Runs the detector and writes recurrence_type back to the transactions table:
+   *   - candidate transaction IDs → "recurring"
+   *   - all other active outflow transactions for this user → "one-time"
+   * Returns { recurringCount, oneTimeCount }.
+   */
+  app.post("/api/recurring-candidates/sync", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+
+      const allTxns = await listAllTransactionsForExport({ userId });
+      const candidates = detectRecurringCandidates(allTxns as any);
+
+      // Collect all transaction IDs marked recurring by the detector
+      const recurringIds = new Set<number>();
+      for (const c of candidates) {
+        for (const id of c.transactionIds) recurringIds.add(id);
+      }
+
+      const { transactions: txnTable } = await import("../shared/schema.js");
+      const { eq, and, inArray, sql: drizzleSql } = await import("drizzle-orm");
+
+      // Step 1: reset ALL outflow transactions for this user to "one-time"
+      await db
+        .update(txnTable)
+        .set({ recurrenceType: "one-time" })
+        .where(
+          and(
+            eq(txnTable.userId, userId),
+            eq(txnTable.flowType, "outflow"),
+            eq(txnTable.excludedFromAnalysis, false),
+          ),
+        );
+
+      // Step 2: mark detected-recurring transaction IDs as "recurring"
+      let recurringCount = 0;
+      if (recurringIds.size > 0) {
+        const ids = [...recurringIds];
+        // Process in chunks of 500 to avoid huge IN clauses
+        for (let i = 0; i < ids.length; i += 500) {
+          await db
+            .update(txnTable)
+            .set({ recurrenceType: "recurring" })
+            .where(
+              and(
+                eq(txnTable.userId, userId),
+                inArray(txnTable.id, ids.slice(i, i + 500)),
+              ),
+            );
+        }
+        recurringCount = ids.length;
+      }
+
+      const oneTimeCount = (allTxns as any[]).filter(
+        (t) => t.flowType === "outflow" && !t.excludedFromAnalysis && !recurringIds.has(t.id),
+      ).length;
+
+      res.json({ recurringCount, oneTimeCount });
     } catch (e) {
       next(e);
     }

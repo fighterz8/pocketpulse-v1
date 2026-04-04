@@ -1971,6 +1971,76 @@ body {
   }
 }
 
+/* ─── New leak action buttons ────────────────────────────────────────────── */
+
+.leak-action {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: background 150ms, color 150ms, border-color 150ms;
+  white-space: nowrap;
+}
+
+.leak-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.leak-action--essential {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #16a34a;
+}
+.leak-action--essential:hover:not(:disabled) { background: #dcfce7; }
+.leak-action--essential-active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.leak-action--leak {
+  background: #fff5f5;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+.leak-action--leak:hover:not(:disabled) { background: #fee2e2; }
+.leak-action--leak-active {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.leak-action--dismiss {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #64748b;
+}
+.leak-action--dismiss:hover:not(:disabled) { background: #f1f5f9; }
+.leak-action--dismiss-active {
+  background: #94a3b8;
+  border-color: #94a3b8;
+  color: #fff;
+}
+
+/* ─── Sync button ────────────────────────────────────────────────────────── */
+
+.sync-btn {
+  padding: 0.45rem 1rem;
+  border-radius: 0.625rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 150ms, box-shadow 150ms;
+  box-shadow: 0 1px 6px rgb(37 99 235 / 0.3);
+  white-space: nowrap;
+}
+.sync-btn:hover:not(:disabled) { opacity: 0.9; box-shadow: 0 2px 10px rgb(37 99 235 / 0.4); }
+.sync-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* -------------------------------------------------------------------------- */
 /* Dashboard (Phase 5) — frosted KPI cards + summaries                         */
 /* -------------------------------------------------------------------------- */

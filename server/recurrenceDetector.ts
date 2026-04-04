@@ -5,6 +5,9 @@
  * amount bucket, detects frequency via median interval matching, and
  * scores confidence from four weighted signals: interval regularity,
  * amount consistency, transaction count, and recency.
+ *
+ * Only considers transactions from the past 18 months so stale
+ * subscriptions that were cancelled years ago don't contaminate results.
  */
 
 export type RecurringCandidate = {
@@ -14,6 +17,8 @@ export type RecurringCandidate = {
   frequency: "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
   averageAmount: number;
   amountStdDev: number;
+  monthlyEquivalent: number; // normalised to $/month for comparison
+  annualEquivalent: number;
   confidence: number;
   reasonFlagged: string;
   transactionIds: number[];
@@ -21,6 +26,10 @@ export type RecurringCandidate = {
   lastSeen: string;
   expectedNextDate: string;
   category: string;
+  /** true if the last charge is within 2× the median interval from today */
+  isActive: boolean;
+  /** estimated days overdue (positive) or days until next charge (negative) */
+  daysSinceExpected: number;
 };
 
 type TransactionLike = {
@@ -56,41 +65,105 @@ type FrequencyDef = {
 };
 
 const FREQUENCY_DEFS: FrequencyDef[] = [
-  { frequency: "weekly", expectedDays: 7, toleranceDays: 2 },
-  { frequency: "biweekly", expectedDays: 14, toleranceDays: 3 },
-  { frequency: "monthly", expectedDays: 30.4, toleranceDays: 5 },
-  { frequency: "quarterly", expectedDays: 91.3, toleranceDays: 15 },
-  { frequency: "annual", expectedDays: 365, toleranceDays: 30 },
+  { frequency: "weekly",    expectedDays: 7,     toleranceDays: 2  },
+  { frequency: "biweekly",  expectedDays: 14,    toleranceDays: 3  },
+  { frequency: "monthly",   expectedDays: 30.4,  toleranceDays: 6  },
+  { frequency: "quarterly", expectedDays: 91.3,  toleranceDays: 18 },
+  { frequency: "annual",    expectedDays: 365,   toleranceDays: 30 },
 ];
 
-const AMOUNT_TOLERANCE_PERCENT = 0.25;
-const AMOUNT_TOLERANCE_FLOOR = 2.0;
-const CONFIDENCE_THRESHOLD = 0.35;
-const VARIABLE_AMOUNT_CATEGORIES = ["utilities", "insurance", "health"];
+// Monthly multiplier for each frequency
+const MONTHLY_FACTOR: Record<RecurringCandidate["frequency"], number> = {
+  weekly:    4.333,
+  biweekly:  2.167,
+  monthly:   1,
+  quarterly: 1 / 3,
+  annual:    1 / 12,
+};
+
+const AMOUNT_TOLERANCE_PERCENT = 0.30; // 30% tolerance — more flexible
+const AMOUNT_TOLERANCE_FLOOR   = 3.0;  // at least $3 tolerance
+const CONFIDENCE_THRESHOLD     = 0.30; // lower floor, UI shows confidence badge
+const VARIABLE_AMOUNT_CATEGORIES = new Set(["utilities", "insurance", "medical"]);
+/** Only look at transactions from the past 18 months */
+const LOOKBACK_DAYS = 548; // ~18 months
 
 const WEIGHTS = {
   interval: 0.35,
-  amount: 0.25,
-  count: 0.20,
-  recency: 0.20,
+  amount:   0.25,
+  count:    0.20,
+  recency:  0.20,
 };
 
+// ─── Merchant key normalisation ─────────────────────────────────────────────
+
+/**
+ * Strips payment processor prefixes, account numbers, "-dc NNNN" prefixes,
+ * "Payment To " prefixes, and known suffix noise so that
+ *   "-dc 4305 Replit, Inc. Replit.com"  →  "replit"
+ *   "Payment To At&t"                   →  "at&t"
+ *   "Openai Httpsopenai.c Ca Null"       →  "openai"
+ *   "Chatgpt Subscripti Httpsopenai.c"  →  "openai"
+ */
 export function recurrenceKey(merchant: string): string {
-  let key = merchant.toLowerCase().trim();
-  key = key.replace(/^(sq\s*\*|tst\s*\*|sp\s*\*|pos\s*)\s*/i, "");
-  key = key.replace(/\s*[#*]\s*\d+\s*$/, "");
-  key = key.replace(/\s+/g, " ").trim();
-  return key;
+  let k = merchant.toLowerCase().trim();
+
+  // Strip leading debit-card prefix: "-dc NNNN " or "debit NNNN "
+  k = k.replace(/^-dc\s+\d+\s*/i, "");
+
+  // Strip payment processor square/toast/stripe prefixes
+  k = k.replace(/^(sq\s*\*|tst\s*\*|sp\s*\*|pos\s*|pp\s*\*|paypal\s*\*)\s*/i, "");
+
+  // Strip "Payment To " prefix (e.g. "Payment To Tesla Insurance")
+  k = k.replace(/^payment\s+(to\s+)?/i, "");
+
+  // Strip trailing URL noise (e.g. "Replit.com", "Httpsopenai.c Ca Null", "Openai.com")
+  k = k.replace(/\s+(https?:\S+|http\S*|\w+\.\w{2,4})\s*.*/i, "");
+  k = k.replace(/\s+(ca|null|us|co)\s*$/i, "");
+
+  // Strip trailing transaction/account number
+  k = k.replace(/\s*[#*]\s*\d+\s*$/, "");
+  k = k.replace(/\s+\d{4,}\s*$/, "");
+
+  // Brand aliases — map known variants to a canonical key
+  const ALIASES: [RegExp, string][] = [
+    [/\bopenai\b|\bchatgpt\b/, "openai"],
+    [/\banthropic\b|\bclaude\.ai\b|\bclaude ai\b/, "anthropic"],
+    [/\breplit\b/, "replit"],
+    [/\bamazon prime video\b/, "amazon prime video"],
+    [/\bamazon prime\b/, "amazon prime"],
+    [/\bnetflix\b/, "netflix"],
+    [/\bspotify\b/, "spotify"],
+    [/\bhulu\b/, "hulu"],
+    [/\byoutube\b|\byt premium\b/, "youtube"],
+    [/\bgoogle one\b|\bgoogle storage\b/, "google one"],
+    [/\bapple.*music\b/, "apple music"],
+    [/\bicloud\b/, "icloud"],
+    [/\bshopify\b/, "shopify"],
+    [/\belevenlabs\b/, "elevenlabs"],
+    [/\b24 hour fitness\b|\b24hr fitness\b/, "24 hour fitness"],
+    [/\bchuze fitness\b/, "chuze fitness"],
+    [/\bcrunchyroll\b/, "crunchyroll"],
+    [/\bat&t\b|\bat and t\b/, "at&t"],
+    [/\btesla insurance\b/, "tesla insurance"],
+    [/\blumetry\b/, "lumetry"],
+  ];
+  for (const [re, canonical] of ALIASES) {
+    if (re.test(k)) { k = canonical; break; }
+  }
+
+  return k.replace(/\s+/g, " ").trim();
 }
 
 export function buildCandidateKey(merchantKey: string, avgAmount: number): string {
   return `${merchantKey}|${avgAmount.toFixed(2)}`;
 }
 
+// ─── Utilities ───────────────────────────────────────────────────────────────
+
 function daysBetween(a: string, b: string): number {
-  const msPerDay = 86_400_000;
   return Math.round(
-    (new Date(b).getTime() - new Date(a).getTime()) / msPerDay,
+    (new Date(b).getTime() - new Date(a).getTime()) / 86_400_000,
   );
 }
 
@@ -108,11 +181,25 @@ function median(values: number[]): number {
     : sorted[mid]!;
 }
 
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function lookbackCutoff(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - LOOKBACK_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
+// ─── Grouping ────────────────────────────────────────────────────────────────
+
 function groupTransactions(txns: TransactionLike[]): MerchantGroup[] {
+  const cutoff = lookbackCutoff();
   const map = new Map<string, TransactionLike[]>();
   for (const txn of txns) {
     if (txn.excludedFromAnalysis) continue;
-    if (txn.flowType === "inflow") continue;
+    if (txn.flowType !== "outflow") continue;
+    if (txn.date < cutoff) continue; // ignore data older than 18 months
     const key = recurrenceKey(txn.merchant);
     if (!key) continue;
     if (!map.has(key)) map.set(key, []);
@@ -128,7 +215,7 @@ function bucketByAmount(txns: TransactionLike[]): AmountBucket[] {
   const buckets: AmountBucket[] = [];
   for (const txn of txns) {
     const amt = Math.abs(parseFloat(txn.amount));
-    if (isNaN(amt)) continue;
+    if (isNaN(amt) || amt === 0) continue;
     let placed = false;
     for (const bucket of buckets) {
       const tolerance = Math.max(
@@ -151,6 +238,8 @@ function bucketByAmount(txns: TransactionLike[]): AmountBucket[] {
   return buckets;
 }
 
+// ─── Frequency detection ─────────────────────────────────────────────────────
+
 function detectFrequency(txns: TransactionLike[]): FrequencyResult | null {
   if (txns.length < 2) return null;
 
@@ -160,8 +249,10 @@ function detectFrequency(txns: TransactionLike[]): FrequencyResult | null {
   }
 
   const med = median(intervals);
+  if (med <= 0) return null;
 
-  const filtered = intervals.filter((iv) => iv <= med * 2.5);
+  // Filter out obvious outlier gaps (>3× median) before computing stddev
+  const filtered = intervals.filter((iv) => iv > 0 && iv <= med * 3);
   if (filtered.length === 0) return null;
 
   const mean = filtered.reduce((s, v) => s + v, 0) / filtered.length;
@@ -170,7 +261,6 @@ function detectFrequency(txns: TransactionLike[]): FrequencyResult | null {
 
   let bestMatch: FrequencyDef | null = null;
   let bestDelta = Infinity;
-
   for (const fd of FREQUENCY_DEFS) {
     const delta = Math.abs(med - fd.expectedDays);
     if (delta <= fd.toleranceDays && delta < bestDelta) {
@@ -178,94 +268,84 @@ function detectFrequency(txns: TransactionLike[]): FrequencyResult | null {
       bestDelta = delta;
     }
   }
-
   if (!bestMatch) return null;
 
-  return {
-    frequency: bestMatch.frequency,
-    medianInterval: med,
-    intervalStdDev: stdDev,
-  };
+  return { frequency: bestMatch.frequency, medianInterval: med, intervalStdDev: stdDev };
 }
 
 function getMinTransactions(frequency: RecurringCandidate["frequency"]): number {
-  return frequency === "annual" ? 2 : 3;
+  if (frequency === "annual")    return 2;
+  if (frequency === "quarterly") return 2;
+  return 3;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+// ─── Confidence scoring ──────────────────────────────────────────────────────
 
 function scoreConfidence(
   txns: TransactionLike[],
   freq: FrequencyResult,
   category: string,
-): number {
+): { score: number; amountScore: number; recencyScore: number } {
   const n = txns.length;
 
+  // Count signal: plateaus at 6 occurrences
   const countScore = Math.min(1.0, (n - 2) / 4);
 
+  // Interval regularity: coefficient of variation of intervals
   const cv = freq.medianInterval > 0 ? freq.intervalStdDev / freq.medianInterval : 0;
   const intervalScore = Math.max(0, 1.0 - cv * 2);
 
+  // Amount consistency
   const amounts = txns.map((t) => Math.abs(parseFloat(t.amount)));
   const avgAmt = amounts.reduce((s, v) => s + v, 0) / amounts.length;
   const amtVariance = amounts.reduce((s, v) => s + (v - avgAmt) ** 2, 0) / amounts.length;
   const amtCv = avgAmt > 0 ? Math.sqrt(amtVariance) / avgAmt : 0;
+  const amountScore = VARIABLE_AMOUNT_CATEGORIES.has(category)
+    ? Math.max(0, 1.0 - amtCv * 2.0)
+    : Math.max(0, 1.0 - amtCv * 3.33);
 
-  let amountScore: number;
-  if (VARIABLE_AMOUNT_CATEGORIES.includes(category)) {
-    amountScore = Math.max(0, 1.0 - amtCv * 2.0);
-  } else {
-    amountScore = Math.max(0, 1.0 - amtCv * 3.33);
-  }
-
+  // Recency: how long since the last charge vs expected interval
   const daysSinceLast = daysBetween(txns[txns.length - 1]!.date, todayISO());
   const recencyRatio = freq.medianInterval > 0 ? daysSinceLast / freq.medianInterval : 0;
   let recencyScore: number;
-  if (recencyRatio <= 1.5) {
-    recencyScore = 1.0;
-  } else if (recencyRatio >= 3.0) {
-    recencyScore = 0;
-  } else {
-    recencyScore = Math.max(0, 1.0 - (recencyRatio - 1.5) / 1.5);
-  }
+  if (recencyRatio <= 1.5)      recencyScore = 1.0;
+  else if (recencyRatio >= 3.5) recencyScore = 0;
+  else recencyScore = Math.max(0, 1.0 - (recencyRatio - 1.5) / 2.0);
 
   const raw =
-    countScore * WEIGHTS.count +
+    countScore    * WEIGHTS.count    +
     intervalScore * WEIGHTS.interval +
-    amountScore * WEIGHTS.amount +
-    recencyScore * WEIGHTS.recency;
+    amountScore   * WEIGHTS.amount   +
+    recencyScore  * WEIGHTS.recency;
 
-  return Math.round(raw * 100) / 100;
+  return { score: Math.round(raw * 100) / 100, amountScore, recencyScore };
 }
+
+// ─── Reason text ─────────────────────────────────────────────────────────────
 
 function buildReasonFlagged(
   txnCount: number,
   avgAmount: number,
   frequency: string,
   amountScore: number,
+  isActive: boolean,
 ): string {
-  const parts: string[] = [];
-
-  parts.push(
-    `${txnCount} charges of ~$${avgAmount.toFixed(2)} detected ${frequency}`,
-  );
-
-  if (amountScore >= 0.9) {
-    parts.push("at a consistent amount");
-  } else if (amountScore >= 0.6) {
-    parts.push("with minor amount variation");
-  } else {
-    parts.push("with variable amounts");
-  }
-
+  const parts: string[] = [
+    `${txnCount} charges of ~$${avgAmount.toFixed(2)} ${frequency}`,
+  ];
+  if (amountScore >= 0.9)      parts.push("— consistent amount");
+  else if (amountScore >= 0.6) parts.push("— minor amount variation");
+  else                         parts.push("— variable amounts");
+  if (!isActive)               parts.push("· possibly cancelled");
   return parts.join(" ");
 }
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCandidate[] {
   if (txns.length === 0) return [];
 
+  const today = todayISO();
   const candidates: RecurringCandidate[] = [];
   const groups = groupTransactions(txns);
 
@@ -281,52 +361,61 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
       const minTxns = getMinTransactions(freq.frequency);
       if (sorted.length < minTxns) continue;
 
+      // For annual, require the two charges to span at least 10 months
       if (freq.frequency === "annual" && sorted.length === 2) {
         const span = daysBetween(sorted[0]!.date, sorted[1]!.date);
-        if (span < 330) continue;
+        if (span < 300) continue;
       }
 
       const category = sorted[sorted.length - 1]!.category;
-      const confidence = scoreConfidence(sorted, freq, category);
+      const { score: confidence, amountScore, recencyScore } = scoreConfidence(sorted, freq, category);
       if (confidence < CONFIDENCE_THRESHOLD) continue;
 
-      const amounts = sorted.map((t) => Math.abs(parseFloat(t.amount)));
-      const avgAmt = amounts.reduce((s, v) => s + v, 0) / amounts.length;
-      const amtVariance = amounts.reduce((s, v) => s + (v - avgAmt) ** 2, 0) / amounts.length;
-      const amtStdDev = Math.sqrt(amtVariance);
-      const amtCv = avgAmt > 0 ? amtStdDev / avgAmt : 0;
+      // Suppress if low recency AND low confidence (stale cancelled subscriptions)
+      if (recencyScore === 0 && confidence < 0.5) continue;
 
-      let amountScore: number;
-      if (VARIABLE_AMOUNT_CATEGORIES.includes(category)) {
-        amountScore = Math.max(0, 1.0 - amtCv * 2.0);
-      } else {
-        amountScore = Math.max(0, 1.0 - amtCv * 3.33);
-      }
+      const amounts = sorted.map((t) => Math.abs(parseFloat(t.amount)));
+      const avgAmt  = amounts.reduce((s, v) => s + v, 0) / amounts.length;
+      const amtVariance = amounts.reduce((s, v) => s + (v - avgAmt) ** 2, 0) / amounts.length;
+      const amtStdDev   = Math.sqrt(amtVariance);
 
       const lastDate = sorted[sorted.length - 1]!.date;
       const nextDate = addDays(lastDate, Math.round(freq.medianInterval));
+      const daysSinceExpected = daysBetween(nextDate, today);
+
+      // Active = last charge was within 2 full median-intervals of today
+      const isActive = daysBetween(lastDate, today) <= freq.medianInterval * 2;
+
+      const monthlyEquivalent = Math.round(avgAmt * MONTHLY_FACTOR[freq.frequency] * 100) / 100;
+      const annualEquivalent  = Math.round(monthlyEquivalent * 12 * 100) / 100;
 
       const candidateKey = buildCandidateKey(group.key, avgAmt);
 
       candidates.push({
         candidateKey,
-        merchantKey: group.key,
+        merchantKey:     group.key,
         merchantDisplay: sorted[sorted.length - 1]!.merchant,
-        frequency: freq.frequency,
-        averageAmount: Math.round(avgAmt * 100) / 100,
-        amountStdDev: Math.round(amtStdDev * 100) / 100,
+        frequency:       freq.frequency,
+        averageAmount:   Math.round(avgAmt * 100) / 100,
+        amountStdDev:    Math.round(amtStdDev * 100) / 100,
+        monthlyEquivalent,
+        annualEquivalent,
         confidence,
-        reasonFlagged: buildReasonFlagged(sorted.length, avgAmt, freq.frequency, amountScore),
+        reasonFlagged: buildReasonFlagged(sorted.length, avgAmt, freq.frequency, amountScore, isActive),
         transactionIds: sorted.map((t) => t.id),
-        firstSeen: sorted[0]!.date,
-        lastSeen: lastDate,
+        firstSeen:  sorted[0]!.date,
+        lastSeen:   lastDate,
         expectedNextDate: nextDate,
         category,
+        isActive,
+        daysSinceExpected,
       });
     }
   }
 
-  return candidates.sort((a, b) =>
-    b.confidence - a.confidence || b.averageAmount - a.averageAmount,
-  );
+  // Sort: active first, then by monthly cost descending
+  return candidates.sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+    return b.monthlyEquivalent - a.monthlyEquivalent;
+  });
 }
