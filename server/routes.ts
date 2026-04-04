@@ -37,10 +37,6 @@ import { buildDashboardSummary } from "./dashboardQueries.js";
 import { detectRecurringCandidates } from "./recurrenceDetector.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
-import {
-  inferFlowType,
-  normalizeMerchant,
-} from "./transactionUtils.js";
 
 declare module "express-session" {
   interface SessionData {
@@ -447,19 +443,22 @@ export function createApp(options?: CreateAppOptions) {
             labelReason: string;
             aiAssisted: boolean;
           }> = parseResult.rows.map((row) => {
-            const merchant = normalizeMerchant(row.description);
-            const rawFlowType = inferFlowType(row.amount);
             const classification = classifyTransaction(
-              merchant || row.description,
+              row.description,
               row.amount,
-              rawFlowType,
             );
 
-            const effectiveFlowType = classification.flowOverride ?? rawFlowType;
+            // Normalise amount sign to match the resolved flowType.
+            // The classifier may have flipped the expected direction (e.g. a
+            // positively-signed credit-card payment becomes outflow after the
+            // debt merchant rule fires). Keeping the sign and flowType in sync
+            // prevents the dashboard from double-counting transfers or debts.
             const effectiveAmount =
-              effectiveFlowType === "outflow" && row.amount > 0
+              classification.flowType === "outflow" && row.amount > 0
                 ? -Math.abs(row.amount)
-                : row.amount;
+                : classification.flowType === "inflow" && row.amount < 0
+                  ? Math.abs(row.amount)
+                  : row.amount;
 
             return {
               userId,
@@ -467,16 +466,18 @@ export function createApp(options?: CreateAppOptions) {
               accountId: fileMeta.accountId,
               date: row.date,
               amount: effectiveAmount.toFixed(2),
-              merchant: merchant || row.description,
+              merchant: classification.merchant,
               rawDescription: row.description,
-              flowType: effectiveFlowType,
+              flowType: classification.flowType,
               transactionClass: classification.transactionClass,
               recurrenceType: classification.recurrenceType,
               category: classification.category,
               labelSource: classification.labelSource,
               labelConfidence: classification.labelConfidence.toFixed(2),
               labelReason: classification.labelReason,
-              aiAssisted: false,
+              // OR with row.ambiguous: rows with an ambiguous amount direction
+              // (positive single-column with no direction hint) also get AI review.
+              aiAssisted: classification.aiAssisted || row.ambiguous,
             };
           });
 

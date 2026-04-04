@@ -22,6 +22,14 @@ export type ParsedRow = {
   date: string;
   description: string;
   amount: number;
+  /**
+   * True when the direction of this row was determined by heuristic rather
+   * than an explicit debit/credit column or type indicator. A positive-signed
+   * amount from a single "Amount" column falls into this bucket — the bank
+   * may display all amounts as positive and rely on descriptions for direction.
+   * Rows where ambiguous=true get flagged for extra AI review.
+   */
+  ambiguous: boolean;
 };
 
 export type CSVParseResult =
@@ -161,8 +169,9 @@ export async function parseCSV(
     const description = row[mapping.descriptionIdx] ?? "";
 
     let amount: number;
+    let ambiguous = false;
     if (mapping.debitIdx !== null || mapping.creditIdx !== null) {
-      // Priority 1: Explicit debit/credit columns
+      // Priority 1: Explicit debit/credit columns — direction is unambiguous
       const rawDebit = mapping.debitIdx !== null ? row[mapping.debitIdx] ?? "" : "";
       const rawCredit = mapping.creditIdx !== null ? row[mapping.creditIdx] ?? "" : "";
       const debitVal = rawDebit ? normalizeAmount(rawDebit) : 0;
@@ -172,16 +181,19 @@ export async function parseCSV(
         credit: isNaN(creditVal) ? 0 : creditVal,
       });
     } else if (mapping.amountIdx !== null && mapping.typeIdx !== null) {
-      // Priority 2: Amount + Type column (Debit/Credit or DR/CR)
+      // Priority 2: Amount + Type column (Debit/Credit or DR/CR) — unambiguous
       const rawAmount = row[mapping.amountIdx] ?? "";
       const rawType = (row[mapping.typeIdx] ?? "").trim().toLowerCase();
       const parsed = normalizeAmount(rawAmount);
       const isDebit = rawType === "debit" || rawType === "dr" || rawType === "deb";
       amount = isDebit ? -Math.abs(parsed) : Math.abs(parsed);
     } else if (mapping.amountIdx !== null) {
-      // Priority 3: Amount column only (sign comes from the value itself)
+      // Priority 3: Amount column only — negative sign is reliable, but a
+      // positive value in a single-column format is ambiguous: some banks
+      // show all amounts as positive and rely on the description for direction.
       const rawAmount = row[mapping.amountIdx] ?? "";
       amount = normalizeAmount(rawAmount);
+      ambiguous = amount >= 0;
     } else {
       amount = NaN;
     }
@@ -193,7 +205,7 @@ export async function parseCSV(
       continue;
     }
 
-    rows.push({ date, description, amount });
+    rows.push({ date, description, amount, ambiguous });
   }
 
   if (rows.length === 0) {

@@ -10,6 +10,7 @@
  * wins, so more specific patterns should appear before broader ones.
  */
 import type { V1Category } from "../shared/schema.js";
+import { getDirectionHint, normalizeMerchant } from "./transactionUtils.js";
 
 const TRANSFER_KEYWORDS = [
   "transfer",
@@ -32,20 +33,46 @@ const TRANSFER_KEYWORDS = [
   "revolut",
 ];
 
+/**
+ * Result produced by classifyTransaction(). The classifier now fully owns
+ * flowType (no more flowOverride to reconcile at the call site), and exposes
+ * the cleaned merchant name and the aiAssisted flag so callers can determine
+ * which rows need LLM enrichment without additional logic.
+ */
 export type ClassificationResult = {
   transactionClass: "income" | "expense" | "transfer" | "refund";
+  flowType: "inflow" | "outflow";
   category: V1Category;
   recurrenceType: "recurring" | "one-time";
+  merchant: string;
   labelSource: "rule";
   labelConfidence: number;
   labelReason: string;
-  flowOverride: "outflow" | null;
+  /**
+   * True when no specific merchant rule matched AND no recurring signal was
+   * found AND no strong directional language appeared in the description.
+   * When true the LLM enrichment layer should review this row.
+   */
+  aiAssisted: boolean;
 };
 
 type CategoryRule = {
   category: V1Category;
   keywords: string[];
   confidence: number;
+  /**
+   * Optional explicit transaction-class override. Set this on categories
+   * (e.g. "debt") where a rule match should always produce the given class
+   * regardless of what earlier passes (transfer detection, income detection)
+   * decided. When omitted, any category in EXPENSE_CATEGORIES auto-locks to
+   * "expense" during Pass 6.
+   */
+  transactionClass?: "expense" | "income";
+  /**
+   * Optional explicit recurrence hint. When set the merchant rule wins over
+   * the Pass 8 subscription-keyword heuristic.
+   */
+  recurrenceType?: "recurring" | "one-time";
 };
 
 /**
@@ -60,10 +87,14 @@ const CATEGORY_RULES: CategoryRule[] = [
     confidence: 0.85,
   },
 
-  // Debt payments — matched before TRANSFER_KEYWORDS so "TRANSFER TO AUTO LOAN"
-  // is correctly treated as a debt expense rather than a transfer
+  // Debt payments. transactionClass is explicitly set to "expense" so that
+  // "TRANSFER TO AUTO LOAN" (which matches Pass 1 transfer detection) is
+  // correctly overridden back to expense in Pass 6. Without the explicit
+  // transactionClass here the auto-lock would not fire because the
+  // transactionClass from Pass 1 is "transfer", not "income".
   {
     category: "debt",
+    transactionClass: "expense",
     keywords: [
       "loan payment",
       "student loan",
@@ -1187,87 +1218,300 @@ const EXPENSE_CATEGORIES: ReadonlySet<string> = new Set(
   CATEGORY_RULES.map((r) => r.category).filter((c) => !NON_EXPENSE_CATEGORIES.has(c)),
 );
 
-const REFUND_KEYWORDS = ["refund", "return credit", "credit adj", "reversal", "chargeback", "adjustment cr"];
+/**
+ * Pass 2 — Refund detection keywords.
+ * "return credit" is used rather than bare "return" to reduce false positives
+ * from descriptions like "RETURN VONS 04/15" which are store returns not
+ * account credits (those are caught by the refund keyword separately).
+ */
+const REFUND_KEYWORDS = [
+  "refund",
+  "return credit",
+  "credit adj",
+  "reversal",
+  "chargeback",
+  "adjustment cr",
+];
 
-function matchesAny(merchant: string, keywords: string[]): boolean {
-  const lower = merchant.toLowerCase();
-  return keywords.some((kw) => lower.includes(kw));
-}
+/**
+ * Pass 3 — Income detection keywords.
+ * Only applied when the amount is non-negative. Seeing these in a description
+ * strongly implies the transaction is intentional income, not just a positive
+ * balance adjustment.
+ */
+const INCOME_KEYWORDS = [
+  "deposit",
+  "payment received",
+  "direct dep",
+  "ach credit",
+  "wire from",
+  "invoice",
+];
 
+/**
+ * Pass 9 — Recurring income keywords.
+ * These appear verbatim in bank descriptions and are definitively recurring.
+ * Checked separately from INCOME_KEYWORDS because they also set recurrenceType.
+ */
+const RECURRING_INCOME_KEYWORDS = [
+  "salary",
+  "payroll",
+  "direct deposit",
+  "regular income",
+  "benefit",
+  "benefits",
+  "pension",
+  "social security",
+  "veteran affairs",
+  "dept. of veterans",
+  "department of veteran",
+  "thrift savings",
+];
+
+/**
+ * Classify a single transaction using the v1 12-pass state machine.
+ *
+ * Takes the raw bank description and a signed amount (negative = outflow).
+ * Internally derives flowType, merchant name, and all classification fields.
+ * The caller no longer needs to pre-compute merchant or flowType.
+ *
+ * Pass order (from v1 spec):
+ *  1  Transfer detection
+ *  2  Refund detection
+ *  3  Income detection (amount >= 0 only)
+ *  4  Standalone "credit" keyword
+ *  5  Transfer direction refinement
+ *  6  Merchant rule matching (can override passes 1–5)
+ *  7  Category keyword fallback (implicit — Pass 6 covers both)
+ *  8  Recurring subscription heuristic
+ *  9  Recurring income detection
+ * 10  Transfer reclassification (residual transfers → income or expense)
+ * 11  Income category lock
+ * 12  aiAssisted flag assignment
+ */
 export function classifyTransaction(
-  merchant: string,
+  rawDescription: string,
   amount: number,
-  flowType: "inflow" | "outflow",
 ): ClassificationResult {
-  const lower = merchant.toLowerCase();
+  const lower = rawDescription.toLowerCase().trim();
+  const directionHint = getDirectionHint(rawDescription);
+  const cleanedMerchant = normalizeMerchant(rawDescription);
 
-  // Step 1: Always run keyword matching first
-  let category: V1Category = "other";
-  let confidence = 0.3;
+  // ─── Initial defaults ──────────────────────────────────────────────────────
+  // Positive amounts default to income; negative to expense.
+  // Everything starts as one-time until a rule says otherwise.
+  let transactionClass: ClassificationResult["transactionClass"] =
+    amount >= 0 ? "income" : "expense";
+  let flowType: "inflow" | "outflow" = amount >= 0 ? "inflow" : "outflow";
+  let recurrenceType: "recurring" | "one-time" = "one-time";
+  let category: V1Category = amount >= 0 ? "income" : "other";
+  let labelReason = "Initial amount-sign heuristic";
+  let matchedRule = false;
   let matchedKeyword = "";
+  let labelConfidence = 0.92;
 
+  // ─── Pass 1: Transfer detection ───────────────────────────────────────────
+  // Runs first because misclassifying a transfer as income or expense skews
+  // every cashflow metric. The broader check here catches all transfer-like
+  // language; merchant rules (Pass 6) can then override where a specific
+  // expense category applies (e.g. "TRANSFER TO AUTO LOAN" → debt).
+  if (TRANSFER_KEYWORDS.some((kw) => lower.includes(kw))) {
+    transactionClass = "transfer";
+    category = "transfers";
+  }
+
+  // ─── Pass 2: Refund detection ─────────────────────────────────────────────
+  // Only runs if not already classified as transfer.
+  // A transfer cannot also be a refund.
+  if (
+    transactionClass !== "transfer" &&
+    REFUND_KEYWORDS.some((kw) => lower.includes(kw))
+  ) {
+    transactionClass = "refund";
+  }
+
+  // ─── Pass 3: Income detection ─────────────────────────────────────────────
+  // Only runs for non-negative amounts that are not yet transfer/refund.
+  // The amount guard prevents "FEE REVERSAL DEPOSIT" with a negative amount
+  // from being incorrectly promoted to income.
+  if (
+    transactionClass !== "transfer" &&
+    transactionClass !== "refund" &&
+    amount >= 0 &&
+    INCOME_KEYWORDS.some((kw) => lower.includes(kw))
+  ) {
+    transactionClass = "income";
+    category = "income";
+  }
+
+  // ─── Pass 4: Standalone "credit" keyword ──────────────────────────────────
+  // Handles bank entries like "ANNUAL FEE CREDIT" or "CREDIT MEMO" that
+  // represent one-time account credits, not income. The word-boundary regex
+  // prevents "credit card" from triggering this — "credit" must stand alone.
+  // The !hasIncomeContext guard prevents "ACH CREDIT DIRECT DEPOSIT PAYROLL"
+  // from being downgraded from income to refund.
+  const hasIncomeContext = INCOME_KEYWORDS.some((kw) => lower.includes(kw));
+  if (
+    /(^|\s)credit($|\s)/.test(lower) &&
+    amount > 0 &&
+    !hasIncomeContext &&
+    transactionClass !== "income"
+  ) {
+    transactionClass = "refund";
+  }
+
+  // ─── Pass 5: Transfer direction refinement ────────────────────────────────
+  // Transfers detected in Pass 1 need their flowType set for display purposes.
+  // "TRANSFER TO SAVINGS" should show as outflow, "TRANSFER FROM CHECKING" as inflow.
+  if (transactionClass === "transfer" && directionHint) {
+    flowType = directionHint;
+  }
+
+  // ─── Pass 6: Merchant rule matching ───────────────────────────────────────
+  // The largest and most important pass. Each matching rule can override:
+  //   • category (always)
+  //   • transactionClass (if rule.transactionClass is set, or if the category
+  //     is in EXPENSE_CATEGORIES — which auto-locks to "expense")
+  //   • recurrenceType (if rule.recurrenceType is set)
+  //
+  // This pass CAN override the transfer/refund set in passes 1–2, which is
+  // intentional: "TRANSFER TO AUTO LOAN" correctly becomes debt/expense here.
+  //
+  // Rules are ordered specific-to-general; first match wins.
+  // The "transfers" category rule is skipped — Pass 1 handles it.
   for (const rule of CATEGORY_RULES) {
+    if (rule.category === "transfers") continue;
     for (const kw of rule.keywords) {
       if (lower.includes(kw)) {
         category = rule.category;
-        confidence = rule.confidence;
         matchedKeyword = kw;
+        matchedRule = true;
+        labelConfidence = rule.confidence;
+        labelReason = `Matched rule keyword "${kw}" → ${category}`;
+
+        // Determine transactionClass from the rule's explicit override.
+        // If the rule has no explicit transactionClass but the category is a
+        // known expense category AND the current class is still "income" (the
+        // amount-sign default for positive amounts), auto-lock to "expense".
+        // This corrects banks that show all amounts as positive.
+        //
+        // IMPORTANT: We do NOT auto-lock if transactionClass is already
+        // "refund" or "transfer" — those are set by earlier passes and must
+        // not be silently overridden by a merchant category match.
+        if (rule.transactionClass) {
+          transactionClass = rule.transactionClass;
+        } else if (
+          EXPENSE_CATEGORIES.has(rule.category) &&
+          transactionClass === "income"
+        ) {
+          transactionClass = "expense";
+        }
+
+        // Keep flowType consistent with the resolved class.
+        if (transactionClass === "expense") {
+          flowType = "outflow";
+        } else if (transactionClass === "income") {
+          flowType = "inflow";
+        }
+        // "refund" flowType stays as-is — it may be inflow (a credit) or
+        // outflow depending on the bank; we don't force it here.
+
+        if (rule.recurrenceType) {
+          recurrenceType = rule.recurrenceType;
+        }
         break;
       }
     }
-    if (matchedKeyword) break;
+    if (matchedRule) break;
   }
 
-  // Step 2: Determine transaction class, respecting keyword results
-  let transactionClass: ClassificationResult["transactionClass"];
-  let flowOverride: "outflow" | null = null;
-
-  if (matchesAny(merchant, REFUND_KEYWORDS) && flowType === "inflow") {
-    transactionClass = "refund";
-  } else if (
-    matchesAny(merchant, TRANSFER_KEYWORDS) &&
-    // Don't override a specific expense/debt keyword match with transfer.
-    // e.g. "TRANSFER TO AUTO LOAN" should stay debt, not become a transfer.
-    (!matchedKeyword || category === "transfers")
+  // ─── Pass 8: Recurring subscription heuristic ─────────────────────────────
+  // If the description literally says "subscription", "monthly", "recurring",
+  // or "membership" and no rule already set recurrenceType, flag it recurring.
+  if (
+    recurrenceType === "one-time" &&
+    transactionClass !== "transfer" &&
+    transactionClass !== "refund"
   ) {
-    transactionClass = "transfer";
-    if (!matchedKeyword) {
-      category = "transfers";
-      confidence = 0.8;
-      matchedKeyword = "transfer";
+    if (
+      lower.includes("subscription") ||
+      lower.includes("monthly") ||
+      lower.includes("recurring") ||
+      lower.includes("membership")
+    ) {
+      recurrenceType = "recurring";
     }
-  } else if (matchedKeyword && EXPENSE_CATEGORIES.has(category)) {
-    transactionClass = "expense";
-    if (flowType === "inflow") {
-      flowOverride = "outflow";
-    }
-  } else if (flowType === "inflow") {
-    transactionClass = "income";
-    if (!matchedKeyword) {
-      category = "income";
-      confidence = 0.8;
-      matchedKeyword = "inflow";
-    }
-  } else {
-    transactionClass = "expense";
   }
 
-  // Step 3: Recurrence hint
-  const recurrenceType = matchesAny(merchant, RECURRING_KEYWORDS)
-    ? "recurring" as const
-    : "one-time" as const;
+  // ─── Pass 9: Recurring income detection ───────────────────────────────────
+  // Payroll and government benefits keywords → always recurring income.
+  if (recurrenceType === "one-time" && transactionClass === "income") {
+    if (RECURRING_INCOME_KEYWORDS.some((kw) => lower.includes(kw))) {
+      recurrenceType = "recurring";
+    }
+  }
 
-  const labelReason = matchedKeyword
-    ? `Matched keyword "${matchedKeyword}" → ${category}`
-    : `No keyword match — defaulted to ${category}`;
+  // ─── Pass 8b: Legacy RECURRING_KEYWORDS for known merchant patterns ────────
+  // Keeps backward-compatible recurrence detection for merchants not captured
+  // by the category-level recurrenceType or the description-keyword heuristic.
+  if (
+    recurrenceType === "one-time" &&
+    transactionClass !== "transfer" &&
+    transactionClass !== "refund"
+  ) {
+    if (RECURRING_KEYWORDS.some((kw) => lower.includes(kw))) {
+      recurrenceType = "recurring";
+    }
+  }
+
+  // ─── Pass 10: Transfer reclassification — INTENTIONALLY SKIPPED ──────────
+  // The v1 spec reclassifies residual transfers to income/expense. We retain
+  // "transfer" as a first-class transactionClass because our UI exposes a
+  // transfers category filter in the ledger. Reclassifying would remove all
+  // transfers from that view and confuse users who upload both account sides.
+
+  // ─── Pass 11: Income category lock ────────────────────────────────────────
+  // After all passes, income must have category "income". Prevents edge cases
+  // where a merchant rule set a non-income category on a positive-amount row
+  // that was not overridden back to expense.
+  if (transactionClass === "income") {
+    category = "income";
+    flowType = "inflow";
+  }
+
+  // ─── Pass 12: aiAssisted flag ─────────────────────────────────────────────
+  // All three conditions together mean "the rule system had nothing specific
+  // to say about this transaction". The LLM enrichment layer should review it.
+  //
+  // Condition 1: No merchant rule matched  (matchedRule)
+  // Condition 2: No recurring signal found (default stayed one-time)
+  // Condition 3: No strong directional language in the description
+  //
+  // Transfers and refunds caught by passes 1–2 are NOT flagged — the rule
+  // system DID make a specific determination for them.
+  const aiAssisted =
+    !matchedRule &&
+    recurrenceType === "one-time" &&
+    !directionHint &&
+    transactionClass !== "transfer" &&
+    transactionClass !== "refund";
+
+  if (!matchedRule) {
+    labelConfidence = aiAssisted ? 0.55 : 0.75;
+    labelReason = aiAssisted
+      ? "No strong merchant or recurrence rule matched"
+      : `Amount-sign heuristic → ${category}`;
+  }
 
   return {
     transactionClass,
+    flowType,
     category,
     recurrenceType,
+    merchant: cleanedMerchant,
     labelSource: "rule",
-    labelConfidence: confidence,
+    labelConfidence,
     labelReason,
-    flowOverride,
+    aiAssisted,
   };
 }

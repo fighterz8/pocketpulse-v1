@@ -1,6 +1,5 @@
 import { classifyTransaction } from "./classifier.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
-import { inferFlowType, normalizeMerchant } from "./transactionUtils.js";
 import {
   listAllTransactionsForExport,
   bulkUpdateTransactions,
@@ -55,35 +54,31 @@ export async function reclassifyTransactions(
     }
 
     try {
-      const merchant = normalizeMerchant(txn.rawDescription);
       const rawAmount = parseFloat(String(txn.amount));
-      const rawFlowType = inferFlowType(rawAmount);
-      const classification = classifyTransaction(
-        merchant || txn.rawDescription,
-        rawAmount,
-        rawFlowType,
-      );
+      const classification = classifyTransaction(txn.rawDescription, rawAmount);
 
-      const effectiveFlowType = classification.flowOverride ?? rawFlowType;
       const effectiveAmount =
-        effectiveFlowType === "outflow" && rawAmount > 0
+        classification.flowType === "outflow" && rawAmount > 0
           ? -Math.abs(rawAmount)
-          : rawAmount;
+          : classification.flowType === "inflow" && rawAmount < 0
+            ? Math.abs(rawAmount)
+            : rawAmount;
 
       intermediate.push({
         txnIndex: i,
         txnId: txn.id,
         rawDescription: txn.rawDescription,
-        merchant: merchant || txn.rawDescription,
+        merchant: classification.merchant,
         amount: rawAmount,
         newAmount: effectiveAmount.toFixed(2),
-        effectiveFlowType,
+        effectiveFlowType: classification.flowType,
         transactionClass: classification.transactionClass,
         category: classification.category,
         recurrenceType: classification.recurrenceType,
         labelConfidence: classification.labelConfidence,
         labelReason: classification.labelReason,
         needsAi:
+          classification.aiAssisted ||
           classification.labelConfidence < AI_CONFIDENCE_THRESHOLD ||
           classification.category === "other",
       });

@@ -3,8 +3,69 @@
  *
  * Handles amount parsing (currency strings, accounting-format negatives),
  * signed-amount derivation from single or split debit/credit columns,
- * flow-type inference, merchant name cleanup, and date normalization.
+ * flow-type inference, direction hinting, merchant name cleanup, and date normalization.
  */
+
+/**
+ * Tier 1: Strong outflow signals. Checked first because misidentifying an
+ * outflow as income is worse than the reverse. These are unambiguous
+ * operational bank terms ("POS", "ACH DEBIT", "withdrawal") that only
+ * appear in outflow contexts.
+ */
+const STRONG_OUTFLOW_HINT_PATTERNS: RegExp[] = [
+  /\btransfer to\b/i,
+  /\bpayment to\b/i,
+  /\bach debit\b/i,
+  /\bpos\b/i,
+  /\bpurchase\b/i,
+  /\bwithdrawal\b/i,
+  /\bwithdraw\b/i,
+  /\batm fee\b/i,
+  /\batm\b/i,
+  /\bbill pay\b/i,
+  /\bautopay\b/i,
+  /\bdebit\b/i,
+];
+
+/**
+ * Tier 2: Inflow signals. Checked second. "Transfer FROM" vs "Transfer TO"
+ * is critical — checking outflow first ensures "transfer to" is caught before
+ * a bare "transfer" fragment in "transfer from" creates confusion.
+ */
+const INFLOW_HINT_PATTERNS: RegExp[] = [
+  /\btransfer from\b/i,
+  /\bach credit\b/i,
+  /\bdirect deposit\b/i,
+  /\bdeposit\b/i,
+  /\bsalary\b/i,
+  /\bpayroll\b/i,
+  /\bpayment received\b/i,
+  /\bwire from\b/i,
+  /\bincoming\b/i,
+  /\brefund\b/i,
+  /\breversal\b/i,
+  /\breturn\b/i,
+  /\badjustment.?credit\b/i,
+];
+
+/**
+ * Inspects the raw transaction description for directional language.
+ * Returns "inflow" or "outflow" when a strong hint is found, null otherwise.
+ *
+ * A null return means we genuinely cannot determine direction from the text —
+ * the caller should rely on the amount sign and may flag the row as ambiguous.
+ */
+export function getDirectionHint(
+  description: string,
+): "inflow" | "outflow" | null {
+  for (const pattern of STRONG_OUTFLOW_HINT_PATTERNS) {
+    if (pattern.test(description)) return "outflow";
+  }
+  for (const pattern of INFLOW_HINT_PATTERNS) {
+    if (pattern.test(description)) return "inflow";
+  }
+  return null;
+}
 
 export function normalizeAmount(raw: string): number {
   const trimmed = raw.trim();

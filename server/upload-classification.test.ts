@@ -1,29 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { parseCSV } from "./csvParser.js";
-import { inferFlowType, normalizeMerchant } from "./transactionUtils.js";
 import { classifyTransaction } from "./classifier.js";
 
-function buildTransaction(row: { date: string; description: string; amount: number }) {
-  const merchant = normalizeMerchant(row.description);
-  const rawFlowType = inferFlowType(row.amount);
-  const classification = classifyTransaction(
-    merchant || row.description,
-    row.amount,
-    rawFlowType,
-  );
+function buildTransaction(row: { date: string; description: string; amount: number; ambiguous: boolean }) {
+  const classification = classifyTransaction(row.description, row.amount);
 
-  const effectiveFlowType = classification.flowOverride ?? rawFlowType;
   const effectiveAmount =
-    effectiveFlowType === "outflow" && row.amount > 0
+    classification.flowType === "outflow" && row.amount > 0
       ? -Math.abs(row.amount)
-      : row.amount;
+      : classification.flowType === "inflow" && row.amount < 0
+        ? Math.abs(row.amount)
+        : row.amount;
 
   return {
-    merchant: merchant || row.description,
+    merchant: classification.merchant,
     amount: effectiveAmount,
-    flowType: effectiveFlowType,
+    flowType: classification.flowType,
     transactionClass: classification.transactionClass,
     category: classification.category,
+    aiAssisted: classification.aiAssisted || row.ambiguous,
   };
 }
 
@@ -46,7 +41,7 @@ describe("unsigned CSV → classification integration", () => {
 
     const txns = result.rows.map(buildTransaction);
 
-    // Netflix → subscriptions/expense, amount negated
+    // Netflix → subscriptions/expense, amount negated (positive CSV → unsigned bank format)
     expect(txns[0]).toMatchObject({
       category: "subscriptions",
       transactionClass: "expense",
