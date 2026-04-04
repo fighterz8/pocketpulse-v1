@@ -84,13 +84,11 @@ body {
   padding: 0 0.2rem;
 }
 
-.app-sidebar-brand-dot {
+.app-sidebar-brand-pulse {
   flex: none;
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #0ea5e9, #2563eb);
-  box-shadow: 0 0 8px rgb(14 165 233 / 0.5);
+  width: 2rem;
+  height: 0.9rem;
+  filter: drop-shadow(0 0 4px rgb(14 165 233 / 0.45));
 }
 
 .app-nav-brand {

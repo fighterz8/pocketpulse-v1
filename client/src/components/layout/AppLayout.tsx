@@ -47,7 +47,6 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/transactions", label: "Ledger" },
   { href: "/upload", label: "Upload" },
-  { href: "/accuracy", label: "Accuracy" },
 ] as const;
 
 export function AppLayout({
@@ -65,7 +64,26 @@ export function AppLayout({
     <div className="app-protected">
       <aside className="app-sidebar">
         <div className="app-sidebar-brand">
-          <span className="app-sidebar-brand-dot" />
+          <svg
+            className="app-sidebar-brand-pulse"
+            viewBox="0 0 32 14"
+            fill="none"
+            aria-hidden="true"
+          >
+            <defs>
+              <linearGradient id="pulseGrad" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#0ea5e9" />
+                <stop offset="100%" stopColor="#2563eb" />
+              </linearGradient>
+            </defs>
+            <polyline
+              points="0,7 6,7 9,1 12,13 15,7 32,7"
+              stroke="url(#pulseGrad)"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
           <p className="app-nav-brand">PocketPulse</p>
         </div>
 

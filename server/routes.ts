@@ -1091,17 +1091,6 @@ export function createApp(options?: CreateAppOptions) {
     }
   });
 
-  // ── Accuracy report ──────────────────────────────────────────────────────
-  app.get("/api/accuracy-report", requireAuth, async (req, res, next) => {
-    try {
-      const { computeAccuracyReport } = await import("./accuracyReport.js");
-      const report = await computeAccuracyReport(req.session.userId!);
-      res.json(report);
-    } catch (e) {
-      next(e);
-    }
-  });
-
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });
   });
