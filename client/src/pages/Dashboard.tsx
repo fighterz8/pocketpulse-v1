@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 
 import {
@@ -38,6 +38,28 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/** Build first and last day of a YYYY-MM month string. */
+function monthToDateRange(month: string): { dateFrom: string; dateTo: string } {
+  const [year, mo] = month.split("-").map(Number);
+  const from = new Date(year, mo - 1, 1);
+  const to = new Date(year, mo, 0);
+  const d = (dt: Date) =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  return { dateFrom: d(from), dateTo: d(to) };
+}
+
+/** Build a /ledger URL with the given query params. */
+function ledgerUrl(
+  params: Record<string, string | undefined>,
+  dateRange?: { dateFrom?: string; dateTo?: string },
+): string {
+  const qp = new URLSearchParams();
+  const all = { ...dateRange, ...params };
+  Object.entries(all).forEach(([k, v]) => { if (v) qp.set(k, v); });
+  const qs = qp.toString();
+  return `/ledger${qs ? `?${qs}` : ""}`;
+}
+
 // ─── Animation variants ──────────────────────────────────────────────────────
 
 const fadeUp = {
@@ -49,35 +71,47 @@ const fadeUp = {
   }),
 };
 
-// ─── Glass Card ──────────────────────────────────────────────────────────────
+// ─── Clickable Glass Card ─────────────────────────────────────────────────────
 
 function GlassCard({
   children,
   className = "",
   index = 0,
+  href,
 }: {
   children: React.ReactNode;
   className?: string;
   index?: number;
+  href?: string;
 }) {
+  const [, navigate] = useLocation();
+  const clickable = !!href;
+
   return (
     <motion.div
       custom={index}
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      className={`glass-card ${className}`}
+      onClick={clickable ? () => navigate(href!) : undefined}
+      className={`glass-card ${clickable ? "glass-card--clickable" : ""} ${className}`}
+      role={clickable ? "link" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") navigate(href!); } : undefined}
     >
       {children}
     </motion.div>
   );
 }
 
+// ─── KPI Card ────────────────────────────────────────────────────────────────
+
 function KpiCard({
   label,
   value,
   sub,
   accent = "neutral",
+  href,
   "data-testid": testId,
   index = 0,
 }: {
@@ -85,6 +119,7 @@ function KpiCard({
   value: string;
   sub?: string;
   accent?: "green" | "red" | "blue" | "neutral";
+  href?: string;
   "data-testid"?: string;
   index?: number;
 }) {
@@ -95,10 +130,11 @@ function KpiCard({
     neutral: "text-slate-800",
   };
   return (
-    <GlassCard index={index}>
+    <GlassCard index={index} href={href}>
       <p className="kpi-label">{label}</p>
       <p data-testid={testId} className={`kpi-value ${colorMap[accent]}`}>{value}</p>
       {sub && <p className="kpi-sub">{sub}</p>}
+      {href && <p className="kpi-drill">View transactions →</p>}
     </GlassCard>
   );
 }
@@ -127,7 +163,6 @@ function MonthSelector({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Scroll the active pill into view whenever selected changes
   useEffect(() => {
     const el = scrollRef.current?.querySelector<HTMLElement>("[data-active='true']");
     el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
@@ -138,9 +173,7 @@ function MonthSelector({
       ref={scrollRef}
       className="period-selector"
       data-testid="month-selector"
-      style={{ overflowX: "auto", scrollbarWidth: "none", msOverflowStyle: "none" }}
     >
-      {/* All Time pill */}
       <button
         data-testid="month-btn-all"
         data-active={selected === null ? "true" : "false"}
@@ -159,11 +192,7 @@ function MonthSelector({
           className={`period-btn ${selected === month ? "period-btn--active" : ""}`}
         >
           {formatMonthLabel(month)}
-          <span
-            className="ml-1.5 text-[10px] opacity-50 font-normal"
-          >
-            {transactionCount}
-          </span>
+          <span className="ml-1.5 text-[10px] opacity-50 font-normal">{transactionCount}</span>
         </button>
       ))}
     </div>
@@ -172,27 +201,29 @@ function MonthSelector({
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
+// Categories excluded from the spending breakdown display
+const HIDDEN_CATEGORIES = new Set(["income", "transfers"]);
+
 export function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const { data: availableMonths, isLoading: monthsLoading } = useAvailableMonths();
 
-  // Default to the most recent month with enough data (≥ 20 txns), falling
-  // back to the latest month if none qualifies.
   useEffect(() => {
     if (!availableMonths || availableMonths.length === 0) return;
     const best =
-      availableMonths.find((m) => m.transactionCount >= 20) ??
-      availableMonths[0];
+      availableMonths.find((m) => m.transactionCount >= 20) ?? availableMonths[0];
     setSelectedMonth(best.month);
   }, [availableMonths]);
 
   const { data, isLoading, error } = useDashboardSummary({ month: selectedMonth });
 
+  // Date range for ledger deep-links
+  const dateRange = selectedMonth ? monthToDateRange(selectedMonth) : undefined;
+
   const periodLabel = selectedMonth
-    ? formatMonthLabel(selectedMonth).replace("'", " 20").replace("'", " 20") // e.g. "Feb 2026"
+    ? formatMonthLabel(selectedMonth)
     : "All Time";
 
-  // Build a proper period label like "February 2026"
   const periodLabelFull = selectedMonth
     ? (() => {
         const [year, mo] = selectedMonth.split("-").map(Number);
@@ -209,13 +240,7 @@ export function Dashboard() {
   );
 
   const headerRow = (
-    <motion.div
-      variants={fadeUp}
-      initial="hidden"
-      animate="visible"
-      custom={0}
-      className="mb-6"
-    >
+    <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={0} className="mb-6">
       <div className="flex items-start justify-between gap-4 mb-3 flex-wrap">
         <div>
           <h1 className="dash-title">Dashboard</h1>
@@ -253,10 +278,7 @@ export function Dashboard() {
         <GlassCard index={1} className="dash-empty-card">
           <p className="dash-empty-msg">No transactions in {periodLabelFull}.</p>
           {selectedMonth ? (
-            <button
-              className="dash-leaks-link mt-2"
-              onClick={() => setSelectedMonth(null)}
-            >
+            <button className="dash-leaks-link mt-2" onClick={() => setSelectedMonth(null)}>
               View All Time →
             </button>
           ) : (
@@ -269,8 +291,14 @@ export function Dashboard() {
     );
   }
 
-  const { totals, expenseLeaks, categoryBreakdown, monthlyTrend, recentTransactions } = data;
-  const totalSpending = categoryBreakdown.reduce((s, c) => s + c.total, 0);
+  const { totals, expenseLeaks, categoryBreakdown } = data;
+
+  // Filter out non-spending categories from the breakdown
+  const spendingCategories = categoryBreakdown.filter(
+    (c) => !HIDDEN_CATEGORIES.has(c.category),
+  );
+  const totalSpending = spendingCategories.reduce((s, c) => s + c.total, 0);
+
   const safeToSpend = totals.safeToSpend;
   const spendStatus = safeToSpendStatus(safeToSpend, totals.recurringIncome);
   const safeColor = safeToSpend > 0
@@ -289,20 +317,19 @@ export function Dashboard() {
 
       {/* ── Row 1: Safe-to-Spend Hero + Expense Leaks ─────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        {/* Safe-to-Spend Hero */}
-        <GlassCard className="lg:col-span-2" index={1}>
+        {/* Safe-to-Spend Hero — links to all recurring transactions */}
+        <GlassCard
+          className="lg:col-span-2"
+          index={1}
+          href={ledgerUrl({ recurrenceType: "recurring" }, dateRange)}
+        >
           <p className="kpi-label">Safe-to-Spend Estimate</p>
-          <p
-            data-testid="safe-to-spend-value"
-            className={`dash-hero-value ${safeColor}`}
-          >
+          <p data-testid="safe-to-spend-value" className={`dash-hero-value ${safeColor}`}>
             {currency(safeToSpend)}
           </p>
 
           <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <span className={`dash-badge ${spendStatus.badge}`}>
-              {spendStatus.label}
-            </span>
+            <span className={`dash-badge ${spendStatus.badge}`}>{spendStatus.label}</span>
             <span className="text-xs text-slate-400">
               Recurring income minus recurring expenses · {periodLabelFull}
             </span>
@@ -326,10 +353,11 @@ export function Dashboard() {
               <span className="text-emerald-600 font-semibold">{currency(totals.recurringIncome)}</span>
             </div>
           </div>
+          <p className="kpi-drill mt-4">View recurring transactions →</p>
         </GlassCard>
 
-        {/* Expense Leaks */}
-        <GlassCard className="flex flex-col justify-between" index={2}>
+        {/* Expense Leaks — links to /leaks page */}
+        <GlassCard className="flex flex-col justify-between" index={2} href="/leaks">
           <div>
             <p className="kpi-label">Expense Leaks</p>
             <p data-testid="leak-count" className="dash-hero-value text-slate-900">
@@ -346,53 +374,122 @@ export function Dashboard() {
               </p>
             )}
           </div>
-          <Link
-            href="/leaks"
-            data-testid="link-review-leaks"
-            className="dash-leaks-link"
-          >
-            Review Recurring →
-          </Link>
+          <p className="kpi-drill">Review recurring →</p>
         </GlassCard>
       </div>
 
       {/* ── Row 2: 4 KPI cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <KpiCard label="Total Income" value={currencyShort(totals.totalInflow)} sub={periodLabel} accent="green" data-testid="kpi-total-income" index={3} />
-        <KpiCard label="Total Spending" value={currencyShort(totals.totalOutflow)} sub={periodLabel} accent="red" data-testid="kpi-total-spending" index={4} />
-        <KpiCard label="Recurring Income" value={currencyShort(totals.recurringIncome)} sub="Baseline revenue" accent="green" data-testid="kpi-recurring-income" index={5} />
-        <KpiCard label="Recurring Expenses" value={currencyShort(totals.recurringExpenses)} sub="Baseline costs" accent="red" data-testid="kpi-recurring-expenses" index={6} />
+        <KpiCard
+          label="Total Income"
+          value={currencyShort(totals.totalInflow)}
+          sub={periodLabel}
+          accent="green"
+          data-testid="kpi-total-income"
+          index={3}
+          href={ledgerUrl({ transactionClass: "income" }, dateRange)}
+        />
+        <KpiCard
+          label="Total Spending"
+          value={currencyShort(totals.totalOutflow)}
+          sub={periodLabel}
+          accent="red"
+          data-testid="kpi-total-spending"
+          index={4}
+          href={ledgerUrl({ transactionClass: "expense" }, dateRange)}
+        />
+        <KpiCard
+          label="Recurring Income"
+          value={currencyShort(totals.recurringIncome)}
+          sub="Baseline revenue"
+          accent="green"
+          data-testid="kpi-recurring-income"
+          index={5}
+          href={ledgerUrl({ transactionClass: "income", recurrenceType: "recurring" }, dateRange)}
+        />
+        <KpiCard
+          label="Recurring Expenses"
+          value={currencyShort(totals.recurringExpenses)}
+          sub="Baseline costs"
+          accent="red"
+          data-testid="kpi-recurring-expenses"
+          index={6}
+          href={ledgerUrl({ transactionClass: "expense", recurrenceType: "recurring" }, dateRange)}
+        />
       </div>
 
       {/* ── Row 3: 3 KPI cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-        <KpiCard label="One-Time Income" value={currencyShort(totals.oneTimeIncome)} sub="Non-recurring revenue" accent="blue" data-testid="kpi-one-time-income" index={7} />
-        <KpiCard label="One-Time Expenses" value={currencyShort(totals.oneTimeExpenses)} sub="Non-recurring costs" accent="neutral" data-testid="kpi-one-time-expenses" index={8} />
-        <KpiCard label="Discretionary Spend" value={currencyShort(totals.discretionarySpend)} sub={`${periodLabel} · dining, coffee, delivery…`} accent="neutral" data-testid="kpi-discretionary-spend" index={9} />
+        <KpiCard
+          label="One-Time Income"
+          value={currencyShort(totals.oneTimeIncome)}
+          sub="Non-recurring revenue"
+          accent="blue"
+          data-testid="kpi-one-time-income"
+          index={7}
+          href={ledgerUrl({ transactionClass: "income", recurrenceType: "one-time" }, dateRange)}
+        />
+        <KpiCard
+          label="One-Time Expenses"
+          value={currencyShort(totals.oneTimeExpenses)}
+          sub="Non-recurring costs"
+          accent="neutral"
+          data-testid="kpi-one-time-expenses"
+          index={8}
+          href={ledgerUrl({ transactionClass: "expense", recurrenceType: "one-time" }, dateRange)}
+        />
+        <KpiCard
+          label="Discretionary Spend"
+          value={currencyShort(totals.discretionarySpend)}
+          sub={`${periodLabel} · dining, coffee, delivery…`}
+          accent="neutral"
+          data-testid="kpi-discretionary-spend"
+          index={9}
+          href={ledgerUrl({ transactionClass: "expense" }, dateRange)}
+        />
       </div>
 
       {/* ── Row 4: Monthly baselines ───────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 mb-4">
-        <KpiCard label="Utilities / Month" value={currency(totals.utilitiesMonthly)} sub={`${periodLabel} avg`} accent="neutral" data-testid="kpi-utilities-monthly" index={10} />
-        <KpiCard label="Software & Subscriptions / Month" value={currency(totals.softwareMonthly)} sub={`${periodLabel} avg`} accent="neutral" data-testid="kpi-software-monthly" index={11} />
+        <KpiCard
+          label="Utilities / Month"
+          value={currency(totals.utilitiesMonthly)}
+          sub={`${periodLabel} avg`}
+          accent="neutral"
+          data-testid="kpi-utilities-monthly"
+          index={10}
+          href={ledgerUrl({ category: "utilities" }, dateRange)}
+        />
+        <KpiCard
+          label="Software & Subscriptions / Month"
+          value={currency(totals.softwareMonthly)}
+          sub={`${periodLabel} avg`}
+          accent="neutral"
+          data-testid="kpi-software-monthly"
+          index={11}
+          href={ledgerUrl({ category: "software" }, dateRange)}
+        />
       </div>
 
-      {/* ── Row 5: Spending by category + Monthly trend ────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <GlassCard index={12}>
-          <h2 className="glass-section-title mb-4">Spending by Category</h2>
-          {categoryBreakdown.length === 0 ? (
-            <p className="app-placeholder">No outflow transactions.</p>
-          ) : (
-            <ul className="space-y-3">
-              {categoryBreakdown.map((cat) => (
-                <li key={cat.category} className="flex items-center gap-3">
-                  <span className="w-24 shrink-0 text-xs text-slate-600 capitalize truncate">
+      {/* ── Row 5: Spending by category ────────────────────────────────── */}
+      <GlassCard index={12} className="mb-4">
+        <h2 className="glass-section-title mb-4">Spending by Category</h2>
+        {spendingCategories.length === 0 ? (
+          <p className="app-placeholder">No outflow transactions.</p>
+        ) : (
+          <ul className="space-y-2">
+            {spendingCategories.map((cat) => (
+              <li key={cat.category}>
+                <Link
+                  href={ledgerUrl({ category: cat.category }, dateRange)}
+                  className="flex items-center gap-3 group py-1 rounded-lg hover:bg-blue-50/40 transition-colors px-1 -mx-1"
+                >
+                  <span className="w-24 shrink-0 text-xs text-slate-600 capitalize truncate group-hover:text-blue-700 transition-colors">
                     {capitalize(cat.category)}
                   </span>
                   <div className="flex-1 h-1.5 bg-blue-50 rounded-full overflow-hidden border border-blue-100">
                     <div
-                      className="h-full bg-blue-400 rounded-full"
+                      className="h-full bg-blue-400 rounded-full group-hover:bg-blue-500 transition-colors"
                       style={{ width: pct(cat.total, totalSpending) }}
                     />
                   </div>
@@ -402,89 +499,11 @@ export function Dashboard() {
                   <span className="text-xs text-slate-400 w-10 text-right shrink-0">
                     {pct(cat.total, totalSpending)}
                   </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </GlassCard>
-
-        <GlassCard index={13}>
-          <h2 className="glass-section-title mb-4">Monthly Trend</h2>
-          {monthlyTrend.length === 0 ? (
-            <p className="app-placeholder">No monthly data.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left text-xs font-semibold text-slate-400 pb-2">Month</th>
-                    <th className="text-right text-xs font-semibold text-slate-400 pb-2">Income</th>
-                    <th className="text-right text-xs font-semibold text-slate-400 pb-2">Spending</th>
-                    <th className="text-right text-xs font-semibold text-slate-400 pb-2">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlyTrend.map((m) => (
-                    <tr
-                      key={m.month}
-                      className={`border-b border-slate-50 last:border-0 cursor-pointer hover:bg-blue-50/30 transition-colors ${selectedMonth === m.month ? "bg-blue-50/40" : ""}`}
-                      onClick={() => setSelectedMonth(m.month)}
-                      title={`View ${m.month}`}
-                    >
-                      <td className="py-2 text-slate-600 text-xs font-medium">
-                        {formatMonthLabel(m.month)}
-                      </td>
-                      <td className="py-2 text-right text-xs font-medium text-emerald-600">{currency(m.inflow)}</td>
-                      <td className="py-2 text-right text-xs font-medium text-red-500">{currency(m.outflow)}</td>
-                      <td className={`py-2 text-right text-xs font-bold ${m.net >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                        {currency(m.net)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </GlassCard>
-      </div>
-
-      {/* ── Row 6: Recent Transactions ────────────────────────────────── */}
-      <GlassCard index={14} className="mb-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="glass-section-title">Recent Transactions</h2>
-          <span className="text-xs text-slate-400">{periodLabelFull}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-left text-xs font-semibold text-slate-400 pb-2">Date</th>
-                <th className="text-left text-xs font-semibold text-slate-400 pb-2">Merchant</th>
-                <th className="text-left text-xs font-semibold text-slate-400 pb-2">Category</th>
-                <th className="text-right text-xs font-semibold text-slate-400 pb-2">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentTransactions.map((txn) => {
-                const n = parseFloat(txn.amount);
-                return (
-                  <tr key={txn.id} className="border-b border-slate-50 last:border-0">
-                    <td className="py-2 text-slate-500 text-xs">{txn.date}</td>
-                    <td className="py-2 text-slate-700 text-xs font-medium truncate max-w-[140px]">{txn.merchant}</td>
-                    <td className="py-2">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 capitalize">
-                        {txn.category}
-                      </span>
-                    </td>
-                    <td className={`py-2 text-right text-xs font-semibold ${n >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                      {currency(n)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </GlassCard>
 
       {/* ── Tech-stack footer ──────────────────────────────────────────── */}
@@ -492,10 +511,10 @@ export function Dashboard() {
         variants={fadeUp}
         initial="hidden"
         animate="visible"
-        custom={15}
+        custom={13}
         className="dash-tech-footer"
       >
-        React · TailwindCSS · Framer Motion · Chart.js · Glass UI
+        React · TailwindCSS · Framer Motion · Glass UI
       </motion.p>
     </div>
   );

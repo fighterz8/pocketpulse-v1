@@ -85,21 +85,23 @@ type CategoryRule = {
  * as a case-insensitive substring of the merchant name.
  */
 const CATEGORY_RULES: CategoryRule[] = [
-  // Transfers (check before income — "transfer" can appear in inflows too)
-  {
-    category: "transfers",
-    keywords: TRANSFER_KEYWORDS,
-    confidence: 0.85,
-  },
+  // Note: Transfers are handled in Pass 1 of classifyTransaction (TRANSFER_KEYWORDS).
+  // Genuine bank transfers (Zelle, Venmo, mobile deposits) get transactionClass="transfer"
+  // and category="other". Debt-related transfers (e.g. "transfer to credit card") are
+  // caught by the "debt" rule below, which overrides to transactionClass="expense".
+  // There is intentionally no CATEGORY_RULES entry for "transfers".
 
-  // Loan / debt payments — categorized as fees (loan payments are outflows, not a separate class)
+  // Debt payments — loan repayments, credit card payments, line-of-credit payments.
   // transactionClass is explicitly set to "expense" so that "TRANSFER TO AUTO LOAN" (which
   // matches Pass 1 transfer detection) is correctly overridden back to expense in Pass 6.
   {
-    category: "fees",
+    category: "debt",
     transactionClass: "expense",
     keywords: [
+      // Generic debt patterns
       "loan payment",
+      "loan repayment",
+      "personal loan",
       "student loan",
       "auto loan",
       "car payment",
@@ -110,15 +112,20 @@ const CATEGORY_RULES: CategoryRule[] = [
       "mortgage payment",
       "home loan",
       "heloc",
+      // Credit card payments
       "credit card payment",
       "credit card pymt",
+      "transfer to credit card",
+      "payment to credit card",
       "card payment",
+      // Payment to specific lenders
       "payment to loan",
       "payment to auto",
       "payment to mortgage",
       "transfer to loan",
       "transfer to auto",
       "transfer to mortgage",
+      // Student loan servicers
       "sallie mae",
       "navient",
       "great lakes",
@@ -128,11 +135,12 @@ const CATEGORY_RULES: CategoryRule[] = [
       "aidvantage",
       "edfinancial",
       "discover student",
+      // Personal loan providers
       "sofi loan",
       "earnest loan",
-      "personal loan",
       "upstart",
       "upstloantr",
+      // Credit card issuers (payments)
       "payment to chase",
       "payment to comenity",
       "payment to citibank",
@@ -142,12 +150,27 @@ const CATEGORY_RULES: CategoryRule[] = [
       "payment to synchrony",
       "payment to barclays",
       "payment to ally",
+      "payment to bank of america",
+      "payment to wells fargo",
+    ],
+    confidence: 0.92,
+  },
+
+  // True bank fees — ATM cash, NSF, account maintenance
+  {
+    category: "fees",
+    transactionClass: "expense",
+    keywords: [
       "atm withdrawal",
       "cash withdrawal",
       "atm/cash",
-      "atm rebate",
+      "nsf fee",
+      "overdraft fee",
+      "monthly fee",
+      "service charge",
+      "maintenance fee",
     ],
-    confidence: 0.9,
+    confidence: 0.88,
   },
 
   // Insurance (before housing — hoa could match "insurance")
@@ -1588,7 +1611,9 @@ export function classifyTransaction(
   // expense category applies (e.g. "TRANSFER TO AUTO LOAN" → debt).
   if (TRANSFER_KEYWORDS.some((kw) => lower.includes(kw))) {
     transactionClass = "transfer";
-    category = "transfers";
+    // Genuine bank transfers have no spending category — use "other".
+    // The debt rule in Pass 6 can override this for credit card / loan transfers.
+    category = "other";
   }
 
   // ─── Pass 2: Refund detection ─────────────────────────────────────────────
@@ -1670,7 +1695,6 @@ export function classifyTransaction(
   // Rules are ordered specific-to-general; first match wins.
   // The "transfers" category rule is skipped — Pass 1 handles it.
   for (const rule of CATEGORY_RULES) {
-    if (rule.category === "transfers") continue;
     for (const kw of rule.keywords) {
       if (lower.includes(kw)) {
         category = rule.category;

@@ -86,8 +86,8 @@ export const accounts = pgTable(
 /** V1 category set — used by classifier and ledger UI. */
 export const V1_CATEGORIES = [
   "income",
-  "transfers",
   "housing",
+  "debt",
   "utilities",
   "groceries",
   "dining",

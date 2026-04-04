@@ -202,6 +202,37 @@ body {
   -webkit-backdrop-filter: blur(12px);
 }
 
+.glass-card--clickable {
+  cursor: pointer;
+  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+}
+
+.glass-card--clickable:hover {
+  box-shadow:
+    0 6px 32px rgb(37 99 235 / 0.13),
+    inset 0 1px 0 rgb(255 255 255 / 0.9);
+  border-color: rgb(147 197 253 / 0.7);
+  transform: translateY(-1px);
+}
+
+.glass-card--clickable:active {
+  transform: translateY(0);
+}
+
+.kpi-drill {
+  margin: 0.75rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #2563eb;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
+  transition: opacity 150ms ease;
+}
+
+.glass-card--clickable:hover .kpi-drill {
+  opacity: 1;
+}
+
 .glass-section-title {
   margin: 0;
   font-size: 0.88rem;

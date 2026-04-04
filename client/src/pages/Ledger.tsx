@@ -33,9 +33,19 @@ function amountColorClass(txnClass: string): string {
 
 export function Ledger() {
   const { accounts } = useAuth();
-  const [filters, setFilters] = useState<TransactionFilters>({
-    page: 1,
-    limit: 50,
+
+  // Initialise filters from URL search params so dashboard cards can deep-link here
+  const [filters, setFilters] = useState<TransactionFilters>(() => {
+    const p = new URLSearchParams(window.location.search);
+    return {
+      page: 1,
+      limit: 50,
+      category: p.get("category") ?? undefined,
+      transactionClass: p.get("transactionClass") ?? undefined,
+      recurrenceType: p.get("recurrenceType") ?? undefined,
+      dateFrom: p.get("dateFrom") ?? undefined,
+      dateTo: p.get("dateTo") ?? undefined,
+    };
   });
 
   const [searchInput, setSearchInput] = useState("");
