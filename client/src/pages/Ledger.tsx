@@ -319,8 +319,8 @@ export function Ledger() {
           <div>
             <h3 className="ledger-ai-title">AI Categorization</h3>
             <p className="ledger-ai-desc">
-              Re-run AI classification on all transactions. Useful after uploading new data or if categories look wrong.
-              Your manual edits are never overwritten.
+              Uses your past corrections as examples to re-classify transactions the AI labeled automatically.
+              Skips anything you or the system have manually set. Run after uploading new data or fixing a pattern of wrong categories.
             </p>
           </div>
           <button
