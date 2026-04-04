@@ -39,6 +39,21 @@ const TRANSFER_KEYWORDS = [
 ];
 
 /**
+ * P2P-payment-app keywords that are EXEMPT from the transfer label when the
+ * raw description also has a debit-card outflow signal (e.g. "-dc NNNN").
+ *
+ * Rationale: "-dc 4305 Cash App*nicholas" is a debit card charge to CashApp —
+ * money going OUT of the account — not an account-to-account transfer. Zelle,
+ * wire, and mobile-deposit keywords are NOT in this set because those flows
+ * are always genuine bank-initiated transfers regardless of direction signals.
+ */
+const P2P_DEBIT_EXEMPT: ReadonlySet<string> = new Set([
+  "cash app",
+  "cashapp",
+  "venmo",
+]);
+
+/**
  * Result produced by classifyTransaction(). The classifier now fully owns
  * flowType (no more flowOverride to reconcile at the call site), and exposes
  * the cleaned merchant name and the aiAssisted flag so callers can determine
@@ -758,8 +773,11 @@ const CATEGORY_RULES: CategoryRule[] = [
     category: "groceries",
     keywords: [
       "whole foods",
+      "wholefoods",
+      "wholefoodsmarket",
       "trader joe",
       "trader joes",
+      "traderjoes",
       "kroger",
       "ralphs",
       "fry's food",
@@ -1104,7 +1122,7 @@ const CATEGORY_RULES: CategoryRule[] = [
       "crunch fitness",
       "blink fitness",
       "blink gym",
-      "blink ",
+      "blink",
       "ymca",
       "crossfit",
       "orangetheory",
@@ -1345,8 +1363,11 @@ const CATEGORY_RULES: CategoryRule[] = [
       "tuesday morning",
       "five below",
       "dollar tree",
+      "dollartree",
       "dollar general",
+      "dollargeneral",
       "family dollar",
+      "familydollar",
       "big lots",
       "kohls",
       "jcpenney",
@@ -1650,11 +1671,26 @@ export function classifyTransaction(
   // every cashflow metric. The broader check here catches all transfer-like
   // language; merchant rules (Pass 6) can then override where a specific
   // expense category applies (e.g. "TRANSFER TO AUTO LOAN" → debt).
-  if (TRANSFER_KEYWORDS.some((kw) => lower.includes(kw))) {
-    transactionClass = "transfer";
-    // Genuine bank transfers have no spending category — use "other".
-    // The debt rule in Pass 6 can override this for credit card / loan transfers.
-    category = "other";
+  //
+  // Exception: P2P payment apps (CashApp, Venmo) can appear in two distinct
+  // contexts:
+  //   a) Account-to-account transfer → true transfer (no debit card prefix)
+  //   b) Debit card payment to a person → outflow expense ("-dc NNNN Cash App*name")
+  // When the raw description has a strong debit-card outflow signal, the
+  // transfer label is skipped so that Pass 3b can correctly flip the row to
+  // expense. Zelle / wire / mobile-deposit keywords are NOT exempted — those
+  // are always genuine bank-initiated transfers regardless of amount sign.
+  const isDebitCardOutflow = directionHint === "outflow";
+  const matchedTransferKw = TRANSFER_KEYWORDS.find((kw) => lower.includes(kw));
+  if (matchedTransferKw) {
+    if (isDebitCardOutflow && P2P_DEBIT_EXEMPT.has(matchedTransferKw)) {
+      // Debit card payment via a P2P app → let Pass 3b classify as expense.
+    } else {
+      transactionClass = "transfer";
+      // Genuine bank transfers have no spending category — use "other".
+      // The debt rule in Pass 6 can override this for credit card / loan transfers.
+      category = "other";
+    }
   }
 
   // ─── Pass 2: Refund detection ─────────────────────────────────────────────

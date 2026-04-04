@@ -37,6 +37,8 @@ const STRONG_OUTFLOW_HINT_PATTERNS: RegExp[] = [
   /\brecurring pmt\b/i,
   /\bonline pmt\b/i,
   /\bpoint of sale\b/i,
+  // Navy Federal "-dc NNNN" debit card format (e.g. "-dc 4305 Dollartree")
+  /-dc\s+\d+/i,
 ];
 
 /**
@@ -155,6 +157,8 @@ const POS_PREFIX_PATTERNS: string[] = [
   "DEBIT-DC\\s+\\d+\\s+",
   "DEBIT-\\s*XX\\s+\\d+\\s+",
   "POS\\s+DEBIT-DC\\s+\\d+\\s+",
+  // Navy Federal "-dc NNNN" debit card format (e.g. "-dc 4305 Dollartree Chula Vista")
+  "-\\s*DC\\s+\\d+\\s+",
   // "- VISA CHECK CARD XX51 - " prefix format (Bank of America style)
   "-\\s*VISA\\s+CHECK\\s+CARD\\s+\\w+\\s+-\\s+",
   // Point-of-sale terminals
