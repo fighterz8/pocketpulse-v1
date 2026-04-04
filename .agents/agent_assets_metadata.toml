@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "FgnakfXOC5qqubzdl_peM"
+uri = "file://attached_assets/PocketPulse_Sections_11_to_14_Detailed.md"
+type = "text"
+title = "PocketPulse — Sections 11–14 Detailed Report Content"
