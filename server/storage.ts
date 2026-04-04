@@ -426,12 +426,14 @@ export async function updateTransaction(
 }
 
 /**
- * Propagates a manual category/class correction to all non-user-corrected
- * transactions from the same merchant (case-insensitive name match).
+ * Propagates a manual correction (category, transactionClass, recurrenceType)
+ * to all non-user-corrected transactions from the same merchant
+ * (case-insensitive name match).
  *
  * Skips the source transaction itself (already updated by updateTransaction).
- * Sets labelSource to "propagated" so that reclassify still skips these rows
- * (they have userCorrected=false but their label reflects the user's intent).
+ * Sets labelSource to "propagated" so reclassify and syncRecurringCandidates
+ * both preserve these rows — they reflect the user's explicit intent even
+ * though userCorrected is false.
  *
  * Returns the number of rows updated.
  */
@@ -440,8 +442,9 @@ export async function propagateUserCorrection(
   sourceTxnId: number,
   category?: string,
   transactionClass?: string,
+  recurrenceType?: string,
 ): Promise<number> {
-  if (!category && !transactionClass) return 0;
+  if (!category && !transactionClass && !recurrenceType) return 0;
 
   const [source] = await db
     .select({ merchant: transactions.merchant })
@@ -456,6 +459,7 @@ export async function propagateUserCorrection(
   const setValues: Record<string, unknown> = { labelSource: "propagated" };
   if (category !== undefined) setValues.category = category;
   if (transactionClass !== undefined) setValues.transactionClass = transactionClass;
+  if (recurrenceType !== undefined) setValues.recurrenceType = recurrenceType;
 
   const updated = await db
     .update(transactions)
@@ -477,6 +481,7 @@ export type UserCorrectionExample = {
   merchant: string;
   category: string;
   transactionClass: string;
+  recurrenceType: string;
 };
 
 /**
@@ -492,6 +497,7 @@ export async function getUserCorrectionExamples(
       merchant: transactions.merchant,
       category: transactions.category,
       transactionClass: transactions.transactionClass,
+      recurrenceType: transactions.recurrenceType,
     })
     .from(transactions)
     .where(
@@ -515,6 +521,7 @@ export async function getUserCorrectionExamples(
         merchant: row.merchant,
         category: row.category,
         transactionClass: row.transactionClass,
+        recurrenceType: row.recurrenceType,
       });
       if (examples.length >= 100) break;
     }

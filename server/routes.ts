@@ -145,7 +145,10 @@ async function syncRecurringCandidates(
     for (const id of c.transactionIds) recurringIds.add(id);
   }
 
-  // Step 1: reset ALL outflow transactions for this user to "one-time"
+  // Step 1: reset all outflow transactions to "one-time" EXCEPT rows where the
+  // user has explicitly set a recurrence value (userCorrected=true → labelSource
+  // "manual") or a same-merchant propagation carried that value (labelSource
+  // "propagated"). User edits are law — the detector never overwrites them.
   await db
     .update(txnTable)
     .set({ recurrenceType: "one-time" })
@@ -154,6 +157,8 @@ async function syncRecurringCandidates(
         eq(txnTable.userId, userId),
         eq(txnTable.flowType, "outflow"),
         eq(txnTable.excludedFromAnalysis, false),
+        ne(txnTable.labelSource, "manual"),
+        ne(txnTable.labelSource, "propagated"),
       ),
     );
 
@@ -171,7 +176,8 @@ async function syncRecurringCandidates(
       ),
     );
 
-  // Step 2: mark detected IDs as "recurring" (chunked to avoid huge IN clauses)
+  // Step 2: mark detected IDs as "recurring". Same user-edit guard as Step 1 —
+  // a manually-set "one-time" on a recurring-looking transaction stays "one-time".
   if (recurringIds.size > 0) {
     const ids = [...recurringIds];
     for (let i = 0; i < ids.length; i += 500) {
@@ -182,6 +188,8 @@ async function syncRecurringCandidates(
           and(
             eq(txnTable.userId, userId),
             inArray(txnTable.id, ids.slice(i, i + 500)),
+            ne(txnTable.labelSource, "manual"),
+            ne(txnTable.labelSource, "propagated"),
           ),
         );
     }
@@ -854,15 +862,21 @@ export function createApp(options?: CreateAppOptions) {
 
       const updated = await updateTransaction(id, userId, fields);
 
-      // Propagate category/class corrections to same-merchant uncorrected rows.
-      // Only fires when category or transactionClass was explicitly changed.
+      // Propagate category, class, and recurrence corrections to all same-merchant
+      // uncorrected rows. User edits are law — propagated rows get labelSource=
+      // "propagated" so neither reclassify nor sync ever overwrites them.
       let propagated = 0;
-      if (fields.category !== undefined || fields.transactionClass !== undefined) {
+      if (
+        fields.category !== undefined ||
+        fields.transactionClass !== undefined ||
+        fields.recurrenceType !== undefined
+      ) {
         propagated = await propagateUserCorrection(
           userId,
           id,
           fields.category,
           fields.transactionClass,
+          fields.recurrenceType,
         );
       }
 

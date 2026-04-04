@@ -127,16 +127,22 @@ function isValidRecurrenceType(
  * Build the system prompt, optionally inserting a few-shot block of user
  * corrections immediately before the "Decision rules" section so the model
  * treats them as strong priming before reading the classification rules.
+ *
+ * recurrenceType is the highest-priority correction — if a user marked a
+ * merchant as "recurring", the AI must honour that for similar transactions.
  */
 function buildSystemPrompt(
-  userExamples: Array<{ merchant: string; category: string; transactionClass: string }>,
+  userExamples: Array<{ merchant: string; category: string; transactionClass: string; recurrenceType: string }>,
 ): string {
   if (userExamples.length === 0) return SYSTEM_PROMPT;
 
   const examplesBlock =
     `User corrections — treat these as ground truth when classifying similar merchants:\n` +
     userExamples
-      .map((e) => `- "${e.merchant}" → category: ${e.category}, class: ${e.transactionClass}`)
+      .map(
+        (e) =>
+          `- "${e.merchant}" → category: ${e.category}, class: ${e.transactionClass}, recurrence: ${e.recurrenceType}`,
+      )
       .join("\n") +
     "\n\n";
 
@@ -150,7 +156,7 @@ function buildSystemPrompt(
  */
 async function callAiBatch(
   items: AiClassificationInput[],
-  userExamples: Array<{ merchant: string; category: string; transactionClass: string }>,
+  userExamples: Array<{ merchant: string; category: string; transactionClass: string; recurrenceType: string }>,
 ): Promise<AiClassificationResult[] | null> {
   const client = getClient();
   if (!client) return null;
@@ -230,7 +236,7 @@ async function callAiBatch(
  */
 export async function aiClassifyBatch(
   items: AiClassificationInput[],
-  userExamples: Array<{ merchant: string; category: string; transactionClass: string }> = [],
+  userExamples: Array<{ merchant: string; category: string; transactionClass: string; recurrenceType: string }> = [],
 ): Promise<Map<number, AiClassificationResult>> {
   const resultMap = new Map<number, AiClassificationResult>();
   if (items.length === 0) return resultMap;
