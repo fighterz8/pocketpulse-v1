@@ -668,6 +668,11 @@ export function createApp(options?: CreateAppOptions) {
           errors.push(`transactionClass must be one of: ${VALID_CLASSES.join(", ")}`);
         } else {
           fields.transactionClass = body.transactionClass;
+          if (body.transactionClass === "expense") {
+            fields.flowType = "outflow";
+          } else if (body.transactionClass === "income" || body.transactionClass === "refund") {
+            fields.flowType = "inflow";
+          }
         }
       }
       if (body.recurrenceType !== undefined) {

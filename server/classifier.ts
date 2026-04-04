@@ -644,6 +644,9 @@ const CATEGORY_RULES: CategoryRule[] = [
       "burger king",
       "burger",
       "taco bell",
+      "7-eleven",
+      "7 eleven",
+      "7-11",
       "wendy",
       "chick-fil-a",
       "chickfila",
@@ -1342,6 +1345,25 @@ export function classifyTransaction(
   ) {
     transactionClass = "income";
     category = "income";
+  }
+
+  // ─── Pass 3b: Direction hint correction ───────────────────────────────────
+  // Some banks record all transactions as positive amounts (unsigned format).
+  // When the description contains a strong outflow signal such as "Debit-dc",
+  // "POS PURCHASE", or "ACH DEBIT", the default income classification (from the
+  // positive amount) is clearly wrong.  Flip to expense here so downstream
+  // passes start from the right baseline.  Only fires for the pure positive-
+  // amount-default case (income from initial heuristic, not a pass-1 transfer
+  // or pass-2/3 refund/income that was intentionally set by keyword).
+  if (
+    transactionClass === "income" &&
+    amount >= 0 &&
+    directionHint === "outflow"
+  ) {
+    transactionClass = "expense";
+    flowType = "outflow";
+    category = "other";
+    labelReason = "Direction-hint correction (strong outflow keyword in description)";
   }
 
   // ─── Pass 4: Standalone "credit" keyword ──────────────────────────────────

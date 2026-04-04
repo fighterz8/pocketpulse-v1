@@ -16,16 +16,17 @@ const EXCLUDED_OPTIONS = [
   { value: "true", label: "Excluded" },
 ] as const;
 
-function formatAmount(amount: string): string {
+function formatAmount(amount: string, txnClass: string): string {
   const n = parseFloat(amount);
   const abs = Math.abs(n).toFixed(2);
+  if (txnClass === "expense") return `-$${abs}`;
+  if (txnClass === "income" || txnClass === "refund") return `$${abs}`;
   return n < 0 ? `-$${abs}` : `$${abs}`;
 }
 
-function amountClass(amount: string): string {
-  const n = parseFloat(amount);
-  if (n > 0) return "ledger-amount--inflow";
-  if (n < 0) return "ledger-amount--outflow";
+function amountColorClass(txnClass: string): string {
+  if (txnClass === "income" || txnClass === "refund") return "ledger-amount--inflow";
+  if (txnClass === "expense") return "ledger-amount--outflow";
   return "";
 }
 
@@ -234,6 +235,9 @@ export function Ledger() {
                     isEditing={editingId === txn.id}
                     onRowClick={() => handleRowClick(txn.id)}
                     onToggleExclude={() => handleToggleExclude(txn)}
+                    onQuickUpdate={(fields) => {
+                      updateTransaction.mutate({ id: txn.id, fields });
+                    }}
                     onSave={(fields) => {
                       updateTransaction.mutate(
                         { id: txn.id, fields },
@@ -368,12 +372,13 @@ type TransactionRowProps = {
   isEditing: boolean;
   onRowClick: () => void;
   onToggleExclude: () => void;
+  onQuickUpdate: (fields: UpdateTransactionInput) => void;
   onSave: (fields: UpdateTransactionInput) => void;
   onCancel: () => void;
   isSaving: boolean;
 };
 
-function TransactionRow({ txn, isEditing, onRowClick, onToggleExclude, onSave, onCancel, isSaving }: TransactionRowProps) {
+function TransactionRow({ txn, isEditing, onRowClick, onToggleExclude, onQuickUpdate, onSave, onCancel, isSaving }: TransactionRowProps) {
   return (
     <>
       <tr
@@ -385,6 +390,7 @@ function TransactionRow({ txn, isEditing, onRowClick, onToggleExclude, onSave, o
             className={`ledger-exclude-toggle ${txn.excludedFromAnalysis ? "ledger-exclude-toggle--active" : ""}`}
             title={txn.excludedFromAnalysis ? "Include in analysis" : "Exclude from analysis"}
             onClick={(e) => { e.stopPropagation(); onToggleExclude(); }}
+            data-testid={`btn-exclude-${txn.id}`}
           >
             {txn.excludedFromAnalysis ? "X" : ""}
           </button>
@@ -393,14 +399,51 @@ function TransactionRow({ txn, isEditing, onRowClick, onToggleExclude, onSave, o
         <td className="ledger-td-merchant" title={txn.rawDescription}>
           {txn.merchant}
         </td>
-        <td className={`ledger-td-amount ${amountClass(txn.amount)}`}>
-          {formatAmount(txn.amount)}
+        <td className={`ledger-td-amount ${amountColorClass(txn.transactionClass)}`}>
+          {formatAmount(txn.amount, txn.transactionClass)}
         </td>
         <td className="ledger-td-category">
-          <span className="ledger-badge">{txn.category}</span>
+          <select
+            className="ledger-inline-select"
+            value={txn.category}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => { e.stopPropagation(); onQuickUpdate({ category: e.target.value }); }}
+            disabled={isSaving}
+            data-testid={`select-category-${txn.id}`}
+          >
+            {V1_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c.replace(/_/g, " ")}</option>
+            ))}
+          </select>
         </td>
-        <td className="ledger-td-class">{txn.transactionClass}</td>
-        <td className="ledger-td-recurrence">{txn.recurrenceType}</td>
+        <td className="ledger-td-class">
+          <select
+            className="ledger-inline-select ledger-inline-select--class"
+            value={txn.transactionClass}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => { e.stopPropagation(); onQuickUpdate({ transactionClass: e.target.value }); }}
+            disabled={isSaving}
+            data-testid={`select-class-${txn.id}`}
+          >
+            {CLASS_OPTIONS.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </td>
+        <td className="ledger-td-recurrence">
+          <select
+            className="ledger-inline-select ledger-inline-select--recurrence"
+            value={txn.recurrenceType}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => { e.stopPropagation(); onQuickUpdate({ recurrenceType: e.target.value }); }}
+            disabled={isSaving}
+            data-testid={`select-recurrence-${txn.id}`}
+          >
+            {RECURRENCE_OPTIONS.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </td>
         <td className="ledger-td-status">
           {txn.excludedFromAnalysis && <span className="ledger-badge ledger-badge--excluded">excluded</span>}
           {txn.userCorrected && <span className="ledger-badge ledger-badge--edited">edited</span>}
@@ -428,9 +471,6 @@ function EditPanel({ txn, onSave, onCancel, isSaving }: EditPanelProps) {
   const [date, setDate] = useState(txn.date);
   const [merchant, setMerchant] = useState(txn.merchant);
   const [amount, setAmount] = useState(txn.amount);
-  const [category, setCategory] = useState(txn.category);
-  const [txnClass, setTxnClass] = useState(txn.transactionClass);
-  const [recurrence, setRecurrence] = useState(txn.recurrenceType);
   const [excluded, setExcluded] = useState(txn.excludedFromAnalysis);
   const [excludedReason, setExcludedReason] = useState(txn.excludedReason ?? "");
 
@@ -440,9 +480,6 @@ function EditPanel({ txn, onSave, onCancel, isSaving }: EditPanelProps) {
     if (date !== txn.date) fields.date = date;
     if (merchant !== txn.merchant) fields.merchant = merchant;
     if (amount !== txn.amount) fields.amount = amount;
-    if (category !== txn.category) fields.category = category;
-    if (txnClass !== txn.transactionClass) fields.transactionClass = txnClass;
-    if (recurrence !== txn.recurrenceType) fields.recurrenceType = recurrence;
     if (excluded !== txn.excludedFromAnalysis) fields.excludedFromAnalysis = excluded;
     if (excludedReason !== (txn.excludedReason ?? "")) {
       fields.excludedReason = excludedReason || null;
@@ -468,30 +505,6 @@ function EditPanel({ txn, onSave, onCancel, isSaving }: EditPanelProps) {
         <label className="ledger-edit-field">
           <span className="ledger-edit-label">Amount</span>
           <input type="text" className="ledger-edit-input" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isSaving} />
-        </label>
-        <label className="ledger-edit-field">
-          <span className="ledger-edit-label">Category</span>
-          <select className="ledger-edit-input" value={category} onChange={(e) => setCategory(e.target.value)} disabled={isSaving}>
-            {V1_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c.replace(/_/g, " ")}</option>
-            ))}
-          </select>
-        </label>
-        <label className="ledger-edit-field">
-          <span className="ledger-edit-label">Class</span>
-          <select className="ledger-edit-input" value={txnClass} onChange={(e) => setTxnClass(e.target.value)} disabled={isSaving}>
-            {CLASS_OPTIONS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </label>
-        <label className="ledger-edit-field">
-          <span className="ledger-edit-label">Recurrence</span>
-          <select className="ledger-edit-input" value={recurrence} onChange={(e) => setRecurrence(e.target.value)} disabled={isSaving}>
-            {RECURRENCE_OPTIONS.map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
         </label>
       </div>
       <div className="ledger-edit-exclude-row">

@@ -870,6 +870,54 @@ body {
 .ledger-td-class,
 .ledger-td-recurrence {
   white-space: nowrap;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.ledger-inline-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: color-mix(in srgb, #2563eb 10%, transparent);
+  color: #1d4ed8;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 1.4rem 0.15rem 0.55rem;
+  cursor: pointer;
+  outline: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%231d4ed8' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  background-size: 8px 5px;
+  max-width: 9rem;
+}
+.ledger-inline-select:hover {
+  background-color: color-mix(in srgb, #2563eb 18%, transparent);
+}
+.ledger-inline-select:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #2563eb 40%, transparent);
+}
+.ledger-inline-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ledger-inline-select--class {
+  background-color: color-mix(in srgb, #6d28d9 10%, transparent);
+  color: #5b21b6;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%235b21b6' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+}
+.ledger-inline-select--class:hover {
+  background-color: color-mix(in srgb, #6d28d9 18%, transparent);
+}
+.ledger-inline-select--recurrence {
+  background-color: color-mix(in srgb, #0891b2 10%, transparent);
+  color: #0e7490;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%230e7490' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+}
+.ledger-inline-select--recurrence:hover {
+  background-color: color-mix(in srgb, #0891b2 18%, transparent);
 }
 
 .ledger-td-status {
