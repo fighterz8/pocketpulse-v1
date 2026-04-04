@@ -9,7 +9,7 @@
  */
 
 import { and, eq, ne, sql } from "drizzle-orm";
-import { db } from "./storage.js";
+import { db } from "./db.js";
 import { transactions } from "../shared/schema.js";
 import { classifyTransaction } from "./classifier.js";
 
