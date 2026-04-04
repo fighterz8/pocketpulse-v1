@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { apiFetch } from "../lib/api";
-import type { AccuracyReport, CorrectionImpact } from "../../server/accuracyReport";
+import type { AccuracyReport, CorrectionImpact } from "@shared/accuracyTypes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

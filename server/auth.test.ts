@@ -39,6 +39,7 @@ describe("toPublicUser", () => {
       password: "$2b$12$deadbeef",
       displayName: "A",
       companyName: null,
+      isDev: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     } satisfies UserRow;

@@ -168,6 +168,7 @@ export function useAuth(): UseAuthReturn {
           ...(input.companyName !== undefined && input.companyName !== ""
             ? { companyName: input.companyName }
             : {}),
+          ...(input.isDev === true ? { isDev: true } : {}),
         }),
       });
       if (!res.ok) throw new Error(await readJsonError(res));
