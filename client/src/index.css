@@ -990,9 +990,9 @@ body {
   font: inherit;
   font-size: 0.92rem;
   border-radius: 0.45rem;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  background: Field;
-  color: FieldText;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #1e293b;
 }
 
 .ledger-search-input:focus {
@@ -1001,21 +1001,25 @@ body {
   box-shadow: 0 0 0 0.15rem color-mix(in srgb, #2563eb 18%, transparent);
 }
 
+.ledger-search-input::placeholder {
+  color: #94a3b8;
+}
+
 .ledger-clear-btn {
   padding: 0.45rem 0.75rem;
   font: inherit;
   font-size: 0.82rem;
   font-weight: 600;
-  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border: 1px solid #cbd5e1;
   border-radius: 0.4rem;
   cursor: pointer;
-  background: Field;
-  color: FieldText;
+  background: #ffffff;
+  color: #475569;
   white-space: nowrap;
 }
 
 .ledger-clear-btn:hover {
-  background: color-mix(in srgb, currentColor 6%, transparent);
+  background: #f1f5f9;
 }
 
 .ledger-export-btn {
@@ -1049,9 +1053,9 @@ body {
   font: inherit;
   font-size: 0.82rem;
   border-radius: 0.4rem;
-  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
-  background: Field;
-  color: FieldText;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #374151;
   max-width: 12rem;
 }
 
@@ -1066,9 +1070,9 @@ body {
   font: inherit;
   font-size: 0.82rem;
   border-radius: 0.4rem;
-  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
-  background: Field;
-  color: FieldText;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #374151;
 }
 
 .ledger-date-sep {
@@ -2950,10 +2954,42 @@ html.dark .ledger-filter-label {
 }
 
 html.dark .ledger-filter-input,
-html.dark .ledger-filter-select {
+html.dark .ledger-filter-select,
+html.dark .ledger-filter-select option {
   background: rgb(30 41 59 / 0.8);
   border-color: rgb(255 255 255 / 0.10);
   color: #e2e8f0;
+}
+
+html.dark .ledger-search-input {
+  background: rgb(30 41 59 / 0.8);
+  border-color: rgb(255 255 255 / 0.10);
+  color: #e2e8f0;
+}
+
+html.dark .ledger-search-input::placeholder {
+  color: #64748b;
+}
+
+html.dark .ledger-clear-btn {
+  background: rgb(30 41 59 / 0.8);
+  border-color: rgb(255 255 255 / 0.10);
+  color: #94a3b8;
+}
+
+html.dark .ledger-clear-btn:hover {
+  background: rgb(51 65 85 / 0.8);
+}
+
+html.dark .ledger-date-input {
+  background: rgb(30 41 59 / 0.8);
+  border-color: rgb(255 255 255 / 0.10);
+  color: #e2e8f0;
+  color-scheme: dark;
+}
+
+html.dark .ledger-filter-select {
+  color-scheme: dark;
 }
 
 html.dark .ledger-ai-title {
