@@ -57,8 +57,20 @@ function categoryColor(cat: string): string {
   return CATEGORY_COLORS[cat] ?? "bg-slate-100 text-slate-600";
 }
 
-// These categories are automatically handled and hidden from the main review queue.
-const AUTO_HIDDEN_CATEGORIES = new Set(["housing"]);
+// A "leak" is a DISCRETIONARY recurring charge the user may want to cancel —
+// streaming, gym memberships, forgotten SaaS subscriptions, etc.
+// The categories below are NECESSARY recurring obligations (mortgage, bills,
+// insurance, medical, debt repayment). They are auto-labeled as essential on
+// the server and completely hidden from this page — no review ever needed.
+// Must stay in sync with AUTO_ESSENTIAL_CATEGORIES in server/routes.ts
+// and SIDEBAR_HIDDEN_CATEGORIES in AppLayout.tsx.
+const AUTO_HIDDEN_CATEGORIES = new Set([
+  "housing",    // mortgage, rent
+  "utilities",  // electricity, water, gas, internet, phone bills
+  "insurance",  // auto, health, home, renters insurance
+  "medical",    // prescriptions, recurring health services
+  "debt",       // loan payments, credit card minimums
+]);
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -181,12 +193,7 @@ function CandidateCard({
               Possibly cancelled
             </span>
           )}
-          {c.autoEssential && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
-              Auto-labeled
-            </span>
-          )}
-          {c.isActive && c.reviewStatus === "unreviewed" && !c.autoEssential && (
+          {c.isActive && c.reviewStatus === "unreviewed" && (
             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
               Needs review
             </span>
@@ -296,9 +303,10 @@ export function Leaks() {
     <motion.div className="mb-4 flex items-center justify-between flex-wrap gap-3"
       variants={fadeUp} initial="hidden" animate="visible" custom={0}>
       <div>
-        <h1 className="app-page-title mb-0.5">Recurring &amp; Leaks</h1>
+        <h1 className="app-page-title mb-0.5">Subscription Leaks</h1>
         <p className="text-sm text-slate-500">
-          Review recurring charges — mark leaks you want to cut, essentials to keep.
+          Discretionary recurring charges — streaming, subscriptions, memberships you may want to cancel.
+          Bills you must pay (mortgage, utilities, insurance) are handled automatically.
         </p>
       </div>
       <button
@@ -433,13 +441,13 @@ export function Leaks() {
         </div>
       )}
 
-      {/* Note about auto-handled categories */}
+      {/* Note about auto-handled necessary expenses */}
       {hiddenCount > 0 && (
         <motion.p
           className="mt-4 text-xs text-slate-400 text-center"
           variants={fadeUp} initial="hidden" animate="visible" custom={10}
         >
-          {hiddenCount} housing charge{hiddenCount !== 1 ? "s" : ""} automatically categorized as a recurring essential — no review needed.
+          {hiddenCount} necessary recurring charge{hiddenCount !== 1 ? "s" : ""} (mortgage, utilities, insurance, medical, debt) are automatically marked as essential — no review needed.
         </motion.p>
       )}
     </div>

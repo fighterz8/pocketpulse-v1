@@ -4,7 +4,9 @@ import { cn } from "../../lib/utils";
 import { useRecurringCandidates } from "../../hooks/use-recurring";
 
 // Must stay in sync with AUTO_HIDDEN_CATEGORIES in Leaks.tsx
-const SIDEBAR_HIDDEN_CATEGORIES = new Set(["housing"]);
+const SIDEBAR_HIDDEN_CATEGORIES = new Set([
+  "housing", "utilities", "insurance", "medical", "debt",
+]);
 
 function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
   // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
@@ -90,7 +92,7 @@ export function AppLayout({
             <li>
               <RecurringNavItem
                 href="/leaks"
-                label="Recurring & Leaks"
+                label="Subscription Leaks"
                 isActive={location === "/leaks"}
               />
             </li>
