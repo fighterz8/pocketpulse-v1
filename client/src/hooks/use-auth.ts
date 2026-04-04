@@ -135,7 +135,8 @@ export function useAuth(): UseAuthReturn {
       return res.json();
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
+      // Clear the entire cache so no previous user's data survives into this session.
+      queryClient.clear();
     },
   });
 
@@ -159,7 +160,8 @@ export function useAuth(): UseAuthReturn {
       return res.json();
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
+      // Clear the entire cache so no previous user's data survives into this session.
+      queryClient.clear();
     },
   });
 
@@ -171,8 +173,8 @@ export function useAuth(): UseAuthReturn {
       }
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
-      void queryClient.invalidateQueries({ queryKey: accountsListQueryRoot });
+      // Wipe the entire cache on logout — no previous user's data should survive.
+      queryClient.clear();
     },
   });
 
