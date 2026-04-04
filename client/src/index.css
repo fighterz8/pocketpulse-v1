@@ -2861,7 +2861,7 @@ html.dark .glass-card {
 }
 
 html.dark .glass-section-title {
-  color: #94a3b8;
+  color: #cbd5e1;
 }
 
 html.dark .dash-title {
@@ -2910,7 +2910,7 @@ html.dark .period-btn--active {
 }
 
 html.dark .kpi-label {
-  color: #94a3b8;
+  color: #cbd5e1;
 }
 
 html.dark .kpi-value {
@@ -2918,11 +2918,12 @@ html.dark .kpi-value {
 }
 
 html.dark .kpi-sub {
-  color: #64748b;
+  color: #94a3b8;
 }
 
 html.dark .kpi-drill {
   color: #60a5fa;
+  opacity: 1;
 }
 
 html.dark .glass-card--clickable:hover {

@@ -126,10 +126,10 @@ function KpiCard({
   index?: number;
 }) {
   const colorMap = {
-    green: "text-emerald-600",
-    red: "text-red-500",
-    blue: "text-blue-600",
-    neutral: "text-slate-800",
+    green: "text-emerald-600 dark:text-emerald-400",
+    red: "text-red-500 dark:text-red-400",
+    blue: "text-blue-600 dark:text-blue-400",
+    neutral: "text-slate-800 dark:text-slate-100",
   };
   return (
     <GlassCard index={index} href={href}>
@@ -265,7 +265,7 @@ export function Dashboard() {
         <div>
           <h1 className="dash-title">Dashboard</h1>
           <p className="dash-subtitle">
-            Cashflow overview · <span className="font-medium text-slate-600">{periodLabelFull}</span>
+            Cashflow overview · <span className="font-medium text-slate-600 dark:text-slate-300">{periodLabelFull}</span>
           </p>
         </div>
       </div>
@@ -322,10 +322,10 @@ export function Dashboard() {
   const safeToSpend = totals.safeToSpend;
   const spendStatus = safeToSpendStatus(safeToSpend, totals.totalInflow);
   const safeColor = safeToSpend > 0
-    ? "text-emerald-600"
+    ? "text-emerald-600 dark:text-emerald-400"
     : safeToSpend > -totals.totalInflow * 0.15
-    ? "text-orange-500"
-    : "text-red-500";
+    ? "text-orange-500 dark:text-orange-400"
+    : "text-red-500 dark:text-red-400";
 
   const spendRatio = totals.totalInflow > 0
     ? Math.min(100, (totals.totalOutflow / Math.max(totals.totalInflow, totals.totalOutflow)) * 100)
@@ -356,11 +356,11 @@ export function Dashboard() {
           </div>
 
           <div className="mt-5">
-            <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-400 mb-1.5">
               <span>Total spending</span>
               <span>Total income</span>
             </div>
-            <div className="h-2 bg-blue-50 rounded-full overflow-hidden border border-blue-100">
+            <div className="h-2 bg-blue-50 dark:bg-slate-700 rounded-full overflow-hidden border border-blue-100 dark:border-slate-600">
               {totals.totalInflow > 0 && (
                 <div
                   className={`h-full rounded-full transition-all ${safeToSpend >= 0 ? "bg-emerald-500" : "bg-red-400"}`}
@@ -369,8 +369,8 @@ export function Dashboard() {
               )}
             </div>
             <div className="flex justify-between text-xs mt-1.5">
-              <span className="text-red-500 font-semibold">{currency(totals.totalOutflow)}</span>
-              <span className="text-emerald-600 font-semibold">{currency(totals.totalInflow)}</span>
+              <span className="text-red-500 dark:text-red-400 font-semibold">{currency(totals.totalOutflow)}</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{currency(totals.totalInflow)}</span>
             </div>
           </div>
           <p className="kpi-drill mt-4">View all transactions →</p>
@@ -382,24 +382,24 @@ export function Dashboard() {
             <p className="kpi-label">Subscription Review</p>
             {expenseLeaks.count > 0 ? (
               <>
-                <p data-testid="leak-count" className="dash-hero-value text-red-500">
+                <p data-testid="leak-count" className="dash-hero-value text-red-500 dark:text-red-400">
                   {expenseLeaks.count}
                 </p>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="text-sm text-slate-500 dark:text-slate-300 mt-1">
                   {expenseLeaks.count} recurring charge{expenseLeaks.count !== 1 ? "s" : ""} flagged as leaks
                 </p>
                 {expenseLeaks.monthlyAmount > 0 && (
-                  <p className="text-sm text-red-500 font-semibold mt-1">
+                  <p className="text-sm text-red-500 dark:text-red-400 font-semibold mt-1">
                     ~{currency(expenseLeaks.monthlyAmount / Math.max(1, totals.periodDays / 30))}/mo wasted
                   </p>
                 )}
               </>
             ) : (
               <>
-                <p data-testid="leak-count" className="dash-hero-value text-slate-400 text-3xl leading-tight mt-1">
+                <p data-testid="leak-count" className="dash-hero-value text-slate-500 dark:text-slate-300 text-3xl leading-tight mt-1">
                   Review needed
                 </p>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                   Recurring charges are waiting for your review — you may find subscriptions you forgot about.
                 </p>
               </>
@@ -515,21 +515,21 @@ export function Dashboard() {
               <li key={cat.category}>
                 <Link
                   href={ledgerUrl({ category: cat.category }, dateRange)}
-                  className="flex items-center gap-3 group py-1 rounded-lg hover:bg-blue-50/40 transition-colors px-1 -mx-1"
+                  className="flex items-center gap-3 group py-1 rounded-lg hover:bg-blue-50/40 dark:hover:bg-white/5 transition-colors px-1 -mx-1"
                 >
-                  <span className="w-24 shrink-0 text-xs text-slate-600 capitalize truncate group-hover:text-blue-700 transition-colors">
+                  <span className="w-24 shrink-0 text-xs text-slate-600 dark:text-slate-300 capitalize truncate group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
                     {capitalize(cat.category)}
                   </span>
-                  <div className="flex-1 h-1.5 bg-blue-50 rounded-full overflow-hidden border border-blue-100">
+                  <div className="flex-1 h-1.5 bg-blue-50 dark:bg-slate-700 rounded-full overflow-hidden border border-blue-100 dark:border-slate-600">
                     <div
-                      className="h-full bg-blue-400 rounded-full group-hover:bg-blue-500 transition-colors"
+                      className="h-full bg-blue-400 dark:bg-blue-500 rounded-full group-hover:bg-blue-500 dark:group-hover:bg-blue-400 transition-colors"
                       style={{ width: pct(cat.total, totalSpending) }}
                     />
                   </div>
-                  <span className="text-xs font-medium text-slate-700 w-20 text-right shrink-0">
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-200 w-20 text-right shrink-0">
                     {currency(cat.total)}
                   </span>
-                  <span className="text-xs text-slate-400 w-10 text-right shrink-0">
+                  <span className="text-xs text-slate-400 dark:text-slate-400 w-10 text-right shrink-0">
                     {pct(cat.total, totalSpending)}
                   </span>
                 </Link>
