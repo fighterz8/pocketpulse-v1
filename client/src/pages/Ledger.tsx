@@ -196,6 +196,47 @@ export function Ledger() {
         </div>
       </div>
 
+      {/* AI Re-categorization */}
+      <div className="ledger-ai-section">
+        <div className="ledger-ai-header">
+          <div>
+            <h3 className="ledger-ai-title">AI Categorization</h3>
+            <p className="ledger-ai-desc">
+              Re-run AI classification on all transactions. Useful after uploading new data or if categories look wrong.
+              Your manual edits are never overwritten.
+            </p>
+          </div>
+          <button
+            className="ledger-ai-btn"
+            onClick={() => {
+              setReclassifyResult(null);
+              reclassify.mutate(undefined, {
+                onSuccess: (data) => setReclassifyResult({ updated: data.updated, total: data.total }),
+              });
+            }}
+            disabled={reclassify.isPending}
+            data-testid="btn-reclassify"
+          >
+            {reclassify.isPending ? "Running AI categorization..." : "Re-run AI Categorization"}
+          </button>
+        </div>
+        {reclassify.isPending && (
+          <p className="ledger-ai-status">
+            Analyzing merchants and assigning categories — this may take 15–30 seconds for large datasets.
+          </p>
+        )}
+        {reclassifyResult && !reclassify.isPending && (
+          <p className="ledger-ai-status ledger-ai-status--success">
+            Done — updated {reclassifyResult.updated} of {reclassifyResult.total} transactions.
+          </p>
+        )}
+        {reclassify.isError && (
+          <p className="ledger-ai-status ledger-ai-status--error">
+            {(reclassify.error as Error)?.message ?? "An error occurred. Please try again."}
+          </p>
+        )}
+      </div>
+
       {error && <p className="ledger-error">{error.message}</p>}
 
       {isLoading && transactions.length === 0 && (
@@ -284,47 +325,6 @@ export function Ledger() {
           )}
         </>
       )}
-
-      {/* AI Re-categorization */}
-      <div className="ledger-ai-section">
-        <div className="ledger-ai-header">
-          <div>
-            <h3 className="ledger-ai-title">AI Categorization</h3>
-            <p className="ledger-ai-desc">
-              Re-run AI classification on all transactions. Useful after uploading new data or if categories look wrong.
-              Your manual edits are never overwritten.
-            </p>
-          </div>
-          <button
-            className="ledger-ai-btn"
-            onClick={() => {
-              setReclassifyResult(null);
-              reclassify.mutate(undefined, {
-                onSuccess: (data) => setReclassifyResult({ updated: data.updated, total: data.total }),
-              });
-            }}
-            disabled={reclassify.isPending}
-            data-testid="btn-reclassify"
-          >
-            {reclassify.isPending ? "Running AI categorization..." : "Re-run AI Categorization"}
-          </button>
-        </div>
-        {reclassify.isPending && (
-          <p className="ledger-ai-status">
-            Analyzing merchants and assigning categories — this may take 15–30 seconds for large datasets.
-          </p>
-        )}
-        {reclassifyResult && !reclassify.isPending && (
-          <p className="ledger-ai-status ledger-ai-status--success">
-            Done — updated {reclassifyResult.updated} of {reclassifyResult.total} transactions.
-          </p>
-        )}
-        {reclassify.isError && (
-          <p className="ledger-ai-status ledger-ai-status--error">
-            {(reclassify.error as Error)?.message ?? "An error occurred. Please try again."}
-          </p>
-        )}
-      </div>
 
       {/* Danger zone */}
       <div className="ledger-danger-zone">

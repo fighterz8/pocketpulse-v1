@@ -122,6 +122,7 @@ const sessionCookieOptions = {
 export function createApp(options?: CreateAppOptions) {
   const store = options?.sessionStore ?? defaultSessionStore();
   const app = express();
+  app.set("trust proxy", 1);
   app.use(helmet());
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
