@@ -866,6 +866,66 @@ body {
   }
 }
 
+.ledger-ai-section {
+  margin: 2rem 0 1rem;
+  padding: 1.25rem 1.5rem;
+  background: color-mix(in srgb, #2563eb 6%, white);
+  border: 1px solid color-mix(in srgb, #2563eb 20%, transparent);
+  border-radius: 0.75rem;
+}
+.ledger-ai-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.ledger-ai-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin: 0 0 0.2rem;
+}
+.ledger-ai-desc {
+  font-size: 0.8rem;
+  color: #475569;
+  margin: 0;
+  max-width: 42rem;
+}
+.ledger-ai-btn {
+  flex-shrink: 0;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.ledger-ai-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+.ledger-ai-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.ledger-ai-status {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
+.ledger-ai-status--success {
+  color: #15803d;
+  font-weight: 500;
+}
+.ledger-ai-status--error {
+  color: #dc2626;
+  font-weight: 500;
+}
+
 .ledger-td-category,
 .ledger-td-class,
 .ledger-td-recurrence {

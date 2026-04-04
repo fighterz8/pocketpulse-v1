@@ -711,6 +711,20 @@ export function createApp(options?: CreateAppOptions) {
   });
 
   // -----------------------------------------------------------------------
+  // AI re-categorization (Phase 2b)
+  // -----------------------------------------------------------------------
+
+  app.post("/api/transactions/reclassify", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const result = await reclassifyTransactions(userId);
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // -----------------------------------------------------------------------
   // Destructive actions (Phase 3)
   // -----------------------------------------------------------------------
 

@@ -151,6 +151,20 @@ export function useTransactions(filters: TransactionFilters) {
     },
   });
 
+  const reclassifyMutation = useMutation({
+    mutationFn: async (): Promise<{ total: number; updated: number; skippedUserCorrected: number; unchanged: number }> => {
+      const res = await apiFetch("/api/transactions/reclassify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(await readJsonError(res));
+      return res.json() as Promise<{ total: number; updated: number; skippedUserCorrected: number; unchanged: number }>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: transactionsQueryKey });
+    },
+  });
+
   return {
     transactions: query.data?.transactions ?? [],
     pagination: query.data?.pagination ?? null,
@@ -159,6 +173,7 @@ export function useTransactions(filters: TransactionFilters) {
     updateTransaction: updateMutation,
     wipeData: wipeDataMutation,
     resetWorkspace: resetWorkspaceMutation,
+    reclassify: reclassifyMutation,
   };
 }
 
