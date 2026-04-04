@@ -12,6 +12,7 @@ import { classifyTransaction } from "./classifier.js";
 import { parseCSV } from "./csvParser.js";
 import { ensureUserPreferences, pool } from "./db.js";
 import { AUTO_ESSENTIAL_CATEGORIES, REVIEW_STATUSES, V1_CATEGORIES } from "../shared/schema.js";
+import { DEV_MODE_ENABLED } from "../shared/devConfig.js";
 import {
   createAccountForUser,
   createTransactionBatch,
@@ -300,7 +301,7 @@ export function createApp(options?: CreateAppOptions) {
 
   app.post("/api/auth/register", authLimiter, async (req, res, next) => {
     try {
-      const { email, password, displayName, companyName } = req.body ?? {};
+      const { email, password, displayName, companyName, isDev } = req.body ?? {};
       if (
         typeof email !== "string" ||
         typeof password !== "string" ||
@@ -333,6 +334,7 @@ export function createApp(options?: CreateAppOptions) {
           companyName === undefined || companyName === null
             ? null
             : String(companyName),
+        isDev: DEV_MODE_ENABLED && isDev === true,
       });
 
       await regenerateSession(req);
@@ -1086,6 +1088,26 @@ export function createApp(options?: CreateAppOptions) {
       const userId = req.session.userId!;
       const reviews = await listRecurringReviewsForUser(userId);
       res.json(reviews);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ── Accuracy report (dev users only) ─────────────────────────────────────
+  app.get("/api/accuracy-report", requireAuth, async (req, res, next) => {
+    try {
+      if (!DEV_MODE_ENABLED) {
+        res.status(403).json({ error: "Not available" });
+        return;
+      }
+      const user = await getUserById(req.session.userId!);
+      if (!user?.isDev) {
+        res.status(403).json({ error: "Dev access required" });
+        return;
+      }
+      const { computeAccuracyReport } = await import("./accuracyReport.js");
+      const report = await computeAccuracyReport(req.session.userId!);
+      res.json(report);
     } catch (e) {
       next(e);
     }

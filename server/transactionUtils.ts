@@ -39,6 +39,23 @@ const STRONG_OUTFLOW_HINT_PATTERNS: RegExp[] = [
   /\bpoint of sale\b/i,
   // Navy Federal "-dc NNNN" debit card format (e.g. "-dc 4305 Dollartree")
   /-dc\s+\d+/i,
+  // Additional patterns for unsigned-amount banks (T3.3 hardening)
+  // "Debit Memo" — common core-banking term for an outgoing charge
+  /\bdebit memo\b/i,
+  // "Sent to" — Zelle / P2P outflow descriptions ("Sent To John Smith")
+  /\bsent to\b/i,
+  // "Card Charge" — some credit unions output this for POS purchases
+  /\bcard charge\b/i,
+  // "EFT Debit" / "EFT Payment" — electronic-funds-transfer outflow
+  /\beft\s+(?:debit|payment|pmt)\b/i,
+  // "Online Transfer Out" / "External Transfer Out" — transfer portals
+  /\b(?:online|external|ext)\s+transfer\s+out\b/i,
+  // "Preauthorized Debit" / "Pre-authorized Payment" — pre-auth outflows
+  /\bpre-?auth(?:orized)?\s+(?:debit|payment|pmt)\b/i,
+  // "Memo Debit" — variant of Debit Memo used by some credit unions
+  /\bmemo\s+debit\b/i,
+  // "Tap to Pay" — contactless POS used by modern banking apps (e.g. Apple Cash, Chase)
+  /\btap\s+to\s+pay\b/i,
 ];
 
 /**

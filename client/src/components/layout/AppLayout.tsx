@@ -1,8 +1,10 @@
 import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { AUTO_ESSENTIAL_CATEGORIES } from "@shared/schema";
+import { DEV_MODE_ENABLED } from "@shared/devConfig";
 import { cn } from "../../lib/utils";
 import { useRecurringCandidates } from "../../hooks/use-recurring";
+import { useAuth } from "../../hooks/use-auth";
 
 function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
   // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
@@ -59,6 +61,8 @@ export function AppLayout({
   logoutPending?: boolean;
 }) {
   const [location] = useLocation();
+  const { user } = useAuth();
+  const showAccuracy = DEV_MODE_ENABLED && user?.isDev === true;
 
   return (
     <div className="app-protected">
@@ -111,6 +115,19 @@ export function AppLayout({
                 isActive={location === "/leaks"}
               />
             </li>
+            {/* Accuracy Report — dev/beta users only */}
+            {showAccuracy && (
+              <li>
+                <Link
+                  href="/accuracy"
+                  data-testid="nav-link-accuracy"
+                  className={cn("app-nav-link app-nav-link--dev", location === "/accuracy" && "app-nav-link--active")}
+                >
+                  Accuracy Report
+                  <span className="acc-nav-badge">BETA</span>
+                </Link>
+              </li>
+            )}
           </ul>
         </nav>
 

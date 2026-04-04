@@ -23,6 +23,7 @@ const publicUserColumns = {
   email: users.email,
   displayName: users.displayName,
   companyName: users.companyName,
+  isDev: users.isDev,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
 } as const;
@@ -49,6 +50,7 @@ export type CreateUserInput = {
   passwordHash: string;
   displayName: string;
   companyName?: string | null;
+  isDev?: boolean;
 };
 
 /**
@@ -66,6 +68,7 @@ export async function createUser(input: CreateUserInput): Promise<PublicUser> {
           password: input.passwordHash,
           displayName: input.displayName,
           companyName: input.companyName ?? null,
+          isDev: input.isDev ?? false,
         })
         .returning();
 

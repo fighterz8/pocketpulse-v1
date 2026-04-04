@@ -38,6 +38,7 @@ export type AuthUser = {
   email: string;
   displayName: string;
   companyName: string | null;
+  isDev: boolean;
 };
 
 /** API shape for `GET /api/auth/me` — never includes password fields. */
@@ -52,6 +53,7 @@ export type RegisterInput = {
   password: string;
   displayName: string;
   companyName?: string;
+  isDev?: boolean;
 };
 
 /** Shape returned by POST /api/auth/login and POST /api/auth/register */

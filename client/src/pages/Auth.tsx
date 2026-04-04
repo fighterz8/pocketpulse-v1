@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useAuth } from "../hooks/use-auth";
+import { DEV_MODE_ENABLED } from "@shared/devConfig";
 
 type Mode = "login" | "register";
 
@@ -10,6 +11,7 @@ export function Auth() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [isBetaTester, setIsBetaTester] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const activeMutation = mode === "login" ? login : register;
@@ -37,6 +39,7 @@ export function Auth() {
           password,
           displayName: displayName.trim(),
           companyName: companyName.trim() || undefined,
+          isDev: DEV_MODE_ENABLED && isBetaTester,
         });
       }
     } catch {
@@ -115,6 +118,23 @@ export function Auth() {
                   disabled={busy}
                 />
               </label>
+              {DEV_MODE_ENABLED ? (
+                <label className="auth-field auth-field--check" data-testid="label-beta-tester">
+                  <input
+                    className="auth-checkbox"
+                    type="checkbox"
+                    name="isBetaTester"
+                    checked={isBetaTester}
+                    onChange={(e) => setIsBetaTester(e.target.checked)}
+                    disabled={busy}
+                    data-testid="checkbox-beta-tester"
+                  />
+                  <span className="auth-label auth-label--check">
+                    Register as a beta tester
+                    <span className="auth-label-hint">Enables the Accuracy Report feature for research purposes</span>
+                  </span>
+                </label>
+              ) : null}
             </>
           ) : null}
 

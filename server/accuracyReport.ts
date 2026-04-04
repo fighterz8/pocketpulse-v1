@@ -37,16 +37,26 @@ export type InconsistentMerchant = {
   occurrences: number;
 };
 
+/** Describes whether manual corrections impacted the score. */
+export type CorrectionImpact =
+  | "none"           // zero corrections
+  | "keyword-fixes"  // corrections on rule-labeled rows (doesn't move correction-rate metric)
+  | "low"            // correctionRate < 5 %   — minor AI misses
+  | "moderate"       // correctionRate 5–15 %  — noticeable AI misses
+  | "high";          // correctionRate > 15 %  — AI struggled on this bank's format
+
 export type AccuracyReport = {
   totalTransactions: number;
   labelSourceBreakdown: LabelSourceBreakdown;
-  correctionRate: number;         // 0–1
+  correctionRate: number;           // 0–1  (AI-labeled rows manually overridden)
+  manualCorrectionCount: number;    // raw total of userCorrected=true rows
+  correctionImpact: CorrectionImpact;
   confidenceDistribution: ConfidenceDistribution;
-  merchantConsistencyRate: number; // 0–1
+  merchantConsistencyRate: number;  // 0–1
   inconsistentMerchants: InconsistentMerchant[];
-  staleAiRate: number;            // 0–1  (AI-labeled that rules would now override)
+  staleAiRate: number;              // 0–1
   staleAiCount: number;
-  overallScore: number;           // 0–100 weighted composite
+  overallScore: number;             // 0–100 weighted composite
 };
 
 // ─── Per-label trust weights ──────────────────────────────────────────────────
@@ -135,6 +145,20 @@ export async function computeAccuracyReport(userId: number): Promise<AccuracyRep
   const correctionRate = aiLabeledTotal > 0
     ? Math.min(1, manualCorrections / aiLabeledTotal)
     : 0;
+
+  // Correction impact classification
+  let correctionImpact: CorrectionImpact;
+  if (manualCorrections === 0) {
+    correctionImpact = "none";
+  } else if (aiLabeledTotal === 0) {
+    correctionImpact = "keyword-fixes";
+  } else if (correctionRate < 0.05) {
+    correctionImpact = "low";
+  } else if (correctionRate < 0.15) {
+    correctionImpact = "moderate";
+  } else {
+    correctionImpact = "high";
+  }
 
   // ── 2. Merchant consistency ───────────────────────────────────────────────
   // Find merchants with ≥ 3 transactions that have more than one distinct category.
@@ -252,6 +276,8 @@ export async function computeAccuracyReport(userId: number): Promise<AccuracyRep
     totalTransactions,
     labelSourceBreakdown: sourceCounts,
     correctionRate,
+    manualCorrectionCount: manualCorrections,
+    correctionImpact,
     confidenceDistribution: conf,
     merchantConsistencyRate,
     inconsistentMerchants,

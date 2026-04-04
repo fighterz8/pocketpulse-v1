@@ -40,6 +40,7 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   displayName: text("display_name").notNull(),
   companyName: text("company_name"),
+  isDev: boolean("is_dev").notNull().default(false),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
     .notNull()
     .defaultNow(),
