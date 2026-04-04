@@ -34,7 +34,7 @@ import {
   upsertRecurringReview,
   type UpdateTransactionInput,
 } from "./storage.js";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
 import { detectRecurringCandidates } from "./recurrenceDetector.js";
@@ -124,13 +124,15 @@ const sessionCookieOptions = {
 };
 
 /**
- * Runs the recurring-expense detector and writes recurrenceType back to every
- * outflow transaction row for the given user:
- *   - detected recurring IDs  → "recurring"
- *   - all other outflow rows  → "one-time"
+ * Runs the recurring-expense detector and writes back to every outflow
+ * transaction row for the given user:
+ *   - recurrenceType:   detected recurring IDs → "recurring"; others → "one-time"
+ *   - transactionClass: recurring outflow transfers (not user-corrected) →
+ *                       "expense" (labelSource="recurring-transfer"), reversed
+ *                       on the next sync if the pattern stops.
  *
- * Called automatically after every successful upload AND by the manual
- * POST /api/recurring-candidates/sync endpoint.
+ * Called automatically after every successful upload, after a full reclassify
+ * run, and by the manual POST /api/recurring-candidates/sync endpoint.
  */
 async function syncRecurringCandidates(
   userId: number,
@@ -155,6 +157,20 @@ async function syncRecurringCandidates(
       ),
     );
 
+  // Step 1b: Roll back any previously-promoted recurring-transfer rows that
+  // are no longer in the recurring set (stale promotions). Skips user-corrected
+  // rows so explicit manual edits are always preserved.
+  await db
+    .update(txnTable)
+    .set({ transactionClass: "transfer", labelSource: "rule" })
+    .where(
+      and(
+        eq(txnTable.userId, userId),
+        eq(txnTable.labelSource, "recurring-transfer"),
+        eq(txnTable.userCorrected, false),
+      ),
+    );
+
   // Step 2: mark detected IDs as "recurring" (chunked to avoid huge IN clauses)
   if (recurringIds.size > 0) {
     const ids = [...recurringIds];
@@ -166,6 +182,41 @@ async function syncRecurringCandidates(
           and(
             eq(txnTable.userId, userId),
             inArray(txnTable.id, ids.slice(i, i + 500)),
+          ),
+        );
+    }
+  }
+
+  // Step 3: Recurring outflow transfers → reclassify as expense.
+  //
+  // A bank transfer that repeats on a predictable schedule is almost always a
+  // real financial obligation (rent, loan, regular payments to a vendor) rather
+  // than a neutral fund movement.  Reclassifying it as an expense makes the
+  // dashboard totals, safe-to-spend, and category breakdowns accurate.
+  //
+  // We only promote rows that:
+  //   • Are in the recurring candidate set (confirmed by detector)
+  //   • Have flowType="outflow" (never touch transfer inflows)
+  //   • Have transactionClass="transfer" (already expense-classified rows are fine)
+  //   • Have NOT been manually overridden by the user
+  //
+  // We store labelSource="recurring-transfer" so Step 1b can cleanly undo
+  // the promotion on the next sync if the pattern stops.
+  if (recurringIds.size > 0) {
+    const ids = [...recurringIds];
+    for (let i = 0; i < ids.length; i += 500) {
+      await db
+        .update(txnTable)
+        .set({ transactionClass: "expense", labelSource: "recurring-transfer" })
+        .where(
+          and(
+            eq(txnTable.userId, userId),
+            inArray(txnTable.id, ids.slice(i, i + 500)),
+            eq(txnTable.transactionClass, "transfer"),
+            eq(txnTable.flowType, "outflow"),
+            eq(txnTable.userCorrected, false),
+            ne(txnTable.labelSource, "manual"),
+            ne(txnTable.labelSource, "propagated"),
           ),
         );
     }
@@ -829,6 +880,9 @@ export function createApp(options?: CreateAppOptions) {
     try {
       const userId = req.session.userId!;
       const result = await reclassifyTransactions(userId);
+      // Re-sync recurring patterns so recurring-transfer promotions are
+      // reapplied after the rules engine may have reset them to "transfer".
+      await syncRecurringCandidates(userId);
       res.json(result);
     } catch (e) {
       next(e);

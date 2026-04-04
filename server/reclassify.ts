@@ -49,11 +49,16 @@ export async function reclassifyTransactions(
 
   for (let i = 0; i < allTxns.length; i++) {
     const txn = allTxns[i]!;
-    // Skip transactions that already reflect explicit user intent:
-    //   userCorrected=true  → manually edited by the user
-    //   labelSource="propagated" → auto-applied from a manual correction
-    // Both should be preserved across re-classification runs.
-    if (txn.userCorrected || txn.labelSource === "propagated") {
+    // Skip transactions that already reflect explicit intent:
+    //   userCorrected=true            → manually edited by the user
+    //   labelSource="propagated"      → auto-applied from a manual correction
+    //   labelSource="recurring-transfer" → system-promoted recurring transfer;
+    //     syncRecurringCandidates (called after reclassify) handles these
+    if (
+      txn.userCorrected ||
+      txn.labelSource === "propagated" ||
+      txn.labelSource === "recurring-transfer"
+    ) {
       result.skippedUserCorrected++;
       continue;
     }
