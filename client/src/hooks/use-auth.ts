@@ -173,8 +173,14 @@ export function useAuth(): UseAuthReturn {
       }
     },
     onSuccess: () => {
-      // Wipe the entire cache on logout — no previous user's data should survive.
-      queryClient.clear();
+      // Immediately flip auth state to unauthenticated so AppGate redirects to
+      // the login screen before any other query has a chance to re-fetch against
+      // the now-destroyed session and render a 401 error.
+      queryClient.setQueryData(authMeQueryKey, { authenticated: false });
+      // Remove all non-auth cached data so no previous user's data survives.
+      queryClient.removeQueries({
+        predicate: (q) => q.queryKey[0] !== "auth",
+      });
     },
   });
 
