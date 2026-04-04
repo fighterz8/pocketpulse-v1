@@ -3,10 +3,27 @@ import { Link, useLocation } from "wouter";
 import { cn } from "../../lib/utils";
 import { useRecurringCandidates } from "../../hooks/use-recurring";
 
+// Must stay in sync with AUTO_HIDDEN_CATEGORIES in Leaks.tsx
+const SIDEBAR_HIDDEN_CATEGORIES = new Set(["housing"]);
+
 function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
   // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
   const { data } = useRecurringCandidates();
-  const unreviewedCount = data?.summary.unreviewed ?? 0;
+
+  // Mirror the same filter logic as the Leaks page so the dot disappears exactly
+  // when the page shows "All caught up!": exclude auto-hidden categories and cap
+  // at 6 months so old cancelled subscriptions don't keep the light on.
+  const sixMonthCutoff = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString().slice(0, 10);
+  })();
+  const unreviewedCount = data?.candidates.filter(
+    (c) =>
+      !SIDEBAR_HIDDEN_CATEGORIES.has(c.category) &&
+      c.reviewStatus === "unreviewed" &&
+      c.lastSeen >= sixMonthCutoff,
+  ).length ?? 0;
   const needsReview = unreviewedCount > 0;
 
   return (

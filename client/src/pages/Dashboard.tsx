@@ -210,11 +210,25 @@ export function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const { data: availableMonths, isLoading: monthsLoading } = useAvailableMonths();
 
+  // Track the most-recent month seen so far so we only auto-advance the selector
+  // when new data arrives (e.g. user uploads June 2026 CSV) — not on every
+  // background refetch (which would override the user's manual month selection).
+  const prevMostRecentRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!availableMonths || availableMonths.length === 0) return;
-    const best =
-      availableMonths.find((m) => m.transactionCount >= 20) ?? availableMonths[0];
-    setSelectedMonth(best.month);
+    // Months are returned DESC (newest first).
+    const mostRecent = availableMonths[0]?.month ?? null;
+    const isFirstLoad  = prevMostRecentRef.current === null;
+    const hasNewMonths = mostRecent !== null && mostRecent !== prevMostRecentRef.current;
+
+    if (isFirstLoad || hasNewMonths) {
+      // Auto-select the most recent month that has meaningful transaction volume.
+      const best =
+        availableMonths.find((m) => m.transactionCount >= 20) ?? availableMonths[0];
+      setSelectedMonth(best?.month ?? null);
+    }
+    prevMostRecentRef.current = mostRecent;
   }, [availableMonths]);
 
   const { data, isLoading, error } = useDashboardSummary({ month: selectedMonth });
