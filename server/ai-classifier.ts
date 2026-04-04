@@ -124,22 +124,24 @@ function isValidRecurrenceType(
 }
 
 /**
- * Build the system prompt, optionally appending a few-shot block of user
- * corrections so the model mirrors the user's explicit preferences.
+ * Build the system prompt, optionally inserting a few-shot block of user
+ * corrections immediately before the "Decision rules" section so the model
+ * treats them as strong priming before reading the classification rules.
  */
 function buildSystemPrompt(
   userExamples: Array<{ merchant: string; category: string; transactionClass: string }>,
 ): string {
   if (userExamples.length === 0) return SYSTEM_PROMPT;
 
-  const examplesBlock = userExamples
-    .map((e) => `- "${e.merchant}" → category: ${e.category}, class: ${e.transactionClass}`)
-    .join("\n");
+  const examplesBlock =
+    `User corrections — treat these as ground truth when classifying similar merchants:\n` +
+    userExamples
+      .map((e) => `- "${e.merchant}" → category: ${e.category}, class: ${e.transactionClass}`)
+      .join("\n") +
+    "\n\n";
 
-  return (
-    SYSTEM_PROMPT +
-    `\n\nUser corrections — treat these as ground truth when classifying similar merchants:\n${examplesBlock}`
-  );
+  // Inject immediately before the "Decision rules:" section.
+  return SYSTEM_PROMPT.replace("Decision rules:\n", examplesBlock + "Decision rules:\n");
 }
 
 /**
