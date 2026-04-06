@@ -102,6 +102,7 @@ function applySixMonthCutoff(candidates: RecurringCandidate[]): RecurringCandida
 
 function SummaryBar({
   summary,
+  needReview,
 }: {
   summary: {
     total: number;
@@ -114,6 +115,7 @@ function SummaryBar({
     totalMonthlyEssential: number;
     totalMonthlyUnreviewed: number;
   };
+  needReview: number;
 }) {
   return (
     <motion.div
@@ -133,7 +135,7 @@ function SummaryBar({
         <p className="text-xs text-slate-500 mt-0.5">Leak cost/year</p>
       </div>
       <div className="glass-card text-center py-3">
-        <p className="text-xl font-bold text-amber-500">{summary.unreviewed}</p>
+        <p className="text-xl font-bold text-amber-500">{needReview}</p>
         <p className="text-xs text-slate-500 mt-0.5">Need review</p>
       </div>
     </motion.div>
@@ -294,10 +296,10 @@ export function Leaks() {
     <motion.div className="mb-4 flex items-center justify-between flex-wrap gap-3"
       variants={fadeUp} initial="hidden" animate="visible" custom={0}>
       <div>
-        <h1 className="app-page-title mb-0.5">Subscription Leaks</h1>
+        <h1 className="app-page-title mb-0.5">Recurring Leaks</h1>
         <p className="text-sm text-slate-500">
-          Discretionary recurring charges — streaming, subscriptions, memberships you may want to cancel.
-          Bills you must pay (mortgage, utilities, insurance) are handled automatically.
+          Recurring charges you may be able to cut — subscriptions, memberships, and spending habits.
+          Essential bills (mortgage, utilities, insurance) are handled automatically.
         </p>
       </div>
       <button
@@ -339,7 +341,7 @@ export function Leaks() {
     <div>
       {pageHeader}
 
-      <SummaryBar summary={summary} />
+      <SummaryBar summary={summary} needReview={unreviewedInView} />
 
       {/* Tabs + sort */}
       <motion.div className="flex items-center justify-between gap-3 mb-3 flex-wrap"

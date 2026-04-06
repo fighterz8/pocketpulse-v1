@@ -113,7 +113,7 @@ export function AppLayout({
             <li>
               <RecurringNavItem
                 href="/leaks"
-                label="Subscription Leaks"
+                label="Recurring Leaks"
                 isActive={location === "/leaks"}
               />
             </li>
