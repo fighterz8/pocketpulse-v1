@@ -135,20 +135,25 @@ const SUBSCRIPTION_BRAND_FRAGMENTS = [
  * stage (flowType !== "outflow" filter), so they never reach this check.
  */
 const NEVER_SUBSCRIPTION_FRAGMENTS = [
-  "atm",           // ATM withdrawals / ATM fees (round-dollar amounts trigger isSaasPrice)
-  "wire transfer", // outgoing wire transfers (not cancellable)
-  "zelle",         // Zelle P2P payments
-  "venmo",         // Venmo P2P payments / cashouts
-  "cash app",      // CashApp P2P transfers
-  "cashout",       // "ACH CREDIT VENMO CASHOUT" and similar P2P cashout descriptions
+  "atm",              // ATM withdrawals / ATM fees (round-dollar amounts trigger isSaasPrice)
+  "wire transfer",    // outgoing wire transfers (not cancellable)
+  "ach credit",       // inbound ACH credits (direct deposits, refunds, government payments)
+  "mobile deposit",   // mobile check deposits
+  "interest payment", // bank interest paid to user or loan interest charges
+  "zelle",            // Zelle P2P payments
+  "venmo",            // Venmo P2P payments / cashouts
+  "cash app",         // CashApp P2P transfers
+  "cashout",          // "ACH CREDIT VENMO CASHOUT" and similar P2P cashout descriptions
 ];
 
 /**
  * Transaction categories that are never subscription-like.
- * "income" catches any edge case where an inflow is mis-categorised as outflow
- * and slips through the flowType filter.
+ * Includes "banking" and "transfer" as future-proof guards even though these
+ * category values do not currently exist in V1_CATEGORIES — if they are added
+ * later, affected transactions will be protected immediately.
+ * "income" catches any edge case where an inflow slips through the flowType filter.
  */
-const NEVER_SUBSCRIPTION_CATEGORIES = new Set(["income"]);
+const NEVER_SUBSCRIPTION_CATEGORIES = new Set(["income", "banking", "transfer"]);
 
 /** Only look at transactions from the past 18 months */
 const LOOKBACK_DAYS = 548; // ~18 months

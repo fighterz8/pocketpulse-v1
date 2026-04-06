@@ -98,7 +98,7 @@ describe("detectRecurringCandidates", () => {
     const candidates = detectRecurringCandidates(txns);
     expect(candidates.length).toBeGreaterThanOrEqual(1);
 
-    const netflix = candidates.find((c) => c.candidateKey.startsWith("netflix|"));
+    const netflix = candidates.find((c) => c.candidateKey === "netflix" || c.candidateKey.startsWith("netflix|"));
     expect(netflix).toBeDefined();
     expect(netflix!.frequency).toBe("monthly");
     expect(netflix!.averageAmount).toBeCloseTo(15.99, 1);
@@ -185,5 +185,132 @@ describe("detectRecurringCandidates", () => {
     const candidates = detectRecurringCandidates(txns);
     expect(candidates[0]!.reasonFlagged).toBeTruthy();
     expect(candidates[0]!.reasonFlagged.length).toBeGreaterThan(10);
+  });
+});
+
+// ─── DEF-014 regression: NEVER_SUBSCRIPTION_FRAGMENTS / CATEGORIES guards ───
+//
+// Each test verifies that the targeted transaction type is still DETECTED as a
+// recurring candidate (it's a real habit worth tracking) but that
+// isSubscriptionLike is forced to false (it cannot be cancelled like a SaaS
+// subscription).  Six monthly transactions are used so interval detection is
+// reliable and the confidence threshold is comfortably exceeded.
+
+/** Builds six monthly outflow transactions spaced ~30 days apart. */
+function sixMonthly(
+  merchant: string,
+  amount: string,
+  category: string,
+): ReturnType<typeof makeTxn>[] {
+  const months = [
+    "2025-06-15", "2025-07-15", "2025-08-15",
+    "2025-09-15", "2025-10-15", "2025-11-15",
+  ];
+  return months.map((date, i) =>
+    makeTxn({ id: i + 1, date, amount, merchant, category, flowType: "outflow" }),
+  );
+}
+
+describe("DEF-014: isSubscriptionLike=false for cash/banking merchants and categories", () => {
+  // ── NEVER_SUBSCRIPTION_FRAGMENTS ────────────────────────────────────────
+
+  it("ATM withdrawal ($300.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("ATM Withdrawal Chase Bank", "-300.00", "other"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("Zelle P2P payment ($200.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Zelle To John Doe", "-200.00", "other"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("Venmo cashout ($150.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Venmo Cashout", "-150.00", "other"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("ACH credit memo outflow ($500.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("ACH Credit Reversal Fee", "-500.00", "fees"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("Mobile deposit reversal ($100.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Mobile Deposit Return", "-100.00", "other"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("Interest payment ($25.99/month) is recurring but NOT subscription-like", () => {
+    // .99 suffix normally triggers isSaasPrice — fragment guard must win
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Interest Payment Chase Credit Card", "-25.99", "debt"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("Wire transfer out ($1000.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Wire Transfer Outbound", "-1000.00", "other"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  // ── NEVER_SUBSCRIPTION_CATEGORIES ───────────────────────────────────────
+
+  it("category='banking' ($75.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Monthly Account Fee", "-75.00", "banking"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("category='transfer' ($250.00/month) is recurring but NOT subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Savings Transfer", "-250.00", "transfer"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  it("category='income' outflow ($50.00/month) is NOT subscription-like (defensive guard)", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Tax Withholding Adjustment", "-50.00", "income"),
+    );
+    candidates.forEach((c) => expect(c.isSubscriptionLike).toBe(false));
+  });
+
+  // ── Control: legitimate subscriptions still detected correctly ───────────
+
+  it("Netflix ($15.99/month) is still marked subscription-like — guard does not over-block", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Netflix.com", "-15.99", "entertainment"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.some((c) => c.isSubscriptionLike)).toBe(true);
+  });
+
+  it("Spotify ($9.99/month, category software) is still subscription-like", () => {
+    const candidates = detectRecurringCandidates(
+      sixMonthly("Spotify Music", "-9.99", "software"),
+    );
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0]!.isSubscriptionLike).toBe(true);
   });
 });
