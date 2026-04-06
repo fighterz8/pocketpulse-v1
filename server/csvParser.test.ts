@@ -236,6 +236,30 @@ describe("parseCSV", () => {
     expect(rows[1]!.amount).toBe(3500.0);
   });
 
+  // ── Corpus-wide integration check ─────────────────────────────────────────
+  // Asserts that every file in the sample data/ folder parses with ok: true.
+  // Acts as a regression fence: any new bank format that silently breaks
+  // column detection will be caught here before reaching the five targeted tests.
+  it("all 30 sample CSV files parse successfully (corpus regression check)", async () => {
+    const { readdirSync } = await import("fs");
+    const { resolve: res } = await import("path");
+    const dir = "sample data";
+    const files = readdirSync(dir)
+      .filter((f) => f.endsWith(".csv"))
+      .sort();
+
+    expect(files.length).toBe(30);
+
+    for (const file of files) {
+      const buf = readFileSync(res(dir, file));
+      const result = await parseCSV(buf, file);
+      expect(result.ok, `${file} failed: ${!result.ok ? (result as { ok: false; error: string }).error : ""}`).toBe(true);
+      if (result.ok) {
+        expect(result.rows.length, `${file} has no rows`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   // ── DEF-009: Bank of America credit card ───────────────────────────────────
   // "Posted Date" was not in DATE_PATTERNS, causing column detection to fail.
   // "Payee" is the description column; amounts are positive for charges and
