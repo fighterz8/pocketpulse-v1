@@ -122,6 +122,34 @@ const SUBSCRIPTION_BRAND_FRAGMENTS = [
   "aws", "azure", "heroku", "vercel", "netlify", "twilio",
 ];
 
+/**
+ * Merchant key fragments that are NEVER subscription-like, regardless of amount
+ * or frequency. These represent cash/banking transactions that recur by nature
+ * but cannot be "cancelled" — they should always land in Habits, not Subscriptions.
+ *
+ * Checked against the lowercased candidateKey with includes() — any match forces
+ * isSubscriptionLike to false, short-circuiting all other signals.
+ *
+ * Outflow-only note: inflows (direct deposits, wire transfers in, ACH credits,
+ * mobile deposits) are already excluded from candidate detection at the grouping
+ * stage (flowType !== "outflow" filter), so they never reach this check.
+ */
+const NEVER_SUBSCRIPTION_FRAGMENTS = [
+  "atm",           // ATM withdrawals / ATM fees (round-dollar amounts trigger isSaasPrice)
+  "wire transfer", // outgoing wire transfers (not cancellable)
+  "zelle",         // Zelle P2P payments
+  "venmo",         // Venmo P2P payments / cashouts
+  "cash app",      // CashApp P2P transfers
+  "cashout",       // "ACH CREDIT VENMO CASHOUT" and similar P2P cashout descriptions
+];
+
+/**
+ * Transaction categories that are never subscription-like.
+ * "income" catches any edge case where an inflow is mis-categorised as outflow
+ * and slips through the flowType filter.
+ */
+const NEVER_SUBSCRIPTION_CATEGORIES = new Set(["income"]);
+
 /** Only look at transactions from the past 18 months */
 const LOOKBACK_DAYS = 548; // ~18 months
 
@@ -489,15 +517,35 @@ export function detectRecurringCandidates(txns: TransactionLike[]): RecurringCan
       //  2. The merchant key matches a known SaaS/streaming brand
       //  3. It's a fixed monthly/annual charge with a classic ".99" or ".00"
       //     price point (e.g. $9.99, $14.99, $99.00, $19.00)
+      //
+      // Two hard overrides force isSubscriptionLike to false first, regardless
+      // of all other signals:
+      //  A. NEVER_SUBSCRIPTION_FRAGMENTS — cash/banking merchant keywords (ATM,
+      //     Zelle, Venmo, wire transfers) that recur by nature but cannot be
+      //     cancelled like a subscription.  DEF-014: round-dollar ATM withdrawals
+      //     were triggering isSaasPrice and landing in Digital Subscriptions.
+      //  B. NEVER_SUBSCRIPTION_CATEGORIES — "income" catches mislabelled inflows
+      //     that slipped through the flowType filter.
+      const neverFragment = NEVER_SUBSCRIPTION_FRAGMENTS.some((frag) =>
+        candidateKey.includes(frag),
+      );
+      const neverCategory = NEVER_SUBSCRIPTION_CATEGORIES.has(category);
+
       const roundedAvg = Math.round(avgAmt * 100) / 100;
       const centsStr   = roundedAvg.toFixed(2).split(".")[1] ?? "";
       const isSaasPrice =
+        !neverFragment &&
+        !neverCategory &&
         (freq.frequency === "monthly" || freq.frequency === "annual" || freq.frequency === "quarterly") &&
         (centsStr === "99" || centsStr === "00" || centsStr === "49");
       const isSubscriptionLike =
-        SUBSCRIPTION_CATEGORIES.has(category) ||
-        SUBSCRIPTION_BRAND_FRAGMENTS.some((frag) => candidateKey.includes(frag)) ||
-        isSaasPrice;
+        !neverFragment &&
+        !neverCategory &&
+        (
+          SUBSCRIPTION_CATEGORIES.has(category) ||
+          SUBSCRIPTION_BRAND_FRAGMENTS.some((frag) => candidateKey.includes(frag)) ||
+          isSaasPrice
+        );
 
       candidates.push({
         candidateKey,

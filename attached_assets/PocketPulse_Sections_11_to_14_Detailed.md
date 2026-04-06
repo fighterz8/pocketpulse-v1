@@ -85,10 +85,14 @@ The following defects were discovered during systematic testing of the CSV inges
 | DEF-012 | Chase — checking + savings | High | Type column values `"ACH_DEBIT"` / `"ACH_CREDIT"` not recognized; `isDebit` check required exact match to `"debit"` / `"dr"` / `"deb"`; all Chase amounts became positive (phantom income) | Replaced inline `isDebit` boolean with `classifyTypeColumn()` which uses substring matching (`includes("debit")`, `includes("credit")`) so `"ACH_DEBIT"` and `"ACH_CREDIT"` are handled | `DEF-012: parses Chase checking CSV (ACH_DEBIT/ACH_CREDIT type column)` |
 | DEF-013 | Chase — credit card | High | Type column values `"Sale"` / `"Payment"` unrecognized; Priority 2 path called `Math.abs()` then re-signed wrong, converting all pre-signed negative expenses to positive income | `classifyTypeColumn()` recognizes `"sale"` as debit and `"payment"` as credit; unrecognized type values fall back to trusting the amount's existing sign (no `Math.abs()` applied) | `DEF-013: parses Chase credit card CSV (Sale/Payment type column)` |
 
-**Verification:** `npx vitest run server/csvParser.test.ts` — 21 tests pass (16 pre-existing + 5 new regression tests). All 30 sample CSV files parse with `ok: true` and correct amount signs.
+**Verification:** `npx vitest run server/csvParser.test.ts` — 22 tests pass (16 pre-existing + 1 corpus-wide regression + 5 defect-specific regression tests). All 30 sample CSV files parse with `ok: true` and correct amount signs.
+
+| Defect ID | Component | Severity | Root Cause | Resolution | Test Coverage |
+|---|---|---|---|---|---|
+| DEF-014 | `server/recurrenceDetector.ts` | Medium | `isSaasPrice` check fires on any round-dollar (`centsStr === "00"`) monthly recurring outflow — including ATM withdrawals (e.g. $300.00 monthly cash withdrawal), Zelle P2P payments, and outgoing wire transfers. These transactions appeared in the "Digital Subscriptions" section of the Leaks page despite being cash/banking transactions that cannot be cancelled. | Added `NEVER_SUBSCRIPTION_FRAGMENTS` constant (`["atm", "wire transfer", "zelle", "venmo", "cash app", "cashout"]`) checked via `includes()` against the lowercased `candidateKey`. Added `NEVER_SUBSCRIPTION_CATEGORIES` set (`["income"]`) as a secondary guard. Both checks are evaluated before `isSaasPrice` and all other subscription signals; any match short-circuits `isSubscriptionLike` to `false`. Transactions remain in recurring candidate detection — they appear as Habits if they meet the recurrence threshold, just not as Subscriptions. | Manual verification via recurrenceDetector logic review; guarded by TypeScript compile-time check. The Leaks page Subscriptions vs. Habits split (already implemented in `client/src/pages/Leaks.tsx`) correctly routes affected transactions to Habits. |
 
 ---
 
 *PocketPulse — CIS490B Capstone Project, National University*
 *Team: Pilar, Dominic, Nick, Edward*
-*Report Version: 3.1 | Covering Weeks 1–6*
+*Report Version: 3.2 | Covering Weeks 1–6*
