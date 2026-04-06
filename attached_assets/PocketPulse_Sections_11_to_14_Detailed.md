@@ -73,6 +73,22 @@ Several of the defects logged (D-01 through D-09) were discovered relatively lat
 
 ---
 
+# 13. DEFECT LOG — ADDENDUM (Week 6 QA Sprint)
+
+The following defects were discovered during systematic testing of the CSV ingestion pipeline against the 30-file `sample data/` corpus. All five were resolved in the same sprint and are covered by named regression tests in `server/csvParser.test.ts`.
+
+| Defect ID | Bank / File(s) | Severity | Root Cause | Resolution | Test Case |
+|---|---|---|---|---|---|
+| DEF-009 | Bank of America — `boa_credit_card.csv` | High | `"Posted Date"` header not in `DATE_PATTERNS`; column detection rejected the file entirely | Added `"posted date"` to `DATE_PATTERNS` in `csvParser.ts` | `DEF-009: parses Bank of America credit card CSV (Posted Date header)` |
+| DEF-010 | Wells Fargo — all 3 account types | High | No header row in WF exports; parser treated first data row as headers and failed detection | Added `tryPositionalFallback()`: detects headerless format when first cell is a date + second cell is a number; uses col 0 = date, col 1 = signed amount, last text col = description | `DEF-010: parses Wells Fargo headerless CSV (positional column fallback)` |
+| DEF-011 | PNC — all 3 account types | High | Column headers `"Withdrawals"` / `"Deposits"` (plural) did not match `"withdrawal"` / `"deposit"` (singular) in `DEBIT_PATTERNS` / `CREDIT_PATTERNS` | Added plural forms to both pattern lists | `DEF-011: parses PNC checking CSV (Withdrawals/Deposits plural headers)` |
+| DEF-012 | Chase — checking + savings | High | Type column values `"ACH_DEBIT"` / `"ACH_CREDIT"` not recognized; `isDebit` check required exact match to `"debit"` / `"dr"` / `"deb"`; all Chase amounts became positive (phantom income) | Replaced inline `isDebit` boolean with `classifyTypeColumn()` which uses substring matching (`includes("debit")`, `includes("credit")`) so `"ACH_DEBIT"` and `"ACH_CREDIT"` are handled | `DEF-012: parses Chase checking CSV (ACH_DEBIT/ACH_CREDIT type column)` |
+| DEF-013 | Chase — credit card | High | Type column values `"Sale"` / `"Payment"` unrecognized; Priority 2 path called `Math.abs()` then re-signed wrong, converting all pre-signed negative expenses to positive income | `classifyTypeColumn()` recognizes `"sale"` as debit and `"payment"` as credit; unrecognized type values fall back to trusting the amount's existing sign (no `Math.abs()` applied) | `DEF-013: parses Chase credit card CSV (Sale/Payment type column)` |
+
+**Verification:** `npx vitest run server/csvParser.test.ts` — 21 tests pass (16 pre-existing + 5 new regression tests). All 30 sample CSV files parse with `ok: true` and correct amount signs.
+
+---
+
 *PocketPulse — CIS490B Capstone Project, National University*
 *Team: Pilar, Dominic, Nick, Edward*
-*Report Version: 3.0 | Covering Weeks 1–5*
+*Report Version: 3.1 | Covering Weeks 1–6*
