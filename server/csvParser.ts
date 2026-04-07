@@ -217,7 +217,21 @@ export async function parseCSV(
     // Curly/typographic double quotes → straight ASCII "
     .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
     // Curly/typographic single quotes / apostrophes → straight ASCII '
-    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
+    // Fix unescaped double quotes inside quoted fields.
+    // BoA (and some other banks) embed a literal " inside a quoted description
+    // field without escaping it as "". csv-parse reads the inner " as a closing
+    // quote, sees the next non-delimiter character (e.g. "m" from "more"), and
+    // throws "Invalid Closing Quote". We detect any " that is:
+    //   • preceded by a character that is NOT a field/record delimiter or quote
+    //     (i.e. it appears mid-field, not as a field opener)
+    //   • NOT followed by optional whitespace then a field/record delimiter or
+    //     end-of-string (i.e. it is not a true closing quote)
+    // and double it to make a valid escaped quote ("").
+    // Valid opening/closing quotes and existing "" pairs are unaffected.
+    // The negative lookahead `(?![ \t]*[,\r\n]|[ \t]*$)` correctly preserves
+    // closing quotes even when trailed by whitespace before the next comma.
+    .replace(/(?<=[^,\r\n"])"(?![ \t]*[,\r\n]|[ \t]*$)/g, '""');
   if (!content) {
     return { ok: false, error: `File "${filename}" is empty` };
   }

@@ -504,4 +504,43 @@ describe("parseCSV", () => {
     expect(zelle2.description).toBe("Zelle payment Pedro, Christian a...");
     expect(zelle2.amount).toBe(-66.00);
   });
+
+  // ── DEF-016: BoA unescaped inner quotes inside quoted descriptions ─────────
+  // BoA's export tool sometimes embeds a raw " inside a quoted description
+  // field (e.g. `"AMAZON RETA* "ZP5RR1WD2" PURCHASE"`). csv-parse reads the
+  // inner " as the closing quote of the field, then sees the next character
+  // (e.g. "Z") and throws: "Invalid Closing Quote: got 'Z' at line N instead
+  // of delimiter". The relax_quotes option does not help here because that
+  // flag only loosens rules for unquoted fields, not quoted ones.
+  // Fix: a preprocessing regex doubles any " that is clearly mid-field
+  // (preceded by a non-delimiter character AND followed by a non-delimiter,
+  // non-whitespace, non-quote character) before handing content to csv-parse.
+  it("DEF-016: parses BoA CSV with unescaped inner quotes in description fields", async () => {
+    const csvStr =
+      "Date,Description,Amount,Running Bal.\n" +
+      // Standard row — control
+      '01/02/2026,"AMAZON.COM","-20.60","2,160.52"\n' +
+      // Row with unescaped inner " inside the quoted description
+      '01/05/2026,"AMAZON RETA* "ZP5RR1WD2" PURCHASE","-34.99","2,125.53"\n' +
+      // Second problematic row — inner " followed by lowercase letter
+      '01/10/2026,"PLANET FIT "MEMBERSHIP" JAN","-49.00","2,076.53"\n';
+    const buf = Buffer.from(csvStr, "utf-8");
+
+    const result = await parseCSV(buf, "boa_inner_quotes.csv");
+    expect(result.ok).toBe(true);
+    const { rows } = result as CSVParseResult & { ok: true };
+
+    expect(rows).toHaveLength(3);
+
+    // Control row
+    expect(rows[0]!.description).toBe("AMAZON.COM");
+    expect(rows[0]!.amount).toBe(-20.60);
+
+    // Inner-quote rows: the description is preserved (inner quotes kept, escaped)
+    expect(rows[1]!.description).toMatch(/AMAZON RETA\*/);
+    expect(rows[1]!.amount).toBe(-34.99);
+
+    expect(rows[2]!.description).toMatch(/PLANET FIT/);
+    expect(rows[2]!.amount).toBe(-49.00);
+  });
 });
