@@ -230,15 +230,20 @@ export async function parseCSV(
   // ── Column detection ────────────────────────────────────────────────────────
   // Strategy (in order):
   //   1. Header-based detection on row 0.
-  //   2. Preamble-row scan: if row 0 fails, try rows 1–4 as the header.
-  //      Some bank exports (e.g. BoA) begin with 1–2 account-summary lines
-  //      before the actual column headers.
+  //   2. Preamble-row scan: if row 0 fails, try rows 1–9 as the header.
+  //      BoA's default export includes a 5-row "Account Summary" block before
+  //      the real header (fake header + Beginning balance, Total credits, Total
+  //      debits, Ending balance rows, then a blank line). After skip_empty_lines
+  //      removes the blank, the real header lands at index 5 — so we scan up to
+  //      index 9 to handle any bank that prepends up to 9 preamble rows.
   //   3. Positional fallback for headerless formats (e.g. Wells Fargo).
   let mapping: ColumnMapping | null = null;
   let dataRows: string[][];
   let usedPositionalFallback = false;
 
-  const MAX_PREAMBLE_ROWS = 4; // scan up to the 5th row (index 0–4)
+  const MAX_PREAMBLE_ROWS = 9; // scan up to the 10th row (index 0–9)
+  // Track how many columns the header row had — used for overflow detection.
+  let headerColCount = 0;
 
   let headerRowIndex = -1;
   let firstDetectionError = "";
@@ -248,6 +253,7 @@ export async function parseCSV(
     if (typeof result !== "string") {
       headerRowIndex = i;
       mapping = result;
+      headerColCount = records[i]!.length;
       break;
     }
     if (i === 0) firstDetectionError = result; // keep original error for reporting
@@ -300,15 +306,45 @@ export async function parseCSV(
       continue;
     }
 
-    const description = row[mapping.descriptionIdx] ?? "";
+    // ── Column-overflow correction ──────────────────────────────────────────
+    // Some banks (e.g. BoA) do not quote description fields that contain
+    // commas. When csv-parse splits such rows it produces more cells than the
+    // header has columns. We detect this via row.length > headerColCount,
+    // reconstruct the full description by joining the extra cells, and shift
+    // all post-description column indices rightward to compensate.
+    const overflow =
+      !usedPositionalFallback && headerColCount > 0
+        ? Math.max(0, row.length - headerColCount)
+        : 0;
+
+    let description: string;
+    let adjAmountIdx  = mapping.amountIdx;
+    let adjDebitIdx   = mapping.debitIdx;
+    let adjCreditIdx  = mapping.creditIdx;
+    let adjTypeIdx    = mapping.typeIdx;
+
+    if (overflow > 0) {
+      // Join the base description cell + the extra cells caused by the overflow
+      const parts = row.slice(mapping.descriptionIdx, mapping.descriptionIdx + 1 + overflow);
+      description = parts.join(", ").trim();
+      // Shift every column index that sits after the description column
+      const shift = (idx: number | null): number | null =>
+        idx !== null && idx > mapping!.descriptionIdx ? idx + overflow : idx;
+      adjAmountIdx = shift(mapping.amountIdx);
+      adjDebitIdx  = shift(mapping.debitIdx);
+      adjCreditIdx = shift(mapping.creditIdx);
+      adjTypeIdx   = shift(mapping.typeIdx);
+    } else {
+      description = row[mapping.descriptionIdx] ?? "";
+    }
 
     let amount: number;
     let ambiguous = false;
 
     if (mapping.debitIdx !== null || mapping.creditIdx !== null) {
       // Priority 1: Explicit debit/credit columns — direction is unambiguous
-      const rawDebit  = mapping.debitIdx  !== null ? row[mapping.debitIdx]  ?? "" : "";
-      const rawCredit = mapping.creditIdx !== null ? row[mapping.creditIdx] ?? "" : "";
+      const rawDebit  = adjDebitIdx  !== null ? row[adjDebitIdx]  ?? "" : "";
+      const rawCredit = adjCreditIdx !== null ? row[adjCreditIdx] ?? "" : "";
       const debitVal  = rawDebit  ? normalizeAmount(rawDebit)  : 0;
       const creditVal = rawCredit ? normalizeAmount(rawCredit) : 0;
       amount = deriveSignedAmount({
@@ -319,8 +355,8 @@ export async function parseCSV(
       // Priority 2: Amount + Type column — direction from type value when known.
       // Falls back to the amount's own sign for unrecognized type values (e.g.
       // banks that export pre-signed amounts alongside an informational type column).
-      const rawAmount = row[mapping.amountIdx] ?? "";
-      const rawType   = row[mapping.typeIdx] ?? "";
+      const rawAmount = adjAmountIdx !== null ? row[adjAmountIdx] ?? "" : "";
+      const rawType   = adjTypeIdx   !== null ? row[adjTypeIdx]   ?? "" : "";
       const parsed    = normalizeAmount(rawAmount);
       const direction = classifyTypeColumn(rawType);
 
@@ -337,7 +373,7 @@ export async function parseCSV(
       // Priority 3: Amount column only — negative sign is reliable, but a
       // positive value in a single-column format is ambiguous: some banks
       // show all amounts as positive and rely on the description for direction.
-      const rawAmount = row[mapping.amountIdx] ?? "";
+      const rawAmount = adjAmountIdx !== null ? row[adjAmountIdx] ?? "" : "";
       amount = normalizeAmount(rawAmount);
       ambiguous = amount >= 0;
     } else {

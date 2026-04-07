@@ -409,7 +409,7 @@ describe("parseCSV", () => {
   // Some BoA export variants begin with 1–2 account-summary lines before the
   // actual column headers. Without preamble-row scanning, the parser treats the
   // first line as the header, fails column detection, and returns an error.
-  // The fix scans up to 5 rows looking for a valid header.
+  // The fix scans up to 10 rows looking for a valid header.
   it("parses a CSV with 1 preamble row before the column header (BoA real-world export)", async () => {
     const csvStr =
       // Preamble row — account summary, not a header
@@ -430,5 +430,78 @@ describe("parseCSV", () => {
     if (result.ok) {
       expect(result.warnings.some((w) => w.includes("preamble"))).toBe(true);
     }
+  });
+
+  // ── DEF-014: BoA 5-row account summary block ───────────────────────────────
+  // BoA's default CSV export prepends an "Account Summary" section: a fake
+  // header row ("Description,Summary Amt.") plus 4 balance rows, followed by
+  // a blank line, then the real transaction header. After skip_empty_lines
+  // removes the blank row the real header sits at index 5. The prior scanner
+  // limit of 4 meant it was never reached, causing a structural parse error.
+  // Fix: MAX_PREAMBLE_ROWS bumped from 4 to 9.
+  it("DEF-014: parses BoA CSV with full 5-row account summary block (default export)", async () => {
+    const csvStr =
+      // Row 0: fake summary header (has "Description" but no date col — fails detection)
+      "Description,Summary Amt.\n" +
+      // Rows 1–4: balance summary rows
+      "Beginning balance as of 01/01/2025,2181.12\n" +
+      "Total credits,75160.78\n" +
+      "Total debits,77720.69\n" +
+      "Ending balance as of 04/30/2025,2621.21\n" +
+      // Row 5 (blank): removed by skip_empty_lines, so real header lands at index 5
+      "\n" +
+      // Real transaction header (index 5 after blank removal)
+      "Date,Description,Amount,Running Bal.\n" +
+      "1/2/2025,AMAZON RETAIL,-20.60,2160.52\n" +
+      "1/6/2025,AMAZON MARKETPLACE,-26.68,2084.84\n";
+    const buf = Buffer.from(csvStr, "utf-8");
+
+    const result = await parseCSV(buf, "boa_summary.csv");
+    expect(result.ok).toBe(true);
+    const { rows, warnings } = result as CSVParseResult & { ok: true };
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.date).toBe("2025-01-02");
+    expect(rows[0]!.description).toBe("AMAZON RETAIL");
+    expect(rows[0]!.amount).toBe(-20.60);
+    expect(rows[1]!.amount).toBe(-26.68);
+    // 5 preamble rows were skipped
+    expect(warnings.some((w) => w.includes("preamble"))).toBe(true);
+  });
+
+  // ── DEF-015: BoA Zelle rows with unquoted commas in description ────────────
+  // BoA checking CSVs use 4 columns (Date, Description, Amount, Running Bal.).
+  // Zelle payment descriptions often contain commas (e.g. "Zelle payment hand
+  // soap, body wash." or "Zelle payment Pedro, Christian a...").  Because BoA
+  // does not quote these fields in the exported CSV, csv-parse splits the row
+  // into 5+ cells. The prior code read the second extra cell as the amount,
+  // got NaN, and silently dropped the row.
+  // Fix: column-overflow detection joins extra cells back into the description
+  // and shifts the amount index rightward by the overflow count.
+  it("DEF-015: parses BoA Zelle row with comma in description (column overflow)", async () => {
+    // Description "Zelle payment hand soap, body wash." is NOT quoted — BoA
+    // exports it as a raw comma, causing a 5-cell row in a 4-column CSV.
+    const csvStr =
+      "Date,Description,Amount,Running Bal.\n" +
+      "5/27/2025,DIRECT DEP EMPLOYER PAYROLL,3393.04,8418.00\n" +
+      // Zelle row: unquoted comma splits into 5 cells
+      "5/27/2025,Zelle payment hand soap, body wash.,170.00,8588.97\n" +
+      "2/4/2026,Zelle payment Pedro, Christian a...,-66.00,3504.96\n";
+    const buf = Buffer.from(csvStr, "utf-8");
+
+    const result = await parseCSV(buf, "boa_zelle.csv");
+    expect(result.ok).toBe(true);
+    const { rows, warnings } = result as CSVParseResult & { ok: true };
+    // All 3 rows should parse — no rows dropped
+    expect(rows).toHaveLength(3);
+    expect(warnings.filter((w) => /skipped/i.test(w))).toHaveLength(0);
+
+    // Zelle payment description should be fully reassembled
+    const zelle1 = rows[1]!;
+    expect(zelle1.description).toBe("Zelle payment hand soap, body wash.");
+    expect(zelle1.amount).toBe(170.00);
+
+    const zelle2 = rows[2]!;
+    expect(zelle2.description).toBe("Zelle payment Pedro, Christian a...");
+    expect(zelle2.amount).toBe(-66.00);
   });
 });
