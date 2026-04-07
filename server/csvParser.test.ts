@@ -518,29 +518,37 @@ describe("parseCSV", () => {
   it("DEF-016: parses BoA CSV with unescaped inner quotes in description fields", async () => {
     const csvStr =
       "Date,Description,Amount,Running Bal.\n" +
-      // Standard row — control
+      // Standard row — control (no inner quotes)
       '01/02/2026,"AMAZON.COM","-20.60","2,160.52"\n' +
-      // Row with unescaped inner " inside the quoted description
+      // Inner " followed immediately by a letter — the exact real-world pattern
+      // ("got 'm' at line N instead of delimiter")
       '01/05/2026,"AMAZON RETA* "ZP5RR1WD2" PURCHASE","-34.99","2,125.53"\n' +
-      // Second problematic row — inner " followed by lowercase letter
-      '01/10/2026,"PLANET FIT "MEMBERSHIP" JAN","-49.00","2,076.53"\n';
+      // Inner " followed by a space then more content — also must be doubled
+      '01/10/2026,"PLANET FIT "MEMBERSHIP" JAN","-49.00","2,076.53"\n' +
+      // Row with a legitimately escaped "" pair — must NOT be altered
+      '01/15/2026,"VALUE ""QUOTED"" FIELD","-10.00","2,066.53"\n';
     const buf = Buffer.from(csvStr, "utf-8");
 
     const result = await parseCSV(buf, "boa_inner_quotes.csv");
     expect(result.ok).toBe(true);
     const { rows } = result as CSVParseResult & { ok: true };
 
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
 
-    // Control row
+    // Control row — untouched
     expect(rows[0]!.description).toBe("AMAZON.COM");
     expect(rows[0]!.amount).toBe(-20.60);
 
-    // Inner-quote rows: the description is preserved (inner quotes kept, escaped)
-    expect(rows[1]!.description).toMatch(/AMAZON RETA\*/);
+    // Inner quotes are escaped during preprocessing; csv-parse restores them as
+    // literal " in the description string
+    expect(rows[1]!.description).toBe('AMAZON RETA* "ZP5RR1WD2" PURCHASE');
     expect(rows[1]!.amount).toBe(-34.99);
 
-    expect(rows[2]!.description).toMatch(/PLANET FIT/);
+    expect(rows[2]!.description).toBe('PLANET FIT "MEMBERSHIP" JAN');
     expect(rows[2]!.amount).toBe(-49.00);
+
+    // Legitimately escaped "" pairs must survive preprocessing unchanged
+    expect(rows[3]!.description).toBe('VALUE "QUOTED" FIELD');
+    expect(rows[3]!.amount).toBe(-10.00);
   });
 });

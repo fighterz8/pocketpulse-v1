@@ -229,9 +229,12 @@ export async function parseCSV(
     //     end-of-string (i.e. it is not a true closing quote)
     // and double it to make a valid escaped quote ("").
     // Valid opening/closing quotes and existing "" pairs are unaffected.
-    // The negative lookahead `(?![ \t]*[,\r\n]|[ \t]*$)` correctly preserves
-    // closing quotes even when trailed by whitespace before the next comma.
-    .replace(/(?<=[^,\r\n"])"(?![ \t]*[,\r\n]|[ \t]*$)/g, '""');
+    // The negative lookahead `(?!"|[ \t]*[,\r\n]|[ \t]*$)` ensures that:
+    //   - already-escaped pairs ("") are never altered (the `"` branch)
+    //   - true closing quotes are preserved, even when trailed by whitespace
+    //     before the next comma (the `[ \t]*[,\r\n]` branch)
+    //   - the last field in a line is preserved (the `[ \t]*$` branch)
+    .replace(/(?<=[^,\r\n"])"(?!"|[ \t]*[,\r\n]|[ \t]*$)/g, '""');
   if (!content) {
     return { ok: false, error: `File "${filename}" is empty` };
   }
