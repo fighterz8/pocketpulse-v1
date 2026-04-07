@@ -202,7 +202,22 @@ export async function parseCSV(
   // Strip UTF-8 BOM (\uFEFF) if present. Some bank export tools (including
   // Bank of America) prepend a BOM that makes the first header cell read as
   // "\uFEFFDate" instead of "Date", breaking column detection.
-  const content = buffer.toString("utf-8").trimStart().replace(/^\uFEFF/, "").trim();
+  const raw = buffer.toString("utf-8").trimStart().replace(/^\uFEFF/, "").trim();
+
+  // ── Content normalisation ──────────────────────────────────────────────────
+  // csv-parse throws "Invalid Closing Quote: found non trimable byte after
+  // quote" when a quoted field is followed by a non-ASCII whitespace character
+  // (e.g. U+00A0 non-breaking space) because the library only trims ASCII
+  // space and tab. This is commonly produced by BoA's export tool.
+  // We also normalise curly/typographic quote marks to straight ASCII quotes
+  // so they don't confuse the CSV tokeniser.
+  const content = raw
+    // Non-breaking and other Unicode whitespace → regular space
+    .replace(/[\u00A0\u2009\u200A\u202F\u205F\u3000]/g, " ")
+    // Curly/typographic double quotes → straight ASCII "
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+    // Curly/typographic single quotes / apostrophes → straight ASCII '
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
   if (!content) {
     return { ok: false, error: `File "${filename}" is empty` };
   }
