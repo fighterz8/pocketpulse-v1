@@ -443,7 +443,9 @@ export async function updateTransaction(
  * Skips the source transaction itself. Sets labelSource to "propagated" so
  * reclassify and syncRecurringCandidates never overwrite these rows.
  *
- * Returns { count, matchType } where matchType is "fuzzy", "exact", or "none".
+ * Returns { count, matchType } where matchType is "fuzzy" (normalized-key
+ * match), "exact" (case-insensitive string fallback with ≥1 match), or "none"
+ * (no propagatable fields, no source merchant, or 0 matching rows).
  */
 export type PropagateResult = {
   count: number;
@@ -495,8 +497,18 @@ export async function propagateUserCorrection(
     .map((c) => c.id);
 
   if (fuzzyIds.length > 0) {
-    await db.update(transactions).set(setValues).where(inArray(transactions.id, fuzzyIds));
-    return { count: fuzzyIds.length, matchType: "fuzzy" };
+    const fuzzyUpdated = await db
+      .update(transactions)
+      .set(setValues)
+      .where(
+        and(
+          inArray(transactions.id, fuzzyIds),
+          eq(transactions.userId, userId),
+          eq(transactions.userCorrected, false),
+        ),
+      )
+      .returning({ id: transactions.id });
+    return { count: fuzzyUpdated.length, matchType: "fuzzy" };
   }
 
   // --- Exact fallback: case-insensitive string match ---
