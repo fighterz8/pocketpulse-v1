@@ -436,10 +436,9 @@ export async function updateTransaction(
  * Matching strategy:
  *   1. Fuzzy (primary): normalize both the source merchant and every candidate
  *      via recurrenceKey(). Match on normalized key so "OpenAI 123" and
- *      "OpenAI 1234" both propagate together. Only used when the key is >= 2
- *      chars to avoid over-matching degenerate merchants.
- *   2. Exact (fallback): case-insensitive string equality, used when fuzzy
- *      finds zero candidates (e.g., key too short or no matching rows).
+ *      "OpenAI 1234" both propagate together.
+ *   2. Exact (fallback): case-insensitive string equality, used only when
+ *      fuzzy finds zero candidates.
  *
  * Skips the source transaction itself. Sets labelSource to "propagated" so
  * reclassify and syncRecurringCandidates never overwrite these rows.
@@ -477,28 +476,27 @@ export async function propagateUserCorrection(
   if (recurrenceType !== undefined) setValues.recurrenceType = recurrenceType;
 
   // --- Fuzzy path: JS-side normalization via recurrenceKey() ---
-  // Only attempt if the normalized key is meaningful (>= 2 chars) to avoid
-  // over-matching merchants that normalize to empty/single-char strings.
-  if (sourceKey.length >= 2) {
-    const candidates = await db
-      .select({ id: transactions.id, merchant: transactions.merchant })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, userId),
-          eq(transactions.userCorrected, false),
-          ne(transactions.id, sourceTxnId),
-        ),
-      );
+  // Fetch all non-corrected, non-source transactions for the user and filter
+  // in JS so that merchants normalizing to the same key are matched together
+  // (e.g. "OpenAI 123" and "OpenAI 1234" both produce key "openai").
+  const candidates = await db
+    .select({ id: transactions.id, merchant: transactions.merchant })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.userCorrected, false),
+        ne(transactions.id, sourceTxnId),
+      ),
+    );
 
-    const fuzzyIds = candidates
-      .filter((c) => c.merchant && recurrenceKey(c.merchant) === sourceKey)
-      .map((c) => c.id);
+  const fuzzyIds = candidates
+    .filter((c) => c.merchant && recurrenceKey(c.merchant) === sourceKey)
+    .map((c) => c.id);
 
-    if (fuzzyIds.length > 0) {
-      await db.update(transactions).set(setValues).where(inArray(transactions.id, fuzzyIds));
-      return { count: fuzzyIds.length, matchType: "fuzzy" };
-    }
+  if (fuzzyIds.length > 0) {
+    await db.update(transactions).set(setValues).where(inArray(transactions.id, fuzzyIds));
+    return { count: fuzzyIds.length, matchType: "fuzzy" };
   }
 
   // --- Exact fallback: case-insensitive string match ---
