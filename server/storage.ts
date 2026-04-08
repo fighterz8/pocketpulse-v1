@@ -13,6 +13,7 @@ import {
 
 import { normalizeEmail } from "./auth.js";
 import { db } from "./db.js";
+import { recurrenceKey } from "./recurrenceDetector.js";
 import { toPublicUser, type PublicUser } from "./public-user.js";
 
 export type { PublicUser } from "./public-user.js";
@@ -430,24 +431,34 @@ export async function updateTransaction(
 
 /**
  * Propagates a manual correction (category, transactionClass, recurrenceType)
- * to all non-user-corrected transactions from the same merchant
- * (case-insensitive name match).
+ * to all non-user-corrected transactions from the same merchant.
  *
- * Skips the source transaction itself (already updated by updateTransaction).
- * Sets labelSource to "propagated" so reclassify and syncRecurringCandidates
- * both preserve these rows — they reflect the user's explicit intent even
- * though userCorrected is false.
+ * Matching strategy:
+ *   1. Fuzzy (primary): normalize both the source merchant and every candidate
+ *      via recurrenceKey(). Match on normalized key so "OpenAI 123" and
+ *      "OpenAI 1234" both propagate together. Only used when the key is >= 2
+ *      chars to avoid over-matching degenerate merchants.
+ *   2. Exact (fallback): case-insensitive string equality, used when fuzzy
+ *      finds zero candidates (e.g., key too short or no matching rows).
  *
- * Returns the number of rows updated.
+ * Skips the source transaction itself. Sets labelSource to "propagated" so
+ * reclassify and syncRecurringCandidates never overwrite these rows.
+ *
+ * Returns { count, matchType } where matchType is "fuzzy", "exact", or "none".
  */
+export type PropagateResult = {
+  count: number;
+  matchType: "fuzzy" | "exact" | "none";
+};
+
 export async function propagateUserCorrection(
   userId: number,
   sourceTxnId: number,
   category?: string,
   transactionClass?: string,
   recurrenceType?: string,
-): Promise<number> {
-  if (!category && !transactionClass && !recurrenceType) return 0;
+): Promise<PropagateResult> {
+  if (!category && !transactionClass && !recurrenceType) return { count: 0, matchType: "none" };
 
   const [source] = await db
     .select({ merchant: transactions.merchant })
@@ -455,15 +466,43 @@ export async function propagateUserCorrection(
     .where(and(eq(transactions.id, sourceTxnId), eq(transactions.userId, userId)))
     .limit(1);
 
-  if (!source?.merchant?.trim()) return 0;
+  if (!source?.merchant?.trim()) return { count: 0, matchType: "none" };
 
-  const merchantLower = source.merchant.trim().toLowerCase();
+  const sourceMerchant = source.merchant.trim();
+  const sourceKey = recurrenceKey(sourceMerchant);
 
   const setValues: Record<string, unknown> = { labelSource: "propagated" };
   if (category !== undefined) setValues.category = category;
   if (transactionClass !== undefined) setValues.transactionClass = transactionClass;
   if (recurrenceType !== undefined) setValues.recurrenceType = recurrenceType;
 
+  // --- Fuzzy path: JS-side normalization via recurrenceKey() ---
+  // Only attempt if the normalized key is meaningful (>= 2 chars) to avoid
+  // over-matching merchants that normalize to empty/single-char strings.
+  if (sourceKey.length >= 2) {
+    const candidates = await db
+      .select({ id: transactions.id, merchant: transactions.merchant })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, userId),
+          eq(transactions.userCorrected, false),
+          ne(transactions.id, sourceTxnId),
+        ),
+      );
+
+    const fuzzyIds = candidates
+      .filter((c) => c.merchant && recurrenceKey(c.merchant) === sourceKey)
+      .map((c) => c.id);
+
+    if (fuzzyIds.length > 0) {
+      await db.update(transactions).set(setValues).where(inArray(transactions.id, fuzzyIds));
+      return { count: fuzzyIds.length, matchType: "fuzzy" };
+    }
+  }
+
+  // --- Exact fallback: case-insensitive string match ---
+  const merchantLower = sourceMerchant.toLowerCase();
   const updated = await db
     .update(transactions)
     .set(setValues)
@@ -477,7 +516,7 @@ export async function propagateUserCorrection(
     )
     .returning({ id: transactions.id });
 
-  return updated.length;
+  return { count: updated.length, matchType: updated.length > 0 ? "exact" : "none" };
 }
 
 export type UserCorrectionExample = {

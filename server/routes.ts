@@ -878,21 +878,24 @@ export function createApp(options?: CreateAppOptions) {
       // uncorrected rows. User edits are law — propagated rows get labelSource=
       // "propagated" so neither reclassify nor sync ever overwrites them.
       let propagated = 0;
+      let propagateMatchType: "fuzzy" | "exact" | "none" = "none";
       if (
         fields.category !== undefined ||
         fields.transactionClass !== undefined ||
         fields.recurrenceType !== undefined
       ) {
-        propagated = await propagateUserCorrection(
+        const propagateResult = await propagateUserCorrection(
           userId,
           id,
           fields.category,
           fields.transactionClass,
           fields.recurrenceType,
         );
+        propagated = propagateResult.count;
+        propagateMatchType = propagateResult.matchType;
       }
 
-      res.json({ transaction: updated, propagated });
+      res.json({ transaction: updated, propagated, propagateMatchType });
     } catch (e) {
       next(e);
     }
