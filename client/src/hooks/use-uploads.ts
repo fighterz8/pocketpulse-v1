@@ -24,6 +24,7 @@ export type UploadFileResult = {
   uploadId: number | null;
   status: string;
   rowCount: number;
+  duplicateCount?: number;
   error?: string;
   warnings?: string[];
 };

@@ -257,12 +257,64 @@ export type CreateTransactionInput = {
   aiAssisted?: boolean;
 };
 
+export type CreateBatchResult = {
+  insertedCount: number;
+  duplicateCount: number;
+};
+
+/**
+ * Insert a batch of transactions, skipping any that are already in the DB
+ * for the same account (dedup key: userId + accountId + date + amount + rawDescription).
+ *
+ * Dedup check is a single bulk SELECT restricted to the date range of the
+ * incoming batch, so it stays efficient even for large accounts.
+ */
 export async function createTransactionBatch(
   txns: CreateTransactionInput[],
-): Promise<number> {
-  if (txns.length === 0) return 0;
+): Promise<CreateBatchResult> {
+  if (txns.length === 0) return { insertedCount: 0, duplicateCount: 0 };
 
-  const values = txns.map((t) => ({
+  // All rows in a batch share the same userId and accountId (one file → one account).
+  const { userId, accountId } = txns[0]!;
+
+  // Build a normalized fingerprint: date|amount(2dp)|rawDescription(lower-trimmed)
+  const fingerprint = (date: string, amount: string | number, rawDesc: string) =>
+    `${date}|${parseFloat(String(amount)).toFixed(2)}|${rawDesc.trim().toLowerCase()}`;
+
+  // Determine the date range of incoming rows so the lookup is bounded.
+  const dates = txns.map((t) => t.date).sort();
+  const minDate = dates[0]!;
+  const maxDate = dates[dates.length - 1]!;
+
+  // Fetch existing rows for this account in the same date window.
+  const existing = await db
+    .select({
+      date: transactions.date,
+      amount: transactions.amount,
+      rawDescription: transactions.rawDescription,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.accountId, accountId),
+        gte(transactions.date, minDate),
+        lte(transactions.date, maxDate),
+      ),
+    );
+
+  const existingKeys = new Set(
+    existing.map((r) => fingerprint(r.date, r.amount, r.rawDescription)),
+  );
+
+  const newRows = txns.filter(
+    (t) => !existingKeys.has(fingerprint(t.date, t.amount, t.rawDescription)),
+  );
+  const duplicateCount = txns.length - newRows.length;
+
+  if (newRows.length === 0) return { insertedCount: 0, duplicateCount };
+
+  const values = newRows.map((t) => ({
     userId: t.userId,
     uploadId: t.uploadId,
     accountId: t.accountId,
@@ -281,7 +333,7 @@ export async function createTransactionBatch(
   }));
 
   const result = await db.insert(transactions).values(values).returning({ id: transactions.id });
-  return result.length;
+  return { insertedCount: result.length, duplicateCount };
 }
 
 export type ListTransactionsOptions = {

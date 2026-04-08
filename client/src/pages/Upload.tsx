@@ -130,6 +130,9 @@ export function Upload() {
   const totalRows = hasResults
     ? results!.reduce((sum, r) => sum + r.rowCount, 0)
     : 0;
+  const totalDuplicates = hasResults
+    ? results!.reduce((sum, r) => sum + (r.duplicateCount ?? 0), 0)
+    : 0;
 
   return (
     <>
@@ -153,9 +156,17 @@ export function Upload() {
         >
           {allSuccess ? (
             <div className="upload-results-success">
-              <p className="upload-results-headline">
+              <p
+                className="upload-results-headline"
+                data-testid="text-import-headline"
+              >
                 Import complete &mdash; {totalRows} transaction
                 {totalRows !== 1 ? "s" : ""} added
+                {totalDuplicates > 0 && (
+                  <span className="upload-results-skipped">
+                    &nbsp;&middot;&nbsp;{totalDuplicates} already existed
+                  </span>
+                )}
               </p>
               <a href="/transactions" className="upload-results-link">
                 Review in Ledger &rarr;
@@ -175,8 +186,16 @@ export function Upload() {
               >
                 <span className="upload-result-filename">{r.filename}</span>
                 {r.status === "complete" ? (
-                  <span className="upload-result-count">
-                    {r.rowCount} row{r.rowCount !== 1 ? "s" : ""}
+                  <span
+                    className="upload-result-count"
+                    data-testid={`text-result-count-${i}`}
+                  >
+                    {r.rowCount} new
+                    {(r.duplicateCount ?? 0) > 0 && (
+                      <span className="upload-result-skipped">
+                        &nbsp;&middot;&nbsp;{r.duplicateCount} already existed
+                      </span>
+                    )}
                   </span>
                 ) : (
                   <span className="upload-result-error">{r.error}</span>

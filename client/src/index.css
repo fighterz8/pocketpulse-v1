@@ -918,6 +918,18 @@ body {
   opacity: 0.7;
 }
 
+.upload-result-skipped,
+.upload-results-skipped {
+  font-size: 0.85em;
+  opacity: 0.75;
+  color: #64748b;
+}
+
+html.dark .upload-result-skipped,
+html.dark .upload-results-skipped {
+  color: #94a3b8;
+}
+
 .upload-result-error {
   font-size: 0.88rem;
   color: #b91c1c;
