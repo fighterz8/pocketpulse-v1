@@ -2,10 +2,12 @@ import { classifyTransaction } from "./classifier.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
 import {
   bulkUpdateTransactions,
+  getMerchantRules,
   getUserCorrectionExamples,
   listAllTransactionsForExport,
   type BulkTransactionUpdate,
 } from "./storage.js";
+import { recurrenceKey } from "./recurrenceDetector.js";
 
 export type ReclassifyResult = {
   total: number;
@@ -30,6 +32,7 @@ type IntermediateRow = {
   labelConfidence: number;
   labelReason: string;
   needsAi: boolean;
+  userRule: boolean;
 };
 
 export async function reclassifyTransactions(
@@ -91,10 +94,35 @@ export async function reclassifyTransactions(
           classification.aiAssisted ||
           classification.labelConfidence < AI_CONFIDENCE_THRESHOLD ||
           classification.category === "other",
+        userRule: false,
       });
     } catch {
       result.unchanged++;
     }
+  }
+
+  // Phase 1.5: apply user-specific merchant rules before AI enrichment.
+  // Rows matched here are marked userRule=true and needsAi=false so they
+  // are excluded from the AI candidate pool below.
+  try {
+    const userRules = await getMerchantRules(userId);
+    if (userRules.size > 0) {
+      for (const row of intermediate) {
+        const key = recurrenceKey(row.merchant);
+        const rule = key ? userRules.get(key) : undefined;
+        if (rule) {
+          if (rule.category) row.category = rule.category;
+          if (rule.transactionClass) row.transactionClass = rule.transactionClass;
+          if (rule.recurrenceType) row.recurrenceType = rule.recurrenceType;
+          row.labelConfidence = 1.0;
+          row.labelReason = `user rule: ${key}`;
+          row.needsAi = false;
+          row.userRule = true;
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — reclassify continues without user rules if load fails
   }
 
   // Phase 2: AI fallback for low-confidence rows
@@ -159,7 +187,7 @@ export async function reclassifyTransactions(
     }
 
     // Compute the final label source based on whether AI applied.
-    const finalLabelSource = aiAssisted ? "ai" : "rule";
+    const finalLabelSource = aiAssisted ? "ai" : row.userRule ? "user-rule" : "rule";
 
     // Treat AI-applied metadata changes as "changed" even when category/class
     // stayed the same, so that aiAssisted=true / labelSource=ai / updated

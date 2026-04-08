@@ -21,6 +21,7 @@ import {
   deleteAllTransactionsForUser,
   deleteWorkspaceDataForUser,
   DuplicateEmailError,
+  getMerchantRules,
   getTransactionById,
   getUserByEmailForAuth,
   getUserById,
@@ -32,13 +33,14 @@ import {
   propagateUserCorrection,
   updateTransaction,
   updateUploadStatus,
+  upsertMerchantRule,
   upsertRecurringReview,
   type UpdateTransactionInput,
 } from "./storage.js";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
-import { detectRecurringCandidates } from "./recurrenceDetector.js";
+import { detectRecurringCandidates, recurrenceKey } from "./recurrenceDetector.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
 import { transactions as txnTable } from "../shared/schema.js";
@@ -615,6 +617,26 @@ export function createApp(options?: CreateAppOptions) {
             };
           });
 
+          // Phase 1.5: apply user-specific merchant rules before AI enrichment.
+          // Rows matched here get labelSource="user-rule" and confidence=1.0
+          // so they are excluded from the AI candidate pool below.
+          const userRules = await getMerchantRules(userId);
+          if (userRules.size > 0) {
+            for (const t of txnInputs) {
+              const key = recurrenceKey(t.merchant);
+              const rule = key ? userRules.get(key) : undefined;
+              if (rule) {
+                if (rule.category) t.category = rule.category;
+                if (rule.transactionClass) t.transactionClass = rule.transactionClass;
+                if (rule.recurrenceType) t.recurrenceType = rule.recurrenceType;
+                t.labelSource = "user-rule";
+                t.labelConfidence = "1.00";
+                t.labelReason = `user rule: ${key}`;
+                t.aiAssisted = false;
+              }
+            }
+          }
+
           // Phase 2: AI fallback for low-confidence rows — runs inline before
           // insert, but races against a 6-second timeout so the upload cannot
           // be blocked by a slow or unavailable OpenAI response.
@@ -624,7 +646,7 @@ export function createApp(options?: CreateAppOptions) {
           for (let i = 0; i < txnInputs.length; i++) {
             const t = txnInputs[i]!;
             const conf = parseFloat(t.labelConfidence);
-            if (conf < AI_THRESHOLD || t.category === "other") {
+            if ((conf < AI_THRESHOLD || t.category === "other") && t.labelSource !== "user-rule") {
               const aiIdx = aiCandidates.length;
               txnIndexToAiIdx.set(i, aiIdx);
               aiCandidates.push({
@@ -873,6 +895,31 @@ export function createApp(options?: CreateAppOptions) {
       }
 
       const updated = await updateTransaction(id, userId, fields);
+
+      // Persist a user-rule for this merchant so future uploads apply the
+      // correction automatically. Only written when classification fields are
+      // changing (same condition as propagation). Non-fatal if it fails.
+      if (
+        updated &&
+        (fields.category !== undefined ||
+          fields.transactionClass !== undefined ||
+          fields.recurrenceType !== undefined)
+      ) {
+        const merchantKey = recurrenceKey(updated.merchant ?? "");
+        if (merchantKey) {
+          try {
+            await upsertMerchantRule(
+              userId,
+              merchantKey,
+              updated.category,
+              updated.transactionClass,
+              updated.recurrenceType,
+            );
+          } catch {
+            // Non-fatal — rule persistence is best-effort
+          }
+        }
+      }
 
       // Propagate category, class, and recurrence corrections to all same-merchant
       // uncorrected rows. User edits are law — propagated rows get labelSource=

@@ -3,6 +3,7 @@ import { DatabaseError } from "pg";
 
 import {
   accounts,
+  merchantRules,
   recurringReviews,
   transactions,
   uploads,
@@ -734,4 +735,74 @@ export async function listRecurringReviewsForUser(userId: number) {
     .from(recurringReviews)
     .where(eq(recurringReviews.userId, userId))
     .orderBy(desc(recurringReviews.reviewedAt));
+}
+
+// ---------------------------------------------------------------------------
+// Merchant rules
+// ---------------------------------------------------------------------------
+
+export type MerchantRule = {
+  category: string | null;
+  transactionClass: string | null;
+  recurrenceType: string | null;
+};
+
+/**
+ * Upsert a user-specific merchant rule. Called automatically on every manual
+ * transaction correction. Stores the full classification state at the time of
+ * the edit so future uploads for the same normalized merchant key use the
+ * user's preferred values instead of re-running AI.
+ */
+export async function upsertMerchantRule(
+  userId: number,
+  merchantKey: string,
+  category: string,
+  transactionClass: string,
+  recurrenceType: string,
+): Promise<void> {
+  await db
+    .insert(merchantRules)
+    .values({
+      userId,
+      merchantKey,
+      category,
+      transactionClass,
+      recurrenceType,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [merchantRules.userId, merchantRules.merchantKey],
+      set: {
+        category,
+        transactionClass,
+        recurrenceType,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+/**
+ * Load all merchant rules for a user into a Map keyed by merchantKey.
+ * Returns an empty Map when the user has no saved rules.
+ */
+export async function getMerchantRules(userId: number): Promise<Map<string, MerchantRule>> {
+  const rows = await db
+    .select({
+      merchantKey: merchantRules.merchantKey,
+      category: merchantRules.category,
+      transactionClass: merchantRules.transactionClass,
+      recurrenceType: merchantRules.recurrenceType,
+    })
+    .from(merchantRules)
+    .where(eq(merchantRules.userId, userId));
+
+  const map = new Map<string, MerchantRule>();
+  for (const row of rows) {
+    map.set(row.merchantKey, {
+      category: row.category,
+      transactionClass: row.transactionClass,
+      recurrenceType: row.recurrenceType,
+    });
+  }
+  return map;
 }

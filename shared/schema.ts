@@ -217,6 +217,33 @@ export const recurringReviews = pgTable(
 );
 
 /**
+ * User-specific merchant classification overrides.
+ * Keyed by normalized merchant key (recurrenceKey()). Written automatically
+ * on every manual transaction edit; applied at upload time (and reclassify)
+ * before the AI phase, so corrections persist across CSV uploads.
+ */
+export const merchantRules = pgTable(
+  "merchant_rules",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    merchantKey: text("merchant_key").notNull(),
+    category: text("category"),
+    transactionClass: text("transaction_class"),
+    recurrenceType: text("recurrence_type"),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("merchant_rules_user_id_idx").on(t.userId),
+    uniqueIndex("merchant_rules_user_key_idx").on(t.userId, t.merchantKey),
+  ],
+);
+
+/**
  * Matches `connect-pg-simple` expected shape (`table.sql` in that package).
  * Default store table name is `session`; keep this name for drop-in use later.
  */
