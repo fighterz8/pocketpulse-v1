@@ -76,7 +76,7 @@ export function Upload() {
   }, []);
 
   const setAccountForFile = useCallback(
-    (key: string, accountId: number) => {
+    (key: string, accountId: number | null) => {
       setQueue((prev) =>
         prev.map((q) => (q.key === key ? { ...q, accountId } : q)),
       );
@@ -341,13 +341,16 @@ function AccountSelector({
 }: {
   accounts: AuthAccount[] | null;
   value: number | null;
-  onChange: (id: number) => void;
+  onChange: (id: number | null) => void;
   disabled?: boolean;
   fileKey: string;
 }) {
   const { createAccount } = useAuth();
 
   const [creating, setCreating] = useState(false);
+  // Remember the accountId that was selected before the user opened the form
+  // so we can restore it on cancel.
+  const [prevAccountId, setPrevAccountId] = useState<number | null>(null);
   const [label, setLabel] = useState("");
   const [lastFour, setLastFour] = useState("");
   const [accountType, setAccountType] = useState("");
@@ -358,20 +361,29 @@ function AccountSelector({
   const shownError = formError ?? mutationError;
   const busy = createAccount.isPending;
 
+  function openCreateForm(currentId: number | null) {
+    setPrevAccountId(currentId);
+    // Clear the selection in the parent so canImport locks while the form is open.
+    onChange(null);
+    setCreating(true);
+    createAccount.reset();
+    setFormError(null);
+    setLabel("");
+    setLastFour("");
+    setAccountType("");
+  }
+
   function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
     if (e.target.value === "__create__") {
-      setCreating(true);
-      createAccount.reset();
-      setFormError(null);
-      setLabel("");
-      setLastFour("");
-      setAccountType("");
+      openCreateForm(value);
     } else {
       onChange(Number(e.target.value));
     }
   }
 
   function handleCancel() {
+    // Restore the previously-selected account (may be null if nothing was chosen).
+    onChange(prevAccountId);
     setCreating(false);
     setFormError(null);
     createAccount.reset();
@@ -403,8 +415,19 @@ function AccountSelector({
     }
   }
 
-  if (!accounts || accounts.length === 0) {
-    return <span className="upload-field-empty">No accounts available</span>;
+  // When the account list is empty and we're not yet in create mode,
+  // open the inline form automatically so the user has a path forward.
+  if (!creating && (!accounts || accounts.length === 0)) {
+    return (
+      <button
+        type="button"
+        className="upload-new-account-trigger"
+        onClick={() => openCreateForm(null)}
+        data-testid={`button-open-new-account-${fileKey}`}
+      >
+        + New account…
+      </button>
+    );
   }
 
   if (creating) {
@@ -420,7 +443,7 @@ function AccountSelector({
           <input
             className="upload-new-account-input"
             type="text"
-            placeholder="Account name (e.g. Chase Checking)"
+            placeholder="e.g. Chase Checking, Business Visa"
             autoComplete="off"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -448,7 +471,7 @@ function AccountSelector({
           <input
             className="upload-new-account-input"
             type="text"
-            placeholder="Account type (e.g. checking, savings)"
+            placeholder="e.g. checking, savings, cash"
             autoComplete="off"
             value={accountType}
             onChange={(e) => setAccountType(e.target.value)}
@@ -499,7 +522,7 @@ function AccountSelector({
       data-testid={`select-account-${fileKey}`}
     >
       {value === null && <option value="">Select account…</option>}
-      {accounts.map((a) => (
+      {(accounts ?? []).map((a) => (
         <option key={a.id} value={a.id}>
           {a.label}
           {a.lastFour ? ` (****${a.lastFour})` : ""}
