@@ -37,6 +37,45 @@ try {
   console.warn("[startup] candidateKey migration skipped:", err);
 }
 
+// ── Startup migration: transactions dedup unique index ────────────────────────
+// Enforces that no two rows for the same user+account have an identical
+// (date, amount, lower(trim(rawDescription))) fingerprint.  This is the
+// DB-level guard that backs the onConflictDoNothing() call in
+// createTransactionBatch and closes race-condition windows.
+//
+// Two-step: (1) purge any pre-existing duplicates keeping the lowest ID,
+//           (2) create the functional unique index if it doesn't exist yet.
+//
+// The functional expression lower(trim(raw_description)) matches the JS
+// fingerprint in server/storage.ts exactly so both sides agree on identity.
+try {
+  // Step 1: remove duplicate rows (those that would violate the new index).
+  await pool.query(`
+    DELETE FROM transactions
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY user_id, account_id, date, amount,
+                              lower(trim(raw_description))
+                 ORDER BY id ASC
+               ) AS rn
+        FROM transactions
+      ) ranked
+      WHERE rn > 1
+    )
+  `);
+  // Step 2: create the functional unique index (no-op if already present).
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS transactions_dedup_idx
+      ON transactions (user_id, account_id, date, amount,
+                       lower(trim(raw_description)))
+  `);
+  console.log("[startup] transactions dedup index migration complete");
+} catch (err) {
+  console.warn("[startup] transactions dedup index migration skipped:", err);
+}
+
 const app = createApp();
 const isProduction = process.env.NODE_ENV === "production";
 /**

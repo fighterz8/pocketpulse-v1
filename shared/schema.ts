@@ -189,18 +189,19 @@ export const transactions = pgTable(
     index("transactions_upload_id_idx").on(t.uploadId),
     index("transactions_account_id_idx").on(t.accountId),
     index("transactions_date_idx").on(t.date),
-    // NOTE: A DB-level dedup guard also exists as a functional unique index
-    // that is NOT expressed here because Drizzle's DSL does not support
-    // functional index expressions.  The actual constraint lives in the DB as:
+    // NOTE: A functional unique index enforces dedup at the DB level.
+    // Drizzle's DSL does not support functional index expressions so it is
+    // created (and kept idempotent) by the startup migration in server/index.ts:
     //
-    //   CREATE UNIQUE INDEX transactions_dedup_idx
+    //   CREATE UNIQUE INDEX IF NOT EXISTS transactions_dedup_idx
     //     ON transactions (user_id, account_id, date, amount,
     //                      lower(trim(raw_description)));
     //
-    // This matches the JS fingerprint in createTransactionBatch exactly
-    // (parseFloat(amount).toFixed(2) is equivalent to the numeric column
-    // stored in DB; description is trim+lower in both places).
-    // If this index is ever recreated, pre-clean any duplicate rows first.
+    // lower(trim()) matches the JS fingerprint in createTransactionBatch
+    // (trim + toLowerCase on rawDescription).  amount is numeric(12,2) so
+    // DB stores with 2dp, matching parseFloat().toFixed(2) in JS.
+    // The startup migration also purges pre-existing duplicates before
+    // creating the index, so it is safe to run on any DB state.
   ],
 );
 
