@@ -81,7 +81,7 @@ const TABS: { key: FilterTab; label: string }[] = [
   { key: "active",      label: "Active" },
   { key: "essential",   label: "Essential" },
   { key: "leak",        label: "Leaks" },
-  { key: "dismissed",   label: "Not Recurring" },
+  { key: "dismissed",   label: "Dismissed" },
 ];
 
 function applyFilter(candidates: RecurringCandidate[], tab: FilterTab): RecurringCandidate[] {
@@ -261,7 +261,7 @@ function CandidateCard({
           onClick={() => onReview(c.candidateKey, "dismissed")}
           disabled={isPending}
         >
-          ✕ Not recurring
+          ✕ Dismiss
         </button>
       </div>
     </motion.div>

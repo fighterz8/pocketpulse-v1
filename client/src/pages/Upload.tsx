@@ -332,6 +332,13 @@ export function Upload() {
                 </p>
               )}
 
+              {upload.isPending && (
+                <div className="upload-loading" role="status" aria-live="polite" data-testid="upload-loading">
+                  <span className="upload-loading-spinner" aria-hidden="true" />
+                  <span className="upload-loading-text">Importing — parsing and classifying transactions…</span>
+                </div>
+              )}
+
               <button
                 type="button"
                 className="upload-btn upload-btn--primary"

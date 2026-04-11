@@ -212,6 +212,23 @@ export function Dashboard() {
   const { user } = useAuth();
   const showAccuracyLink = DEV_MODE_ENABLED && user?.isDev === true;
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
+  const handleExport = () => {
+    const params = new URLSearchParams();
+    if (selectedMonth) {
+      const { dateFrom, dateTo } = monthToDateRange(selectedMonth);
+      params.set("dateFrom", dateFrom);
+      params.set("dateTo", dateTo);
+    }
+    const url = `/api/transactions/export?${params.toString()}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const { data: availableMonths, isLoading: monthsLoading } = useAvailableMonths();
 
   // Track the most-recent month seen so far so we only auto-advance the selector
@@ -268,6 +285,14 @@ export function Dashboard() {
             Cashflow overview · <span className="font-medium text-slate-600 dark:text-slate-300">{periodLabelFull}</span>
           </p>
         </div>
+        <button
+          onClick={handleExport}
+          data-testid="btn-dashboard-export"
+          className="sync-btn"
+          title={`Export transactions for ${periodLabelFull}`}
+        >
+          ↓ Export CSV
+        </button>
       </div>
       {monthSelector}
     </motion.div>
@@ -277,7 +302,10 @@ export function Dashboard() {
     return (
       <div>
         {headerRow}
-        <p className="app-placeholder">Loading dashboard…</p>
+        <div className="dash-loading" role="status" aria-live="polite" data-testid="dashboard-loading">
+          <span className="dash-loading-spinner" aria-hidden="true" />
+          <span className="dash-loading-text">Loading dashboard…</span>
+        </div>
       </div>
     );
   }
@@ -386,27 +414,27 @@ export function Dashboard() {
                   {expenseLeaks.count}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-300 mt-1">
-                  {expenseLeaks.count} recurring charge{expenseLeaks.count !== 1 ? "s" : ""} flagged as leaks
+                  confirmed leak{expenseLeaks.count !== 1 ? "s" : ""} — charges you flagged for review
                 </p>
                 {expenseLeaks.monthlyAmount > 0 && (
                   <p className="text-sm text-red-500 dark:text-red-400 font-semibold mt-1">
-                    ~{currency(expenseLeaks.monthlyAmount / Math.max(1, totals.periodDays / 30))}/mo wasted
+                    ~{currency(expenseLeaks.monthlyAmount / Math.max(1, totals.periodDays / 30))}/mo confirmed wasted
                   </p>
                 )}
               </>
             ) : (
               <>
                 <p data-testid="leak-count" className="dash-hero-value text-slate-500 dark:text-slate-300 text-3xl leading-tight mt-1">
-                  Review needed
+                  None confirmed
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Recurring charges are waiting for your review — you may find subscriptions you forgot about.
+                  No recurring charges marked as leaks yet. Review your subscriptions to find costs you can cut.
                 </p>
               </>
             )}
           </div>
           <p className="kpi-drill">
-            {expenseLeaks.count > 0 ? "See flagged leaks →" : "Start reviewing →"}
+            {expenseLeaks.count > 0 ? "See confirmed leaks →" : "Review subscriptions →"}
           </p>
         </GlassCard>
       </div>
