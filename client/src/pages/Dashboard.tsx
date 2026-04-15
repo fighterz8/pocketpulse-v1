@@ -278,8 +278,11 @@ export function Dashboard() {
         return `startDate=${s}&endDate=${e}`;
       })();
 
+  // Parse the actual dates from leaksQueryParams so the cache key matches
+  // exactly what the Leaks page uses — prevents stale cross-page mismatches.
+  const _leaksParamObj = Object.fromEntries(new URLSearchParams(leaksQueryParams));
   const { data: detectedLeaks = [] } = useQuery<LeakItem[]>({
-    queryKey: ["/api/leaks", dateRange?.dateFrom, dateRange?.dateTo],
+    queryKey: ["/api/leaks", _leaksParamObj.startDate, _leaksParamObj.endDate],
     queryFn: async () => {
       const res = await fetch(`/api/leaks?${leaksQueryParams}`);
       if (!res.ok) throw new Error("Failed to fetch leaks");
@@ -438,7 +441,7 @@ export function Dashboard() {
           <p className="kpi-drill mt-4">View all transactions →</p>
         </GlassCard>
 
-        {/* Expense Patterns — links to /leaks page with selected month */}
+        {/* Leak Detection — links to /leaks page with selected month */}
         {(() => {
           const leaksHref = dateRange
             ? `/leaks?startDate=${dateRange.dateFrom}&endDate=${dateRange.dateTo}`
@@ -446,14 +449,14 @@ export function Dashboard() {
           return (
             <GlassCard className="flex flex-col justify-between" index={2} href={leaksHref}>
               <div>
-                <p className="kpi-label">Expense Patterns</p>
+                <p className="kpi-label">Leak Detection</p>
                 {leakCount > 0 ? (
                   <>
                     <p data-testid="leak-count" className="dash-hero-value text-red-500 dark:text-red-400">
                       {leakCount}
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-300 mt-1">
-                      pattern{leakCount !== 1 ? "s" : ""} detected — discretionary spending to review
+                      leak{leakCount !== 1 ? "s" : ""} detected — discretionary spending to review
                     </p>
                     {leakMonthly > 0 && (
                       <p className="text-sm text-red-500 dark:text-red-400 font-semibold mt-1">
@@ -467,13 +470,13 @@ export function Dashboard() {
                       None flagged
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                      No discretionary spending patterns detected this period.
+                      No spending leaks detected this period.
                     </p>
                   </>
                 )}
               </div>
               <p className="kpi-drill">
-                {leakCount > 0 ? "See expense patterns →" : "View patterns →"}
+                {leakCount > 0 ? "See leak detections →" : "View leak detection →"}
               </p>
             </GlassCard>
           );

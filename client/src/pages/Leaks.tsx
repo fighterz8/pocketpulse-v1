@@ -1,5 +1,10 @@
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import {
+  useAvailableMonths,
+  formatMonthLabel,
+} from "../hooks/use-dashboard";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,9 +40,22 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function monthLabel(isoDate: string): string {
-  const [year, mo] = isoDate.split("-").map(Number);
-  return new Date(year, mo - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+function monthToDateRange(month: string): { startDate: string; endDate: string } {
+  const [y, m] = month.split("-").map(Number);
+  const from = new Date(y, m - 1, 1);
+  const to   = new Date(y, m, 0);
+  const pad  = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { startDate: pad(from), endDate: pad(to) };
+}
+
+function currentMonthStr(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthFromIso(iso: string): string {
+  return iso.slice(0, 7);
 }
 
 function shortDate(iso: string): string {
@@ -74,6 +92,44 @@ const fadeUp = {
     transition: { duration: 0.35, delay: i * 0.04, ease: [0.25, 0, 0, 1] as [number, number, number, number] },
   }),
 };
+
+// ─── Month selector ───────────────────────────────────────────────────────────
+
+function MonthSelector({
+  months,
+  selected,
+  onSelect,
+}: {
+  months: Array<{ month: string; transactionCount: number }>;
+  selected: string | null;
+  onSelect: (month: string) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current?.querySelector<HTMLElement>("[data-active='true']");
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [selected]);
+
+  if (months.length === 0) return null;
+
+  return (
+    <div ref={scrollRef} className="period-selector" data-testid="leaks-month-selector">
+      {months.map(({ month, transactionCount }) => (
+        <button
+          key={month}
+          data-testid={`leaks-month-btn-${month}`}
+          data-active={selected === month ? "true" : "false"}
+          onClick={() => onSelect(month)}
+          className={`period-btn ${selected === month ? "period-btn--active" : ""}`}
+        >
+          {formatMonthLabel(month)}
+          <span className="ml-1.5 text-[10px] opacity-50 font-normal">{transactionCount}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ─── LeakCard ─────────────────────────────────────────────────────────────────
 
@@ -114,7 +170,6 @@ function LeakCard({
       data-testid={`leak-card-${slug}`}
     >
       <div className="flex flex-col sm:flex-row gap-4">
-        {/* Left: merchant + meta */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2 flex-wrap mb-1.5">
             <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug">
@@ -144,7 +199,6 @@ function LeakCard({
           </div>
         </div>
 
-        {/* Right: amounts + drill-down */}
         <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 sm:min-w-[120px] sm:text-right">
           <div>
             <p className="text-lg font-bold leading-none text-red-500" data-testid={`leak-monthly-${slug}`}>
@@ -170,17 +224,37 @@ function LeakCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function Leaks() {
-  const params = new URLSearchParams(window.location.search);
+  // Read URL params once — used as the initial month hint from Dashboard card links.
+  const urlParams  = new URLSearchParams(window.location.search);
+  const urlStart   = urlParams.get("startDate");
+  const urlInitial = urlStart ? monthFromIso(urlStart) : null;
 
-  const today = new Date();
-  const year  = today.getFullYear();
-  const month = today.getMonth() + 1;
-  const pad   = (n: number) => String(n).padStart(2, "0");
-  const defaultStart = `${year}-${pad(month)}-01`;
-  const defaultEnd   = `${year}-${pad(month)}-${pad(new Date(year, month, 0).getDate())}`;
+  // Available months from the server (same source as Dashboard month selector).
+  const { data: availableMonths = [], isLoading: monthsLoading } = useAvailableMonths();
 
-  const startDate = params.get("startDate") || defaultStart;
-  const endDate   = params.get("endDate")   || defaultEnd;
+  // Selected month state.
+  // Priority: URL param → most recent available month (set via effect) → current month.
+  const [selectedMonth, setSelectedMonth] = useState<string>(
+    urlInitial ?? currentMonthStr(),
+  );
+
+  // Once available months load, default to the most recent one if the URL
+  // didn't specify a month and the current calendar month has no data.
+  useEffect(() => {
+    if (urlInitial) return; // URL param takes precedence — don't override.
+    if (availableMonths.length === 0) return;
+    const mostRecent = availableMonths[0].month;
+    // Only switch if the current selection isn't in the available months list.
+    const isKnown = availableMonths.some((m) => m.month === selectedMonth);
+    if (!isKnown) setSelectedMonth(mostRecent);
+  }, [availableMonths, urlInitial]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { startDate, endDate } = monthToDateRange(selectedMonth);
+  const monthLabelStr = new Date(
+    parseInt(selectedMonth.split("-")[0]),
+    parseInt(selectedMonth.split("-")[1]) - 1,
+    1,
+  ).toLocaleString("en-US", { month: "long", year: "numeric" });
 
   const { data: leaks = [], isLoading, error } = useQuery<LeakItem[]>({
     queryKey: ["/api/leaks", startDate, endDate],
@@ -192,40 +266,56 @@ export function Leaks() {
     staleTime: 60_000,
   });
 
-  const monthLabelStr = monthLabel(startDate);
-  const totalFlagged  = leaks.reduce((s, l) => s + l.recentSpend, 0);
-  const totalMonthly  = leaks.reduce((s, l) => s + l.monthlyAmount, 0);
+  const totalFlagged = leaks.reduce((s, l) => s + l.recentSpend, 0);
+  const totalMonthly = leaks.reduce((s, l) => s + l.monthlyAmount, 0);
 
   const pageHeader = (
-    <motion.div className="mb-5" variants={fadeUp} initial="hidden" animate="visible" custom={0}>
-      <h1 className="app-page-title mb-0.5">Expense Patterns</h1>
+    <motion.div className="mb-4" variants={fadeUp} initial="hidden" animate="visible" custom={0}>
+      <h1 className="app-page-title mb-0.5">Leak Detection</h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Automatically detected discretionary spending patterns for{" "}
-        <span className="font-medium text-slate-700 dark:text-slate-200">{monthLabelStr}</span>
-        {" "}· no review required.
+        Automatically detected discretionary spending patterns · no review required.
       </p>
-      {!isLoading && !error && leaks.length > 0 && (
-        <p className="text-sm text-slate-600 dark:text-slate-300 mt-1.5 font-medium" data-testid="leaks-summary-inline">
-          {leaks.length} pattern{leaks.length !== 1 ? "s" : ""} detected ·{" "}
-          <span className="text-red-500">{fmt(totalFlagged)} flagged</span>
-          {totalMonthly > 0 && (
-            <span className="text-slate-500 font-normal"> (~{fmtShort(totalMonthly)}/mo)</span>
-          )}
-        </p>
-      )}
     </motion.div>
+  );
+
+  const monthSelector = monthsLoading ? null : (
+    <motion.div className="mb-5" variants={fadeUp} initial="hidden" animate="visible" custom={1}>
+      <MonthSelector
+        months={availableMonths}
+        selected={selectedMonth}
+        onSelect={setSelectedMonth}
+      />
+    </motion.div>
+  );
+
+  const summaryLine = !isLoading && !error && leaks.length > 0 && (
+    <motion.p
+      className="text-sm text-slate-600 dark:text-slate-300 mb-4 font-medium"
+      data-testid="leaks-summary-inline"
+      variants={fadeUp} initial="hidden" animate="visible" custom={2}
+    >
+      {leaks.length} leak{leaks.length !== 1 ? "s" : ""} detected in{" "}
+      <span className="text-slate-700 dark:text-slate-200">{monthLabelStr}</span>
+      {" "}·{" "}
+      <span className="text-red-500">{fmt(totalFlagged)} flagged</span>
+      {totalMonthly > 0 && (
+        <span className="text-slate-500 font-normal"> (~{fmtShort(totalMonthly)}/mo)</span>
+      )}
+    </motion.p>
   );
 
   if (error) return (
     <div>
       {pageHeader}
-      <p className="leaks-error" data-testid="leaks-error">Failed to load expense patterns.</p>
+      {monthSelector}
+      <p className="leaks-error" data-testid="leaks-error">Failed to load leak data.</p>
     </div>
   );
 
   if (isLoading) return (
     <div>
       {pageHeader}
+      {monthSelector}
       <p className="leaks-loading" data-testid="leaks-loading">Analyzing spending patterns…</p>
     </div>
   );
@@ -233,16 +323,17 @@ export function Leaks() {
   if (leaks.length === 0) return (
     <div>
       {pageHeader}
+      {monthSelector}
       <motion.div
         className="glass-card text-center py-10"
         variants={fadeUp} initial="hidden" animate="visible" custom={2}
         data-testid="leaks-empty"
       >
         <p className="text-2xl mb-2">✓</p>
-        <p className="font-semibold text-slate-700 dark:text-slate-100 mb-1">No patterns flagged</p>
+        <p className="font-semibold text-slate-700 dark:text-slate-100 mb-1">No leaks detected</p>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           No discretionary spending patterns detected for {monthLabelStr}.<br />
-          Upload more statements to improve detection accuracy.
+          Upload more statements or select a different month.
         </p>
       </motion.div>
     </div>
@@ -251,12 +342,14 @@ export function Leaks() {
   return (
     <div>
       {pageHeader}
+      {monthSelector}
+      {summaryLine}
       <div className="flex flex-col gap-3">
         {leaks.map((l, i) => (
           <LeakCard
             key={`${l.merchant}::${l.category}`}
             leak={l}
-            index={i + 2}
+            index={i + 3}
             startDate={startDate}
             endDate={endDate}
           />

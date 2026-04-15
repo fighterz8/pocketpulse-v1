@@ -217,7 +217,7 @@ export function detectLeaks(
       (group.category === "dining" ||
         group.category === "coffee" ||
         group.category === "delivery") &&
-      group.amounts.length >= 4;
+      group.amounts.length >= 3;
 
     const isRepeatDiscretionary =
       DISCRETIONARY_CATEGORIES.has(group.category) &&

@@ -74,7 +74,7 @@ export function AppLayout({
                 data-testid="nav-link-leaks"
                 className={cn("app-nav-link", location === "/leaks" && "app-nav-link--active")}
               >
-                Expense Patterns
+                Leak Detection
               </Link>
             </li>
             {/* Accuracy Report — dev/beta users only */}

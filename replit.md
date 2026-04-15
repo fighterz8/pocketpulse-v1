@@ -30,8 +30,8 @@ income, transfers, housing, utilities, groceries, dining, coffee, delivery, conv
 - `server/recurrenceDetector.ts` — Recurring charge detector; candidateKey = merchantKey (bucketIndex only for secondary tiers); isSubscriptionLike signal
 - `server/dashboardQueries.ts` — recurringExpenses from detector's active candidate monthlyEquivalent; leakMonthlyAmount from confirmed-leak candidate monthlyEquivalent
 - `client/src/pages/Ledger.tsx` — Ledger with inline editing, AI progress bar, Export CSV
-- `client/src/pages/Dashboard.tsx` — Safe-to-spend hero, 30D/60D/90D period selector, recurring/one-time/discretionary KPIs, expense leaks card
-- `client/src/pages/Leaks.tsx` — Subscription Leaks page; split into Digital Subscriptions / Recurring Habits sections
+- `client/src/pages/Dashboard.tsx` — Safe-to-spend hero, month selector, recurring/one-time/discretionary KPIs, Leak Detection card
+- `client/src/pages/Leaks.tsx` — Leak Detection page; month selector (defaults to most recent available month); flat ranked list of detected patterns; powered by `server/cashflow.ts detectLeaks()`
 - `client/src/hooks/use-recurring.ts` — RecurringCandidate type (includes isSubscriptionLike)
 - `server/index.ts` — Startup migration: strips old |amount.toFixed(2) candidateKey suffix from DB
 - `scripts/accuracy-report.ts` — Dev/research CLI; runs accuracy metrics without manual review (`npx tsx scripts/accuracy-report.ts [--user-id=N] [--json]`)
@@ -54,7 +54,7 @@ income, transfers, housing, utilities, groceries, dining, coffee, delivery, conv
 - **Glass Card**: `.glass-card` utility class — white/semi-transparent bg, border, box-shadow, backdrop-filter
 - **Sidebar**: PocketPulse wordmark + SVG pulse-line icon (blue gradient ECG trace), 3 nav links (Dashboard, Ledger, Upload), active item solid blue (#2563eb)
 - **Animations**: Framer Motion fade-in + slide-up (`motion.div` with fadeUp variants, staggered by index)
-- **Dashboard**: Safe-to-Spend hero card (2/3 wide), Expense Leaks card (1/3), 4 KPI row, 3 KPI row, category + trend cards, recent transactions, tech-stack footer
+- **Dashboard**: Safe-to-Spend hero card (2/3 wide), Leak Detection card (1/3), 4 KPI row, 3 KPI row, category + trend cards, recent transactions, tech-stack footer
 - **KPI Cards**: `.kpi-label`, `.kpi-value`, `.kpi-sub` — uppercase label, bold value, sub text
 - **All pages** (Ledger, Leaks, Upload) use the same glass card system for consistency
 
