@@ -272,6 +272,18 @@ export function normalizeMerchant(raw: string): string {
 
   if (!cleaned) return raw.trim();
 
+  // Brand display-name aliasing: when the cleaned string starts with a known
+  // brand keyword, collapse the whole value to the canonical display name.
+  // This handles noisy suffixes like "Doordash Buffa Xx-:" → "DoorDash".
+  const DISPLAY_BRAND_ALIASES: Array<[RegExp, string]> = [
+    [/^doordash\b/i, "DoorDash"],
+  ];
+  for (const [pattern, canonical] of DISPLAY_BRAND_ALIASES) {
+    if (pattern.test(cleaned)) {
+      return canonical;
+    }
+  }
+
   // Title case
   cleaned = cleaned
     .toLowerCase()
