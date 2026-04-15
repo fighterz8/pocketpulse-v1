@@ -1168,6 +1168,46 @@ html.dark .upload-new-account-cancel:hover:not(:disabled) {
   color: #b91c1c;
 }
 
+/* Fixed-viewport propagation toast — visible at any scroll depth */
+.propagation-toast {
+  position: fixed;
+  bottom: 1.75rem;
+  right: 1.75rem;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-radius: 0.75rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  max-width: 22rem;
+  pointer-events: none;
+}
+.propagation-toast-icon {
+  flex-shrink: 0;
+  color: #16a34a;
+  font-weight: 700;
+}
+.propagation-toast-count {
+  font-weight: 700;
+}
+.propagation-toast-merchant {
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  .propagation-toast {
+    right: 1rem;
+    bottom: 5rem;
+    left: 1rem;
+    max-width: none;
+  }
+}
+
 .ledger-loading {
   margin: 2rem 0;
   opacity: 0.65;

@@ -341,19 +341,6 @@ export function Ledger() {
         )}
       </motion.div>
 
-      {propagationNotice && (
-        <motion.div
-          className="mb-3 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-sm text-blue-700"
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          data-testid="propagation-notice"
-        >
-          Also applied to {propagationNotice.count} other{" "}
-          <span className="font-medium">{propagationNotice.merchant}</span>{" "}
-          transaction{propagationNotice.count !== 1 ? "s" : ""}.
-        </motion.div>
-      )}
-
       {error && <p className="ledger-error">{error.message}</p>}
 
       {isLoading && transactions.length === 0 && (
@@ -542,6 +529,26 @@ export function Ledger() {
           )}
         </div>
       </div>
+
+      {/* ── Propagation toast — fixed to viewport so it's visible at any scroll depth ── */}
+      {propagationNotice && (
+        <motion.div
+          className="propagation-toast"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 16 }}
+          transition={{ duration: 0.25 }}
+          data-testid="propagation-notice"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="propagation-toast-icon">✓</span>
+          Also applied to{" "}
+          <span className="propagation-toast-count">{propagationNotice.count}</span>{" "}
+          other <span className="propagation-toast-merchant">{propagationNotice.merchant}</span>{" "}
+          transaction{propagationNotice.count !== 1 ? "s" : ""}.
+        </motion.div>
+      )}
     </>
   );
 }
