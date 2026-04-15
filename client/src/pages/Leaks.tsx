@@ -204,6 +204,15 @@ export function Leaks() {
         <span className="font-medium text-slate-700 dark:text-slate-200">{monthLabelStr}</span>
         {" "}· no review required.
       </p>
+      {!isLoading && !error && leaks.length > 0 && (
+        <p className="text-sm text-slate-600 dark:text-slate-300 mt-1.5 font-medium" data-testid="leaks-summary-inline">
+          {leaks.length} pattern{leaks.length !== 1 ? "s" : ""} detected ·{" "}
+          <span className="text-red-500">{fmt(totalFlagged)} flagged</span>
+          {totalMonthly > 0 && (
+            <span className="text-slate-500 font-normal"> (~{fmtShort(totalMonthly)}/mo)</span>
+          )}
+        </p>
+      )}
     </motion.div>
   );
 
@@ -221,30 +230,9 @@ export function Leaks() {
     </div>
   );
 
-  const summaryBar = (
-    <motion.div
-      className="grid grid-cols-3 gap-3 mb-5"
-      variants={fadeUp} initial="hidden" animate="visible" custom={1}
-    >
-      <div className="glass-card text-center py-3" data-testid="summary-count">
-        <p className="text-xl font-bold text-slate-800 dark:text-slate-100">{leaks.length}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Patterns detected</p>
-      </div>
-      <div className="glass-card text-center py-3" data-testid="summary-flagged">
-        <p className="text-xl font-bold text-red-500">${totalFlagged.toLocaleString("en-US", { maximumFractionDigits: 0 })}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Flagged this period</p>
-      </div>
-      <div className="glass-card text-center py-3" data-testid="summary-monthly">
-        <p className="text-xl font-bold text-orange-500">~{fmtShort(totalMonthly)}/mo</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Monthly equivalent</p>
-      </div>
-    </motion.div>
-  );
-
   if (leaks.length === 0) return (
     <div>
       {pageHeader}
-      {summaryBar}
       <motion.div
         className="glass-card text-center py-10"
         variants={fadeUp} initial="hidden" animate="visible" custom={2}
@@ -263,8 +251,6 @@ export function Leaks() {
   return (
     <div>
       {pageHeader}
-      {summaryBar}
-
       <div className="flex flex-col gap-3">
         {leaks.map((l, i) => (
           <LeakCard

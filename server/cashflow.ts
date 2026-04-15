@@ -224,7 +224,10 @@ export function detectLeaks(
       group.amounts.length >= 3 &&
       totalSpend >= 60;
 
-    if (!isRecurring && !isMicroSpend && !isConvenience && !isRepeatDiscretionary) {
+    // isRecurring boosts confidence and adjusts bucket metadata, but does NOT
+    // independently qualify a group as a leak — one of the three behavioral
+    // thresholds (micro, convenience, or repeat discretionary) must still be met.
+    if (!isMicroSpend && !isConvenience && !isRepeatDiscretionary) {
       continue;
     }
 
@@ -240,6 +243,7 @@ export function detectLeaks(
     }
 
     // ── Confidence ────────────────────────────────────────────────────────────
+    // isRecurring contributes here — stable recurring amounts raise confidence.
     let confidence: "High" | "Medium" | "Low" = "Medium";
     if (
       group.amounts.length >= 6 ||
