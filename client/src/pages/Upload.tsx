@@ -17,9 +17,14 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatUploadDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 export function Upload() {
   const { accounts } = useAuth();
-  const { upload } = useUploads();
+  const { upload, uploads } = useUploads();
 
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [results, setResults] = useState<UploadFileResult[] | null>(null);
@@ -354,6 +359,50 @@ export function Upload() {
           )}
         </motion.div>
       )}
+
+      {/* Import history */}
+      {uploads && uploads.length > 0 && (
+        <motion.div
+          className="upload-history glass-card"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.14 }}
+          data-testid="upload-history"
+        >
+          <h2 className="upload-history-title">Past Imports</h2>
+          <ul className="upload-history-list">
+            {[...uploads].reverse().map((u) => {
+              const acct = accounts?.find((a) => a.id === u.accountId);
+              return (
+                <li key={u.id} className="upload-history-item" data-testid={`row-upload-${u.id}`}>
+                  <span className="upload-history-filename" data-testid={`text-upload-filename-${u.id}`}>
+                    {u.filename}
+                  </span>
+                  <span className="upload-history-meta">
+                    <span data-testid={`text-upload-account-${u.id}`}>
+                      {acct ? acct.label : "Unknown account"}
+                    </span>
+                    <span className="upload-history-sep">&middot;</span>
+                    <span data-testid={`text-upload-rows-${u.id}`}>
+                      {u.rowCount} row{u.rowCount !== 1 ? "s" : ""}
+                    </span>
+                    <span className="upload-history-sep">&middot;</span>
+                    <span data-testid={`text-upload-date-${u.id}`}>
+                      {formatUploadDate(u.uploadedAt)}
+                    </span>
+                  </span>
+                  <span
+                    className={`upload-history-badge upload-history-badge--${u.status}`}
+                    data-testid={`status-upload-${u.id}`}
+                  >
+                    {u.status === "complete" ? "Imported" : u.status}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </motion.div>
+      )}
     </>
   );
 }
@@ -461,6 +510,7 @@ function AccountSelector({
       <form
         className="upload-new-account"
         onSubmit={(e) => void handleCreate(e)}
+        onKeyDown={(e) => { if (e.key === "Escape") handleCancel(); }}
         data-testid={`form-new-account-${fileKey}`}
       >
         <p className="upload-new-account-title">New account</p>

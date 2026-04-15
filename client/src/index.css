@@ -1159,6 +1159,88 @@ html.dark .upload-new-account-cancel:hover:not(:disabled) {
   color: #e2e8f0;
 }
 
+/* ── Import history section (Upload page) ───────────────────────────────── */
+
+.upload-history {
+  margin-top: 1.25rem;
+}
+
+.upload-history-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.upload-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.upload-history-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.5rem;
+  background: rgb(248 250 252 / 0.7);
+  border: 1px solid rgb(226 232 240 / 0.8);
+  flex-wrap: wrap;
+}
+
+.upload-history-filename {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1e293b;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-history-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.upload-history-sep {
+  color: #cbd5e1;
+}
+
+.upload-history-badge {
+  flex-shrink: 0;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.upload-history-badge--complete {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.upload-history-badge--failed {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.upload-history-badge--processing {
+  background: #fef9c3;
+  color: #a16207;
+}
+
 /* ---- Ledger page (Phase 3) ---- */
 
 .ledger-error {
