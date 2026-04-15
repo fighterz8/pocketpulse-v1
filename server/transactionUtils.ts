@@ -184,6 +184,8 @@ export function inferFlowType(signedAmount: number): "inflow" | "outflow" {
 const POS_PREFIX_PATTERNS: string[] = [
   // Square POS variants
   "SQ\\s*\\*[\\s*]*",
+  // DoorDash payment terminal (e.g. "Dd *doordash Buffa Xx-:")
+  "Dd\\s*\\*[\\s*]*",
   // Toast POS
   "TST\\s*\\*[\\s*]*",
   // Stripe / Shopify / various

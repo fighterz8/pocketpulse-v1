@@ -184,8 +184,8 @@ export function recurrenceKey(merchant: string): string {
   // Strip leading debit-card prefix: "-dc NNNN " or "debit NNNN "
   k = k.replace(/^-dc\s+\d+\s*/i, "");
 
-  // Strip payment processor square/toast/stripe prefixes
-  k = k.replace(/^(sq\s*\*|tst\s*\*|sp\s*\*|pos\s*|pp\s*\*|paypal\s*\*)\s*/i, "");
+  // Strip payment processor square/toast/stripe/doordash prefixes
+  k = k.replace(/^(sq\s*\*|tst\s*\*|sp\s*\*|pos\s*|pp\s*\*|paypal\s*\*|dd\s*\*)\s*/i, "");
 
   // Strip "Payment To " prefix (e.g. "Payment To Tesla Insurance")
   k = k.replace(/^payment\s+(to\s+)?/i, "");
@@ -203,8 +203,10 @@ export function recurrenceKey(merchant: string): string {
     [/\bopenai\b|\bchatgpt\b/, "openai"],
     [/\banthropic\b|\bclaude\.ai\b|\bclaude ai\b/, "anthropic"],
     [/\breplit\b/, "replit"],
+    [/\bdoordash\b/, "doordash"],
     [/\bamazon prime video\b/, "amazon prime video"],
     [/\bamazon prime\b/, "amazon prime"],
+    [/\bamazon\b|\bamzn\b/, "amazon"],
     [/\bnetflix\b/, "netflix"],
     [/\bspotify\b/, "spotify"],
     [/\bhulu\b/, "hulu"],
