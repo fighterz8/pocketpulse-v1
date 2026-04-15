@@ -530,14 +530,12 @@ export function Ledger() {
         </div>
       </div>
 
-      {/* ── Propagation toast — fixed to viewport so it's visible at any scroll depth ── */}
       {propagationNotice && (
         <motion.div
           className="propagation-toast"
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 16 }}
-          transition={{ duration: 0.25 }}
+          transition={{ duration: 0.2 }}
           data-testid="propagation-notice"
           role="status"
           aria-live="polite"
