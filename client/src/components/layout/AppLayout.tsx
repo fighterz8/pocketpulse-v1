@@ -1,50 +1,9 @@
 import { type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { AUTO_ESSENTIAL_CATEGORIES } from "@shared/schema";
 import { DEV_MODE_ENABLED } from "@shared/devConfig";
 import { cn } from "../../lib/utils";
-import { useRecurringCandidates } from "../../hooks/use-recurring";
 import { useAuth } from "../../hooks/use-auth";
 import { useTheme } from "../../hooks/use-theme";
-
-function RecurringNavItem({ href, label, isActive }: { href: string; label: string; isActive: boolean }) {
-  // Eagerly read from cache — the Leaks page populates this; if not yet loaded it's undefined.
-  const { data } = useRecurringCandidates();
-
-  // Mirror the same filter logic as the Leaks page so the dot disappears exactly
-  // when the page shows "All caught up!": exclude auto-hidden categories and cap
-  // at 6 months so old cancelled subscriptions don't keep the light on.
-  const sixMonthCutoff = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 6);
-    return d.toISOString().slice(0, 10);
-  })();
-  const unreviewedCount = data?.candidates.filter(
-    (c) =>
-      !AUTO_ESSENTIAL_CATEGORIES.has(c.category) &&
-      c.reviewStatus === "unreviewed" &&
-      c.lastSeen >= sixMonthCutoff,
-  ).length ?? 0;
-  const needsReview = unreviewedCount > 0;
-
-  return (
-    <Link
-      href={href}
-      data-testid="nav-link-recurring-leak-review"
-      className={cn("app-nav-link", isActive && "app-nav-link--active")}
-    >
-      <span className="flex items-center gap-2">
-        {label}
-        {needsReview && (
-          <span className="relative flex h-2 w-2 shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-          </span>
-        )}
-      </span>
-    </Link>
-  );
-}
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -109,13 +68,14 @@ export function AppLayout({
                 </li>
               );
             })}
-            {/* Recurring Leak Review — gets a live indicator dot when items need review */}
             <li>
-              <RecurringNavItem
+              <Link
                 href="/leaks"
-                label="Recurring Leaks"
-                isActive={location === "/leaks"}
-              />
+                data-testid="nav-link-leaks"
+                className={cn("app-nav-link", location === "/leaks" && "app-nav-link--active")}
+              >
+                Expense Patterns
+              </Link>
             </li>
             {/* Accuracy Report — dev/beta users only */}
             {showAccuracy && (

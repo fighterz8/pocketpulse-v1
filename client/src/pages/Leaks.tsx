@@ -1,14 +1,24 @@
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 
-import { AUTO_ESSENTIAL_CATEGORIES } from "@shared/schema";
-import {
-  useRecurringCandidates,
-  useReviewMutation,
-  useSyncRecurringMutation,
-  type RecurringCandidate,
-  type ReviewStatus,
-} from "../hooks/use-recurring";
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface LeakItem {
+  merchant: string;
+  merchantFilter: string;
+  category: string;
+  bucket: "repeat_discretionary" | "micro_spend" | "high_frequency_convenience";
+  label: string;
+  monthlyAmount: number;
+  occurrences: number;
+  lastDate: string;
+  confidence: "High" | "Medium" | "Low";
+  averageAmount: number;
+  recentSpend: number;
+  transactionClass: "expense";
+  recurrenceType?: "recurring" | "one-time";
+  isSubscriptionLike: boolean;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -25,32 +35,25 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function freqLabel(f: string): string {
-  const map: Record<string, string> = {
-    weekly: "Weekly", biweekly: "Every 2 wks",
-    monthly: "Monthly", quarterly: "Quarterly", annual: "Annual",
-  };
-  return map[f] ?? f;
+function monthLabel(isoDate: string): string {
+  const [year, mo] = isoDate.split("-").map(Number);
+  return new Date(year, mo - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
 }
 
-function dayLabel(days: number): string {
-  const abs = Math.abs(days);
-  if (days < 0)  return `due in ${abs}d`;
-  if (days === 0) return "due today";
-  if (days <= 5)  return `${days}d overdue`;
-  return `${days}d since due`;
+function shortDate(iso: string): string {
+  const [year, mo, day] = iso.split("-").map(Number);
+  return new Date(year, mo - 1, day).toLocaleString("en-US", { month: "short", day: "numeric" });
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  software:      "bg-violet-100 text-violet-700",
-  utilities:     "bg-sky-100 text-sky-700",
-  fitness:       "bg-green-100 text-green-700",
-  insurance:     "bg-blue-100 text-blue-700",
-  entertainment: "bg-pink-100 text-pink-700",
   dining:        "bg-orange-100 text-orange-700",
-  medical:       "bg-red-100 text-red-700",
-  housing:       "bg-amber-100 text-amber-700",
-  shopping:      "bg-lime-100 text-lime-700",
+  coffee:        "bg-amber-100 text-amber-700",
+  delivery:      "bg-yellow-100 text-yellow-700",
+  convenience:   "bg-lime-100 text-lime-700",
+  shopping:      "bg-pink-100 text-pink-700",
+  entertainment: "bg-purple-100 text-purple-700",
+  fitness:       "bg-green-100 text-green-700",
+  software:      "bg-violet-100 text-violet-700",
   other:         "bg-slate-100 text-slate-600",
 };
 
@@ -58,10 +61,11 @@ function categoryColor(cat: string): string {
   return CATEGORY_COLORS[cat] ?? "bg-slate-100 text-slate-600";
 }
 
-// A "leak" is a DISCRETIONARY recurring charge the user may want to cancel —
-// streaming, gym memberships, forgotten SaaS subscriptions, etc.
-// Necessary recurring obligations (mortgage, utilities, insurance, medical, debt)
-// are imported from the shared schema and completely hidden — no review needed.
+const CONFIDENCE_COLORS: Record<string, string> = {
+  High:   "bg-emerald-100 text-emerald-700",
+  Medium: "bg-amber-100 text-amber-700",
+  Low:    "bg-slate-100 text-slate-500",
+};
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -71,100 +75,34 @@ const fadeUp = {
   }),
 };
 
-// ─── Filter tabs ──────────────────────────────────────────────────────────────
+// ─── LeakCard ─────────────────────────────────────────────────────────────────
 
-type FilterTab = "all" | "active" | ReviewStatus;
-
-const TABS: { key: FilterTab; label: string }[] = [
-  { key: "unreviewed",  label: "Unreviewed" },
-  { key: "all",         label: "All" },
-  { key: "active",      label: "Active" },
-  { key: "essential",   label: "Essential" },
-  { key: "leak",        label: "Leaks" },
-  { key: "dismissed",   label: "Dismissed" },
-];
-
-function applyFilter(candidates: RecurringCandidate[], tab: FilterTab): RecurringCandidate[] {
-  if (tab === "all")    return candidates;
-  if (tab === "active") return candidates.filter((c) => c.isActive);
-  return candidates.filter((c) => c.reviewStatus === tab);
-}
-
-/** Hard cutoff: only show candidates last seen within the past 6 months. */
-function applySixMonthCutoff(candidates: RecurringCandidate[]): RecurringCandidate[] {
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - 6);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-  return candidates.filter((c) => c.lastSeen >= cutoffStr);
-}
-
-// ─── Summary KPI bar ─────────────────────────────────────────────────────────
-
-function SummaryBar({
-  summary,
-  needReview,
-}: {
-  summary: {
-    total: number;
-    unreviewed: number;
-    essential: number;
-    leak: number;
-    dismissed: number;
-    totalMonthlyActive: number;
-    totalMonthlyLeak: number;
-    totalMonthlyEssential: number;
-    totalMonthlyUnreviewed: number;
-  };
-  needReview: number;
-}) {
-  return (
-    <motion.div
-      className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4"
-      variants={fadeUp} initial="hidden" animate="visible" custom={1}
-    >
-      <div className="glass-card text-center py-3">
-        <p className="text-xl font-bold text-slate-800 dark:text-slate-100">{fmtShort(summary.totalMonthlyActive)}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Active/month</p>
-      </div>
-      <div className="glass-card text-center py-3">
-        <p className="text-xl font-bold text-red-500">{fmtShort(summary.totalMonthlyLeak)}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Leaks/month</p>
-      </div>
-      <div className="glass-card text-center py-3">
-        <p className="text-xl font-bold text-red-400">{fmtShort(summary.totalMonthlyLeak * 12)}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Leak cost/year</p>
-      </div>
-      <div className="glass-card text-center py-3">
-        <p className="text-xl font-bold text-amber-500">{needReview}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Need review</p>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─── Candidate card ───────────────────────────────────────────────────────────
-
-function CandidateCard({
-  candidate: c,
-  onReview,
-  isPending,
+function LeakCard({
+  leak: l,
   index = 0,
+  startDate,
+  endDate,
 }: {
-  candidate: RecurringCandidate;
-  onReview: (key: string, status: ReviewStatus) => void;
-  isPending: boolean;
+  leak: LeakItem;
   index?: number;
+  startDate: string;
+  endDate: string;
 }) {
-  const statusBorder =
-    c.reviewStatus === "essential" ? "border-l-emerald-400" :
-    c.reviewStatus === "leak"      ? "border-l-red-400" :
-    c.reviewStatus === "dismissed" ? "border-l-slate-300 opacity-60" :
-    "border-l-transparent";
+  const ledgerParams = new URLSearchParams({
+    merchant: l.merchantFilter,
+    transactionClass: "expense",
+    dateFrom: startDate,
+    dateTo: endDate,
+  });
+  if (l.recurrenceType === "recurring") ledgerParams.set("recurrenceType", "recurring");
+  const ledgerHref = `/transactions?${ledgerParams.toString()}`;
 
-  const txCount = c.transactionIds.length;
-  const monthSpan = Math.max(1, Math.round(
-    (new Date(c.lastSeen).getTime() - new Date(c.firstSeen).getTime()) / (1000 * 60 * 60 * 24 * 30)
-  ));
+  const bucketBorderColor =
+    l.bucket === "micro_spend"                ? "border-l-amber-400" :
+    l.bucket === "high_frequency_convenience" ? "border-l-orange-400" :
+                                                "border-l-pink-400";
+
+  const slug = l.merchant.toLowerCase().replace(/\W+/g, "-");
 
   return (
     <motion.div
@@ -172,98 +110,82 @@ function CandidateCard({
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      className={`glass-card border-l-4 ${statusBorder} flex flex-col sm:flex-row gap-4`}
-      data-testid={`leak-card-${c.candidateKey}`}
+      className={`glass-card border-l-4 ${bucketBorderColor}`}
+      data-testid={`leak-card-${slug}`}
     >
-      {/* Left: name + badges */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start gap-2 flex-wrap mb-1.5">
-          <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug">
-            {c.merchantDisplay}
-          </span>
-          {!c.isActive && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
-              Possibly cancelled
+      <div className="flex flex-col sm:flex-row gap-4">
+        {/* Left: merchant + meta */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2 flex-wrap mb-1.5">
+            <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug">
+              {l.merchant}
             </span>
-          )}
-          {c.isActive && c.reviewStatus === "unreviewed" && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
-              Needs review
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${categoryColor(l.category)}`}>
+              {capitalize(l.category)}
             </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
-          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${categoryColor(c.category)}`}>
-            {capitalize(c.category)}
-          </span>
-          <span>{freqLabel(c.frequency)}</span>
-          <span>·</span>
-          <span>{txCount} charges over {monthSpan} month{monthSpan !== 1 ? "s" : ""}</span>
-          <span>·</span>
-          <span>Last: {c.lastSeen}</span>
-          {c.isActive && (
-            <>
-              <span>·</span>
-              <span className={c.daysSinceExpected > 0 ? "text-orange-500" : "text-slate-400 dark:text-slate-500"}>
-                {dayLabel(c.daysSinceExpected)}
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${CONFIDENCE_COLORS[l.confidence] ?? "bg-slate-100 text-slate-500"}`}>
+              {l.confidence} confidence
+            </span>
+            {l.isSubscriptionLike && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 text-violet-700">
+                Subscription-like
               </span>
-            </>
-          )}
-        </div>
-
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5 leading-snug">{c.reasonFlagged}</p>
-
-        {/* Confidence bar */}
-        <div className="flex items-center gap-2 mt-2">
-          <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden max-w-[80px]">
-            <div
-              className={`h-full rounded-full ${c.confidence >= 0.7 ? "bg-emerald-400" : c.confidence >= 0.5 ? "bg-amber-400" : "bg-slate-300"}`}
-              style={{ width: `${Math.round(c.confidence * 100)}%` }}
-            />
+            )}
           </div>
-          <span className="text-[10px] text-slate-400 dark:text-slate-500">{Math.round(c.confidence * 100)}% confidence</span>
+
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">{l.label}</p>
+
+          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
+            <span data-testid={`leak-occurrences-${slug}`}>{l.occurrences} charges</span>
+            <span>·</span>
+            <span>avg {fmt(l.averageAmount)}</span>
+            <span>·</span>
+            <span>last {shortDate(l.lastDate)}</span>
+          </div>
+        </div>
+
+        {/* Right: amounts + drill-down */}
+        <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 sm:min-w-[120px] sm:text-right">
+          <div>
+            <p className="text-lg font-bold leading-none text-red-500" data-testid={`leak-monthly-${slug}`}>
+              {fmt(l.monthlyAmount)}<span className="text-xs font-normal text-slate-400 dark:text-slate-500">/mo</span>
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              {fmt(l.recentSpend)} total
+            </p>
+          </div>
+          <a
+            href={ledgerHref}
+            data-testid={`link-ledger-${slug}`}
+            className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+          >
+            View in Ledger →
+          </a>
         </div>
       </div>
+    </motion.div>
+  );
+}
 
-      {/* Center: amounts */}
-      <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1 sm:min-w-[110px] sm:text-right">
-        <div>
-          <p className={`text-lg font-bold leading-none ${c.reviewStatus === "leak" ? "text-red-500" : "text-slate-800 dark:text-slate-100"}`}>
-            {fmt(c.monthlyEquivalent)}<span className="text-xs font-normal text-slate-400 dark:text-slate-500">/mo</span>
-          </p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{fmt(c.annualEquivalent)}/yr</p>
-        </div>
-        <p className="text-xs text-slate-400 dark:text-slate-500">avg {fmt(c.averageAmount)}</p>
-      </div>
+// ─── Section header ───────────────────────────────────────────────────────────
 
-      {/* Right: action buttons */}
-      <div className="flex flex-row sm:flex-col gap-1.5 sm:min-w-[110px]">
-        <button
-          data-testid={`btn-essential-${c.candidateKey}`}
-          className={`leak-action ${c.reviewStatus === "essential" ? "leak-action--essential-active" : "leak-action--essential"}`}
-          onClick={() => onReview(c.candidateKey, "essential")}
-          disabled={isPending}
-        >
-          ✓ Essential
-        </button>
-        <button
-          data-testid={`btn-leak-${c.candidateKey}`}
-          className={`leak-action ${c.reviewStatus === "leak" ? "leak-action--leak-active" : "leak-action--leak"}`}
-          onClick={() => onReview(c.candidateKey, "leak")}
-          disabled={isPending}
-        >
-          ⚠ Leak
-        </button>
-        <button
-          data-testid={`btn-dismiss-${c.candidateKey}`}
-          className={`leak-action ${c.reviewStatus === "dismissed" ? "leak-action--dismiss-active" : "leak-action--dismiss"}`}
-          onClick={() => onReview(c.candidateKey, "dismissed")}
-          disabled={isPending}
-        >
-          ✕ Dismiss
-        </button>
-      </div>
+function SectionHeader({ label, count, badge, index }: {
+  label: string;
+  count: number;
+  badge: string;
+  index: number;
+}) {
+  return (
+    <motion.div
+      className="flex items-center gap-2 mb-2"
+      variants={fadeUp} initial="hidden" animate="visible" custom={index}
+    >
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wide">
+        {label}
+      </span>
+      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badge}`}>
+        {count}
+      </span>
     </motion.div>
   );
 }
@@ -271,244 +193,163 @@ function CandidateCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function Leaks() {
-  const [activeTab, setActiveTab] = useState<FilterTab>("unreviewed");
-  const [sortBy, setSortBy]       = useState<"cost" | "confidence" | "lastSeen">("cost");
+  const params = new URLSearchParams(window.location.search);
 
-  const { data, isLoading, error } = useRecurringCandidates();
-  const reviewMutation             = useReviewMutation();
-  const syncMutation               = useSyncRecurringMutation();
+  const today = new Date();
+  const year  = today.getFullYear();
+  const month = today.getMonth() + 1;
+  const pad   = (n: number) => String(n).padStart(2, "0");
+  const defaultStart = `${year}-${pad(month)}-01`;
+  const defaultEnd   = `${year}-${pad(month)}-${pad(new Date(year, month, 0).getDate())}`;
 
-  const handleReview = (candidateKey: string, status: ReviewStatus) => {
-    reviewMutation.mutate({ candidateKey, status });
-  };
+  const startDate = params.get("startDate") || defaultStart;
+  const endDate   = params.get("endDate")   || defaultEnd;
 
-  const handleSync = () => { syncMutation.mutate(); };
+  const { data: leaks = [], isLoading, error } = useQuery<LeakItem[]>({
+    queryKey: ["/api/leaks", startDate, endDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/leaks?startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Failed to load leak data");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
 
-  function sortCandidates(list: RecurringCandidate[]): RecurringCandidate[] {
-    return [...list].sort((a, b) => {
-      if (sortBy === "cost")       return b.monthlyEquivalent - a.monthlyEquivalent;
-      if (sortBy === "confidence") return b.confidence - a.confidence;
-      return b.lastSeen.localeCompare(a.lastSeen);
-    });
-  }
+  const monthLabelStr = monthLabel(startDate);
+  const totalFlagged  = leaks.reduce((s, l) => s + l.recentSpend, 0);
+  const totalMonthly  = leaks.reduce((s, l) => s + l.monthlyAmount, 0);
 
   const pageHeader = (
-    <motion.div className="mb-4 flex items-center justify-between flex-wrap gap-3"
-      variants={fadeUp} initial="hidden" animate="visible" custom={0}>
-      <div>
-        <h1 className="app-page-title mb-0.5">Recurring Leaks</h1>
-        <p className="text-sm text-slate-500">
-          Recurring charges you may be able to cut — subscriptions, memberships, and spending habits.
-          Essential bills (mortgage, utilities, insurance) are handled automatically.
-        </p>
-      </div>
-      <button
-        data-testid="btn-sync-recurring"
-        onClick={handleSync}
-        disabled={syncMutation.isPending}
-        className="sync-btn"
-      >
-        {syncMutation.isPending ? "Syncing…" : syncMutation.isSuccess ? "✓ Synced" : "⟳ Sync to Dashboard"}
-      </button>
+    <motion.div className="mb-5" variants={fadeUp} initial="hidden" animate="visible" custom={0}>
+      <h1 className="app-page-title mb-0.5">Expense Patterns</h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Automatically detected discretionary spending patterns for{" "}
+        <span className="font-medium text-slate-700 dark:text-slate-200">{monthLabelStr}</span>
+        {" "}· no review required.
+      </p>
     </motion.div>
   );
 
   if (error) return (
-    <div>{pageHeader}<p className="leaks-error">Failed to load recurring patterns.</p></div>
+    <div>
+      {pageHeader}
+      <p className="leaks-error" data-testid="leaks-error">Failed to load expense patterns.</p>
+    </div>
   );
 
-  if (isLoading || !data) return (
-    <div>{pageHeader}<p className="leaks-loading">Analyzing transaction patterns…</p></div>
+  if (isLoading) return (
+    <div>
+      {pageHeader}
+      <p className="leaks-loading" data-testid="leaks-loading">Analyzing spending patterns…</p>
+    </div>
   );
 
-  const { summary } = data;
-
-  // Remove auto-hidden categories (housing) from the reviewable list entirely.
-  // They're necessary expenses — no review needed.
-  const reviewableCandidates = data.candidates.filter(
-    (c) => !AUTO_ESSENTIAL_CATEGORIES.has(c.category)
+  const summaryBar = (
+    <motion.div
+      className="grid grid-cols-3 gap-3 mb-5"
+      variants={fadeUp} initial="hidden" animate="visible" custom={1}
+    >
+      <div className="glass-card text-center py-3" data-testid="summary-count">
+        <p className="text-xl font-bold text-slate-800 dark:text-slate-100">{leaks.length}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Patterns detected</p>
+      </div>
+      <div className="glass-card text-center py-3" data-testid="summary-flagged">
+        <p className="text-xl font-bold text-red-500">${totalFlagged.toLocaleString("en-US", { maximumFractionDigits: 0 })}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Flagged this period</p>
+      </div>
+      <div className="glass-card text-center py-3" data-testid="summary-monthly">
+        <p className="text-xl font-bold text-orange-500">~{fmtShort(totalMonthly)}/mo</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Monthly equivalent</p>
+      </div>
+    </motion.div>
   );
-  const hiddenCount = data.candidates.length - reviewableCandidates.length;
 
-  // Hard cap: only the last 6 months. Apply tab filter, then sort.
-  const sixMonthCandidates = applySixMonthCutoff(reviewableCandidates);
-  const filtered           = sortCandidates(applyFilter(sixMonthCandidates, activeTab));
+  if (leaks.length === 0) return (
+    <div>
+      {pageHeader}
+      {summaryBar}
+      <motion.div
+        className="glass-card text-center py-10"
+        variants={fadeUp} initial="hidden" animate="visible" custom={2}
+        data-testid="leaks-empty"
+      >
+        <p className="text-2xl mb-2">✓</p>
+        <p className="font-semibold text-slate-700 dark:text-slate-100 mb-1">No patterns flagged</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          No discretionary spending patterns detected for {monthLabelStr}.<br />
+          Upload more statements to improve detection accuracy.
+        </p>
+      </motion.div>
+    </div>
+  );
 
-  // Unreviewed count within the 6-month window (for tab badge).
-  const unreviewedInView = sixMonthCandidates.filter((c) => c.reviewStatus === "unreviewed").length;
+  // T4.2: split into Subscriptions & Memberships vs Spending Habits
+  const subscriptions = leaks.filter((l) => l.isSubscriptionLike);
+  const habits        = leaks.filter((l) => !l.isSubscriptionLike);
+  const showSections  = subscriptions.length > 0 && habits.length > 0;
 
   return (
     <div>
       {pageHeader}
+      {summaryBar}
 
-      <SummaryBar summary={summary} needReview={unreviewedInView} />
-
-      {/* Tabs + sort */}
-      <motion.div className="flex items-center justify-between gap-3 mb-3 flex-wrap"
-        variants={fadeUp} initial="hidden" animate="visible" custom={2}>
-        <div className="leaks-tabs">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              data-testid={`tab-${tab.key}`}
-              className={`leaks-tab ${activeTab === tab.key ? "leaks-tab--active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-              {tab.key === "leak" && summary.leak > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold">
-                  {summary.leak}
-                </span>
-              )}
-              {tab.key === "unreviewed" && unreviewedInView > 0 && (
-                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-white text-[9px] font-bold">
-                  {unreviewedInView}
-                </span>
-              )}
-            </button>
+      {showSections ? (
+        <div className="flex flex-col gap-6">
+          {subscriptions.length > 0 && (
+            <div>
+              <SectionHeader
+                label="Subscriptions & Memberships"
+                count={subscriptions.length}
+                badge="bg-violet-100 text-violet-600"
+                index={2}
+              />
+              <div className="flex flex-col gap-3">
+                {subscriptions.map((l, i) => (
+                  <LeakCard
+                    key={`${l.merchant}::${l.category}`}
+                    leak={l}
+                    index={i + 3}
+                    startDate={startDate}
+                    endDate={endDate}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          {habits.length > 0 && (
+            <div>
+              <SectionHeader
+                label="Spending Habits"
+                count={habits.length}
+                badge="bg-orange-100 text-orange-600"
+                index={3 + subscriptions.length}
+              />
+              <div className="flex flex-col gap-3">
+                {habits.map((l, i) => (
+                  <LeakCard
+                    key={`${l.merchant}::${l.category}`}
+                    leak={l}
+                    index={i + 4 + subscriptions.length}
+                    startDate={startDate}
+                    endDate={endDate}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {leaks.map((l, i) => (
+            <LeakCard
+              key={`${l.merchant}::${l.category}`}
+              leak={l}
+              index={i + 2}
+              startDate={startDate}
+              endDate={endDate}
+            />
           ))}
         </div>
-
-        <select
-          data-testid="sort-select"
-          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-300"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-        >
-          <option value="cost">Sort: Monthly cost</option>
-          <option value="confidence">Sort: Confidence</option>
-          <option value="lastSeen">Sort: Last seen</option>
-        </select>
-      </motion.div>
-
-      {/* Sync result toast */}
-      {syncMutation.isSuccess && (
-        <motion.div
-          className="mb-3 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"
-          initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-        >
-          ✓ Dashboard synced — {syncMutation.data?.recurringCount} transactions marked recurring,{" "}
-          {syncMutation.data?.oneTimeCount} marked one-time.
-        </motion.div>
-      )}
-
-      {/* Cards — split into Subscriptions / Habits sections */}
-      {filtered.length === 0 ? (
-        <motion.div
-          className="glass-card text-center py-10"
-          variants={fadeUp} initial="hidden" animate="visible" custom={3}
-        >
-          {activeTab === "unreviewed" ? (
-            <>
-              <p className="text-2xl mb-2">✓</p>
-              <p className="font-semibold text-slate-700 mb-1">All caught up!</p>
-              <p className="text-sm text-slate-500">
-                Every recurring charge in the last 6 months has been reviewed. Switch to the Leaks tab to see what you've flagged.
-              </p>
-            </>
-          ) : activeTab === "all" ? (
-            <>
-              <p className="text-2xl mb-2">📭</p>
-              <p className="font-semibold text-slate-700 mb-1">No recurring patterns detected</p>
-              <p className="text-sm text-slate-500">
-                Upload more bank statements to detect recurring charges.
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-slate-500">
-              No {activeTab === "active" ? "active" : activeTab} candidates in the last 6 months.
-            </p>
-          )}
-        </motion.div>
-      ) : (() => {
-        const subscriptions = filtered.filter((c) => c.isSubscriptionLike);
-        const habits        = filtered.filter((c) => !c.isSubscriptionLike);
-        const showSections  = subscriptions.length > 0 && habits.length > 0;
-
-        if (!showSections) {
-          // Only one group — flat list, no section headers
-          return (
-            <div className="flex flex-col gap-3">
-              {filtered.map((c, i) => (
-                <CandidateCard
-                  key={c.candidateKey}
-                  candidate={c}
-                  onReview={handleReview}
-                  isPending={reviewMutation.isPending}
-                  index={i + 3}
-                />
-              ))}
-            </div>
-          );
-        }
-
-        return (
-          <div className="flex flex-col gap-6">
-            {/* Subscriptions section */}
-            <div>
-              <motion.div
-                className="flex items-center gap-2 mb-2"
-                variants={fadeUp} initial="hidden" animate="visible" custom={3}
-              >
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wide">
-                  Digital Subscriptions
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 bg-violet-100 text-violet-600 rounded-full font-medium">
-                  {subscriptions.length}
-                </span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">— can cancel online</span>
-              </motion.div>
-              <div className="flex flex-col gap-3">
-                {subscriptions.map((c, i) => (
-                  <CandidateCard
-                    key={c.candidateKey}
-                    candidate={c}
-                    onReview={handleReview}
-                    isPending={reviewMutation.isPending}
-                    index={i + 3}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Habits section */}
-            <div>
-              <motion.div
-                className="flex items-center gap-2 mb-2"
-                variants={fadeUp} initial="hidden" animate="visible" custom={3 + subscriptions.length}
-              >
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-300 uppercase tracking-wide">
-                  Recurring Habits
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded-full font-medium">
-                  {habits.length}
-                </span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">— lifestyle spending patterns</span>
-              </motion.div>
-              <div className="flex flex-col gap-3">
-                {habits.map((c, i) => (
-                  <CandidateCard
-                    key={c.candidateKey}
-                    candidate={c}
-                    onReview={handleReview}
-                    isPending={reviewMutation.isPending}
-                    index={i + 3 + subscriptions.length}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Note about auto-handled necessary expenses */}
-      {hiddenCount > 0 && (
-        <motion.p
-          className="mt-4 text-xs text-slate-400 text-center"
-          variants={fadeUp} initial="hidden" animate="visible" custom={10}
-        >
-          {hiddenCount} necessary recurring charge{hiddenCount !== 1 ? "s" : ""} (mortgage, utilities, insurance, medical, debt) are automatically marked as essential — no review needed.
-        </motion.p>
       )}
     </div>
   );

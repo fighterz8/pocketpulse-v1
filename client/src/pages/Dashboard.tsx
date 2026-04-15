@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   formatMonthLabel,
@@ -9,6 +10,11 @@ import {
 } from "../hooks/use-dashboard";
 import { useAuth } from "../hooks/use-auth";
 import { DEV_MODE_ENABLED } from "@shared/devConfig";
+
+interface LeakItem {
+  monthlyAmount: number;
+  recentSpend: number;
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -257,6 +263,34 @@ export function Dashboard() {
   // Date range for ledger deep-links
   const dateRange = selectedMonth ? monthToDateRange(selectedMonth) : undefined;
 
+  // Automatic leak detection — fetched independently so the Dashboard card
+  // always shows live data from the selected month without depending on the
+  // review workflow.
+  const leaksQueryParams = dateRange
+    ? `startDate=${dateRange.dateFrom}&endDate=${dateRange.dateTo}`
+    : (() => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth() + 1;
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const s = `${y}-${pad(m)}-01`;
+        const e = `${y}-${pad(m)}-${pad(new Date(y, m, 0).getDate())}`;
+        return `startDate=${s}&endDate=${e}`;
+      })();
+
+  const { data: detectedLeaks = [] } = useQuery<LeakItem[]>({
+    queryKey: ["/api/leaks", dateRange?.dateFrom, dateRange?.dateTo],
+    queryFn: async () => {
+      const res = await fetch(`/api/leaks?${leaksQueryParams}`);
+      if (!res.ok) throw new Error("Failed to fetch leaks");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const leakCount   = detectedLeaks.length;
+  const leakMonthly = Math.round(detectedLeaks.reduce((s, l) => s + l.monthlyAmount, 0) * 100) / 100;
+
   const periodLabel = selectedMonth
     ? formatMonthLabel(selectedMonth)
     : "All Time";
@@ -339,7 +373,7 @@ export function Dashboard() {
     );
   }
 
-  const { totals, expenseLeaks, categoryBreakdown } = data;
+  const { totals, categoryBreakdown } = data;
 
   // Filter out non-spending categories from the breakdown
   const spendingCategories = categoryBreakdown.filter(
@@ -404,39 +438,46 @@ export function Dashboard() {
           <p className="kpi-drill mt-4">View all transactions →</p>
         </GlassCard>
 
-        {/* Expense Leaks — links to /leaks page */}
-        <GlassCard className="flex flex-col justify-between" index={2} href="/leaks">
-          <div>
-            <p className="kpi-label">Subscription Review</p>
-            {expenseLeaks.count > 0 ? (
-              <>
-                <p data-testid="leak-count" className="dash-hero-value text-red-500 dark:text-red-400">
-                  {expenseLeaks.count}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-300 mt-1">
-                  confirmed leak{expenseLeaks.count !== 1 ? "s" : ""} — charges you flagged for review
-                </p>
-                {expenseLeaks.monthlyAmount > 0 && (
-                  <p className="text-sm text-red-500 dark:text-red-400 font-semibold mt-1">
-                    ~{currency(expenseLeaks.monthlyAmount / Math.max(1, totals.periodDays / 30))}/mo confirmed wasted
-                  </p>
+        {/* Expense Patterns — links to /leaks page with selected month */}
+        {(() => {
+          const leaksHref = dateRange
+            ? `/leaks?startDate=${dateRange.dateFrom}&endDate=${dateRange.dateTo}`
+            : "/leaks";
+          return (
+            <GlassCard className="flex flex-col justify-between" index={2} href={leaksHref}>
+              <div>
+                <p className="kpi-label">Expense Patterns</p>
+                {leakCount > 0 ? (
+                  <>
+                    <p data-testid="leak-count" className="dash-hero-value text-red-500 dark:text-red-400">
+                      {leakCount}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-300 mt-1">
+                      pattern{leakCount !== 1 ? "s" : ""} detected — discretionary spending to review
+                    </p>
+                    {leakMonthly > 0 && (
+                      <p className="text-sm text-red-500 dark:text-red-400 font-semibold mt-1">
+                        ~{currency(leakMonthly)}/mo flagged spend
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p data-testid="leak-count" className="dash-hero-value text-slate-500 dark:text-slate-300 text-3xl leading-tight mt-1">
+                      None flagged
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                      No discretionary spending patterns detected this period.
+                    </p>
+                  </>
                 )}
-              </>
-            ) : (
-              <>
-                <p data-testid="leak-count" className="dash-hero-value text-slate-500 dark:text-slate-300 text-3xl leading-tight mt-1">
-                  None confirmed
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  No recurring charges marked as leaks yet. Review your subscriptions to find costs you can cut.
-                </p>
-              </>
-            )}
-          </div>
-          <p className="kpi-drill">
-            {expenseLeaks.count > 0 ? "See confirmed leaks →" : "Review subscriptions →"}
-          </p>
-        </GlassCard>
+              </div>
+              <p className="kpi-drill">
+                {leakCount > 0 ? "See expense patterns →" : "View patterns →"}
+              </p>
+            </GlassCard>
+          );
+        })()}
       </div>
 
       {/* ── Row 2: 4 KPI cards ─────────────────────────────────────────── */}

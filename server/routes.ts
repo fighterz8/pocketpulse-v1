@@ -41,6 +41,7 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
 import { detectRecurringCandidates, recurrenceKey } from "./recurrenceDetector.js";
+import { detectLeaks } from "./cashflow.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
 import { transactions as txnTable } from "../shared/schema.js";
@@ -1145,6 +1146,54 @@ export function createApp(options?: CreateAppOptions) {
       const userId = req.session.userId!;
       const reviews = await listRecurringReviewsForUser(userId);
       res.json(reviews);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // ── Automatic leak detection ───────────────────────────────────────────────
+  // GET /api/leaks?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+  // Falls back to the current calendar month when either param is absent.
+  app.get("/api/leaks", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+
+      let startDate =
+        typeof req.query.startDate === "string" && req.query.startDate
+          ? req.query.startDate
+          : null;
+      let endDate =
+        typeof req.query.endDate === "string" && req.query.endDate
+          ? req.query.endDate
+          : null;
+
+      if (!startDate || !endDate) {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const pad = (n: number) => String(n).padStart(2, "0");
+        startDate = `${year}-${pad(month)}-01`;
+        const lastDay = new Date(year, month, 0).getDate();
+        endDate = `${year}-${pad(month)}-${pad(lastDay)}`;
+      }
+
+      const rangeDays = Math.max(
+        1,
+        Math.ceil(
+          (new Date(endDate).getTime() - new Date(startDate).getTime()) /
+            86_400_000,
+        ) + 1,
+      );
+
+      const txns = await listAllTransactionsForExport({
+        userId,
+        dateFrom: startDate,
+        dateTo: endDate,
+        excluded: "false",
+      });
+
+      const leaks = detectLeaks(txns as any, { rangeDays });
+      res.json(leaks);
     } catch (e) {
       next(e);
     }
