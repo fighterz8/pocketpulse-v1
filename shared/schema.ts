@@ -139,6 +139,12 @@ export const uploads = pgTable(
     rowCount: integer("row_count").notNull().default(0),
     status: text("status").notNull().default("pending"),
     errorMessage: text("error_message"),
+    /**
+     * The format spec that was applied when parsing this upload.
+     * Stored for debugging purposes — lets devs inspect how a file was read.
+     * null for uploads that pre-date AI format detection.
+     */
+    formatSpec: json("format_spec").$type<CsvFormatSpec | null>(),
     uploadedAt: timestamp("uploaded_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),

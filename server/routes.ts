@@ -566,33 +566,42 @@ export function createApp(options?: CreateAppOptions) {
 
           // 1. Fingerprint: SHA-256 of the structural header row only.
           //    We find the first row where ALL non-empty cells look like column
-          //    names (text, not dates or numbers). This is stable across months.
-          //    Falls back to first row for headerless formats.
+          //    names (text, not dates or numbers). This row is always identical
+          //    across different monthly exports from the same bank.
+          //    Returns null when sample parsing fails — cache is skipped entirely
+          //    for that upload (no fingerprint collision on empty string).
+          const isDateLike = (c: string) =>
+            /^\d{1,4}[\/\-]\d{1,2}/.test(c) || /^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(c);
+          const isAmountLike = (c: string) =>
+            /^-?\$?[\d,]+\.?\d*$/.test(c) || /^\([0-9,]+\.?\d*\)$/.test(c);
+
           const headerFingerprint = (() => {
             const rows = getSampleRows();
-            const isDateLike = (c: string) =>
-              /^\d{1,4}[\/\-]\d{1,2}/.test(c) || /^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(c);
-            const isAmountLike = (c: string) =>
-              /^-?\$?[\d,]+\.?\d*$/.test(c) || /^\([0-9,]+\.?\d*\)$/.test(c);
+            if (rows.length === 0) return null; // parse failed — skip cache entirely
 
+            // Look for a header-like row (all cells are text, no dates/numbers)
             for (const row of rows.slice(0, 10)) {
               const nonEmpty = row.filter((c) => c.trim());
               if (nonEmpty.length < 2) continue;
-              const allText = nonEmpty.every(
-                (c) => !isDateLike(c.trim()) && !isAmountLike(c.trim()),
-              );
-              if (allText) {
+              if (nonEmpty.every((c) => !isDateLike(c.trim()) && !isAmountLike(c.trim()))) {
                 const normalized = row.map((c) => c.toLowerCase().trim()).join("|");
                 return crypto.createHash("sha256").update(normalized).digest("hex");
               }
             }
-            // Headerless — fingerprint first row as structural marker
-            const firstRow = rows[0]?.join("|") ?? "";
-            return crypto.createHash("sha256").update(firstRow).digest("hex");
+            // Headerless (e.g. Wells Fargo) — fingerprint first row only if non-empty
+            const firstRow = rows[0];
+            if (!firstRow || firstRow.length === 0) return null;
+            return crypto.createHash("sha256").update(firstRow.join("|")).digest("hex");
           })();
 
+          // The applied format spec for this parse (set after resolution).
+          let appliedSpec: import("../shared/schema.js").CsvFormatSpec | null = null;
+
           // 2. Check for a cached format spec (fast path for repeat uploads).
-          const cachedSpec = await getFormatSpec(userId, headerFingerprint);
+          //    Skipped when fingerprint is null (sample rows unparseable).
+          const cachedSpec = headerFingerprint
+            ? await getFormatSpec(userId, headerFingerprint)
+            : null;
 
           // 3a. Parse: use cached spec if available, otherwise run heuristic.
           let parseResult = await parseCSV(
@@ -600,38 +609,60 @@ export function createApp(options?: CreateAppOptions) {
             file.originalname,
             cachedSpec ?? undefined,
           );
+          if (parseResult.ok && cachedSpec) appliedSpec = cachedSpec;
 
-          // 3b. If a cached spec produced a failure (stale spec), retry heuristic.
+          // 3b. If a cached spec produced a failure (stale/invalid), retry heuristic.
           if (!parseResult.ok && cachedSpec) {
             console.warn(
               `[upload] cached spec failed for "${file.originalname}" ` +
-              `(fp=${headerFingerprint.slice(0, 8)}), retrying heuristic`,
+              `(fp=${headerFingerprint?.slice(0, 8)}), retrying heuristic`,
             );
             parseResult = await parseCSV(file.buffer, file.originalname);
+            if (parseResult.ok) appliedSpec = parseResult.detectedSpec ?? null;
           }
 
-          // 3c. If parse still failed, try AI format detection as a last resort.
-          if (!parseResult.ok) {
-            const heuristicError = parseResult.error;
+          // 3c. Low-confidence heuristic: trigger AI detection when the parse succeeded
+          //     but used the positional (headerless) fallback or skipped many rows.
+          //     "headerless positional" = hasHeader=false in detectedSpec.
+          //     "high skip rate" = more than 15% of rows produced date/amount warnings.
+          const isLowConfidenceParse =
+            parseResult.ok &&
+            !cachedSpec &&
+            (parseResult.detectedSpec?.hasHeader === false ||
+              parseResult.warnings.filter((w) => w.includes("skipped")).length >
+                Math.max(3, parseResult.rows.length * 0.15));
+
+          // 3d. If parse fully failed OR low-confidence, try AI format detection.
+          const needsAi = !parseResult.ok || isLowConfidenceParse;
+          if (needsAi) {
+            const priorError = parseResult.ok ? null : parseResult.error;
             try {
               const sampleRecords = getSampleRows();
               if (sampleRecords.length > 0) {
                 const aiSpec = await detectCsvFormat(sampleRecords);
                 if (aiSpec) {
                   const aiParseResult = await parseCSV(file.buffer, file.originalname, aiSpec);
-                  if (aiParseResult.ok) {
-                    saveFormatSpec(userId, headerFingerprint, aiSpec, "ai").catch((e) => {
-                      console.warn(`[upload] saveFormatSpec (ai) failed: ${e}`);
-                    });
+                  // Accept AI result only if it's better (ok, or same-ok with fewer skips)
+                  const aiIsBetter =
+                    aiParseResult.ok &&
+                    (!parseResult.ok ||
+                      aiParseResult.warnings.filter((w) => w.includes("skipped")).length <
+                        parseResult.warnings.filter((w) => w.includes("skipped")).length);
+
+                  if (aiIsBetter) {
+                    if (headerFingerprint) {
+                      saveFormatSpec(userId, headerFingerprint, aiSpec, "ai").catch((e) => {
+                        console.warn(`[upload] saveFormatSpec (ai) failed: ${e}`);
+                      });
+                    }
                     parseResult = aiParseResult;
+                    appliedSpec = aiSpec;
                     console.log(
-                      `[upload] AI format detection succeeded for "${file.originalname}" ` +
-                      `(user=${userId}, fp=${headerFingerprint.slice(0, 8)})`,
+                      `[upload] AI format detection improved parse for "${file.originalname}" ` +
+                      `(user=${userId}, fp=${headerFingerprint?.slice(0, 8)})`,
                     );
                   }
-                  // else: AI spec also failed — fall through to original error
                 }
-                // else: AI returned null — fall through
               }
             } catch (aiErr) {
               console.warn(
@@ -639,15 +670,19 @@ export function createApp(options?: CreateAppOptions) {
               );
             }
 
-            if (!parseResult.ok) {
-              // Restore original heuristic error — AI was unavailable or also failed.
-              parseResult = { ok: false, error: heuristicError };
+            // If parse was already ok (low-confidence trigger), it remains ok.
+            // If it was failing and AI didn't fix it, restore original error.
+            if (!parseResult.ok && priorError !== null) {
+              parseResult = { ok: false, error: priorError };
             }
-          } else if (!cachedSpec && parseResult.detectedSpec) {
-            // 4. Heuristic succeeded without a cached spec — save for next time.
-            saveFormatSpec(userId, headerFingerprint, parseResult.detectedSpec, "heuristic").catch(
-              (e) => { console.warn(`[upload] saveFormatSpec (heuristic) failed: ${e}`); },
-            );
+          } else if (!cachedSpec && parseResult.ok && parseResult.detectedSpec) {
+            // 4. Heuristic succeeded with sufficient confidence — save spec for next time.
+            if (headerFingerprint) {
+              saveFormatSpec(userId, headerFingerprint, parseResult.detectedSpec, "heuristic").catch(
+                (e) => { console.warn(`[upload] saveFormatSpec (heuristic) failed: ${e}`); },
+              );
+            }
+            appliedSpec = parseResult.detectedSpec;
           }
 
           if (!parseResult.ok) {
@@ -804,6 +839,8 @@ export function createApp(options?: CreateAppOptions) {
             uploadRecord.id,
             "complete",
             insertedCount,
+            null,
+            appliedSpec,
           );
 
           results.push({

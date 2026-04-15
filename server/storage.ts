@@ -206,10 +206,12 @@ export async function updateUploadStatus(
   status: string,
   rowCount?: number,
   errorMessage?: string | null,
+  formatSpec?: CsvFormatSpec | null,
 ) {
   const values: Record<string, unknown> = { status };
   if (rowCount !== undefined) values.rowCount = rowCount;
   if (errorMessage !== undefined) values.errorMessage = errorMessage;
+  if (formatSpec !== undefined) values.formatSpec = formatSpec;
 
   const [row] = await db
     .update(uploads)
