@@ -157,6 +157,12 @@ export function Ledger() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
       >
+        <svg className="page-title-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="14" height="14" rx="1.5" />
+          <line x1="3" y1="7.5" x2="17" y2="7.5" />
+          <line x1="3" y1="12" x2="17" y2="12" />
+          <line x1="8" y1="7.5" x2="8" y2="17" />
+        </svg>
         Ledger
       </motion.h1>
 

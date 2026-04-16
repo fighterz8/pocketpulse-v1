@@ -112,7 +112,9 @@ body {
 }
 
 .app-nav-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   padding: 0.55rem 0.75rem;
   border-radius: 0.5rem;
   font-size: 0.9rem;
@@ -183,6 +185,18 @@ body {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.page-title-icon {
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  color: #2563eb;
+  opacity: 0.85;
+  margin-top: 0.05rem;
 }
 
 /* ─── Glass Card ─────────────────────────────────────────────────── */
@@ -246,6 +260,9 @@ body {
   font-weight: 700;
   letter-spacing: -0.025em;
   color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .dash-subtitle {

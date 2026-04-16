@@ -315,7 +315,13 @@ export function Leaks() {
 
   const pageHeader = (
     <motion.div className="mb-4" variants={fadeUp} initial="hidden" animate="visible" custom={0}>
-      <h1 className="app-page-title mb-0.5">Leak Detection</h1>
+      <h1 className="app-page-title mb-0.5">
+        <svg className="page-title-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10 3C10 3 4 9.5 4 13a6 6 0 0012 0c0-3.5-6-10-6-10z" />
+          <path d="M7.5 14.5a2.5 2.5 0 004.5-1.5" strokeWidth="1.4" />
+        </svg>
+        Leak Detection
+      </h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
         Automatically detected discretionary spending patterns · no review required.
       </p>

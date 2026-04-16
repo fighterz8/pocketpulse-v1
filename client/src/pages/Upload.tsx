@@ -150,6 +150,10 @@ export function Upload() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
       >
+        <svg className="page-title-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10 13V4M6.5 7.5 10 4l3.5 3.5" />
+          <path d="M3 14v1a2 2 0 002 2h10a2 2 0 002-2v-1" />
+        </svg>
         Upload Statements
       </motion.h1>
 

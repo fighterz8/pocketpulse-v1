@@ -317,7 +317,15 @@ export function Dashboard() {
     <motion.div variants={fadeUp} initial="hidden" animate="visible" custom={0} className="mb-6">
       <div className="flex items-start justify-between gap-4 mb-3 flex-wrap">
         <div>
-          <h1 className="dash-title">Dashboard</h1>
+          <h1 className="dash-title">
+            <svg className="page-title-icon" style={{flexShrink:0,width:"1.35rem",height:"1.35rem",color:"#2563eb",opacity:0.85}} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="2" y="2" width="7" height="7" rx="1.2" />
+              <rect x="11" y="2" width="7" height="7" rx="1.2" />
+              <rect x="2" y="11" width="7" height="7" rx="1.2" />
+              <rect x="11" y="11" width="7" height="7" rx="1.2" />
+            </svg>
+            Dashboard
+          </h1>
           <p className="dash-subtitle">
             Cashflow overview · <span className="font-medium text-slate-600 dark:text-slate-300">{periodLabelFull}</span>
           </p>
