@@ -572,7 +572,7 @@ export function Dashboard() {
           accent="neutral"
           data-testid="kpi-utilities-monthly"
           index={10}
-          href={ledgerUrl({ category: "utilities" }, dateRange)}
+          href={ledgerUrl({ category: "utilities", transactionClass: "expense" }, dateRange)}
         />
         <KpiCard
           label={isAllTime ? "Software & Subscriptions" : "Software & Subscriptions / Month"}
@@ -581,7 +581,7 @@ export function Dashboard() {
           accent="neutral"
           data-testid="kpi-software-monthly"
           index={11}
-          href={ledgerUrl({ category: "software" }, dateRange)}
+          href={ledgerUrl({ category: "software", transactionClass: "expense" }, dateRange)}
         />
       </div>
 
