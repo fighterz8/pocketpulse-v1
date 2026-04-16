@@ -24,6 +24,7 @@ const DISCRETIONARY_CATEGORIES = [
 ];
 
 export type DashboardSummary = {
+  isAllTime: boolean;
   totals: {
     totalInflow: number;
     totalOutflow: number;
@@ -37,6 +38,8 @@ export type DashboardSummary = {
     safeToSpend: number;
     utilitiesMonthly: number;
     softwareMonthly: number;
+    utilitiesTotal: number;
+    softwareTotal: number;
     periodDays: number;
   };
   expenseLeaks: {
@@ -157,14 +160,48 @@ export async function buildDashboardSummary(
   const oneTimeExpenses    = parseFloat(t.oneTimeExpenses) || 0;
   const discretionarySpend = parseFloat(t.discretionarySpend) || 0;
 
-  // Calculate period length for monthly baselines
-  const periodDays = range?.dateFrom && range?.dateTo
-    ? Math.max(1, Math.ceil((new Date(range.dateTo).getTime() - new Date(range.dateFrom).getTime()) / 86_400_000))
-    : 90;
+  // Determine whether this is an all-time (no date range) query.
+  const isAllTime = !(range?.dateFrom || range?.dateTo);
+
+  // Calculate period length for monthly baselines.
+  // When no explicit date range is supplied we query the actual first→last
+  // transaction span instead of falling back to an arbitrary 90-day constant.
+  let periodDays: number;
+  if (range?.dateFrom && range?.dateTo) {
+    periodDays = Math.max(
+      1,
+      Math.ceil(
+        (new Date(range.dateTo).getTime() - new Date(range.dateFrom).getTime()) /
+          86_400_000,
+      ),
+    );
+  } else {
+    const spanResult = await db
+      .select({
+        minDate: sql<string>`MIN(${transactions.date})`,
+        maxDate: sql<string>`MAX(${transactions.date})`,
+      })
+      .from(transactions)
+      .where(and(eq(transactions.userId, userId), eq(transactions.excludedFromAnalysis, false)));
+    const minDate = spanResult[0]?.minDate;
+    const maxDate = spanResult[0]?.maxDate;
+    if (minDate && maxDate && minDate !== maxDate) {
+      periodDays = Math.max(
+        1,
+        Math.ceil(
+          (new Date(maxDate).getTime() - new Date(minDate).getTime()) / 86_400_000,
+        ) + 1, // +1 to include both the first and last day
+      );
+    } else {
+      periodDays = 30; // single-day or empty dataset — default to one month
+    }
+  }
   const months = Math.max(1, periodDays / 30);
 
-  const utilitiesMonthly = (parseFloat(t.utilitiesTotal) || 0) / months;
-  const softwareMonthly  = (parseFloat(t.softwareTotal)  || 0) / months;
+  const utilitiesTotal  = parseFloat(t.utilitiesTotal) || 0;
+  const softwareTotal   = parseFloat(t.softwareTotal)  || 0;
+  const utilitiesMonthly = utilitiesTotal / months;
+  const softwareMonthly  = softwareTotal  / months;
 
   // ── Detector-based recurring & leak calculations ──────────────────────────
   // Running the detector here ensures recurringExpenses is always a stable
@@ -202,6 +239,7 @@ export async function buildDashboardSummary(
   }
 
   return {
+    isAllTime,
     totals: {
       totalInflow,
       totalOutflow,
@@ -218,6 +256,8 @@ export async function buildDashboardSummary(
       safeToSpend: totalInflow - totalOutflow,
       utilitiesMonthly,
       softwareMonthly,
+      utilitiesTotal,
+      softwareTotal,
       periodDays,
     },
     expenseLeaks: {

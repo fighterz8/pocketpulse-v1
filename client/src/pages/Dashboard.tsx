@@ -384,7 +384,7 @@ export function Dashboard() {
     );
   }
 
-  const { totals, categoryBreakdown } = data;
+  const { totals, categoryBreakdown, isAllTime } = data;
 
   // Filter out non-spending categories from the breakdown
   const spendingCategories = categoryBreakdown.filter(
@@ -562,21 +562,21 @@ export function Dashboard() {
         />
       </div>
 
-      {/* ── Row 4: Monthly baselines ───────────────────────────────────── */}
+      {/* ── Row 4: Monthly baselines (or all-time totals) ──────────────── */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <KpiCard
-          label="Utilities / Month"
-          value={currency(totals.utilitiesMonthly)}
-          sub={`${periodLabel} avg`}
+          label={isAllTime ? "Utilities" : "Utilities / Month"}
+          value={isAllTime ? currency(totals.utilitiesTotal) : currency(totals.utilitiesMonthly)}
+          sub={isAllTime ? "All-time total" : `${periodLabel} avg`}
           accent="neutral"
           data-testid="kpi-utilities-monthly"
           index={10}
           href={ledgerUrl({ category: "utilities" }, dateRange)}
         />
         <KpiCard
-          label="Software & Subscriptions / Month"
-          value={currency(totals.softwareMonthly)}
-          sub={`${periodLabel} avg`}
+          label={isAllTime ? "Software & Subscriptions" : "Software & Subscriptions / Month"}
+          value={isAllTime ? currency(totals.softwareTotal) : currency(totals.softwareMonthly)}
+          sub={isAllTime ? "All-time total" : `${periodLabel} avg`}
           accent="neutral"
           data-testid="kpi-software-monthly"
           index={11}

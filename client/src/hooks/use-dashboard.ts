@@ -9,6 +9,7 @@ export type MonthEntry = {
 };
 
 export type DashboardSummary = {
+  isAllTime: boolean;
   totals: {
     totalInflow: number;
     totalOutflow: number;
@@ -22,6 +23,8 @@ export type DashboardSummary = {
     safeToSpend: number;
     utilitiesMonthly: number;
     softwareMonthly: number;
+    utilitiesTotal: number;
+    softwareTotal: number;
     periodDays: number;
   };
   expenseLeaks: {
