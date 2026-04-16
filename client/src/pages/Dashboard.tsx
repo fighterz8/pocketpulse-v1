@@ -56,14 +56,16 @@ function monthToDateRange(month: string): { dateFrom: string; dateTo: string } {
   return { dateFrom: d(from), dateTo: d(to) };
 }
 
-/** Build a /transactions URL with the given query params. */
+/** Build a /transactions URL with the given query params.
+ *  Always includes excluded=false so the visible ledger total matches KPI figures,
+ *  which also exclude rows marked excludedFromAnalysis=true. */
 function ledgerUrl(
   params: Record<string, string | undefined>,
   dateRange?: { dateFrom?: string; dateTo?: string },
 ): string {
   const qp = new URLSearchParams();
-  const all = { ...dateRange, ...params };
-  Object.entries(all).forEach(([k, v]) => { if (v) qp.set(k, v); });
+  const all = { excluded: "false", ...dateRange, ...params };
+  Object.entries(all).forEach(([k, v]) => { if (v !== undefined) qp.set(k, v); });
   const qs = qp.toString();
   return `/transactions${qs ? `?${qs}` : ""}`;
 }
@@ -523,7 +525,7 @@ export function Dashboard() {
         <KpiCard
           label="Recurring Expenses"
           value={currencyShort(totals.recurringExpenses)}
-          sub="Est. monthly baseline · normalized"
+          sub="Recurring outflows · this period"
           accent="red"
           data-testid="kpi-recurring-expenses"
           index={6}
@@ -558,7 +560,6 @@ export function Dashboard() {
           accent="neutral"
           data-testid="kpi-discretionary-spend"
           index={9}
-          href={ledgerUrl({ transactionClass: "expense" }, dateRange)}
         />
       </div>
 

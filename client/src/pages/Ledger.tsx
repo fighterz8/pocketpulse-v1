@@ -36,6 +36,7 @@ export function Ledger() {
   // where the component is already mounted and location changes (e.g. browser back/fwd).
   const filtersFromUrl = (): TransactionFilters => {
     const p = new URLSearchParams(window.location.search);
+    const excludedParam = p.get("excluded");
     return {
       page: 1,
       limit: 50,
@@ -45,6 +46,9 @@ export function Ledger() {
       recurrenceType: p.get("recurrenceType") ?? undefined,
       dateFrom: p.get("dateFrom") ?? undefined,
       dateTo: p.get("dateTo") ?? undefined,
+      excluded: (excludedParam === "true" || excludedParam === "false" || excludedParam === "all")
+        ? (excludedParam as "true" | "false" | "all")
+        : undefined,
     };
   };
 

@@ -115,14 +115,18 @@ export async function buildDashboardSummary(
   ] = await Promise.all([
     db
       .select({
-        totalInflow:        sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow' THEN ${transactions.amount} ELSE 0 END),0)`,
-        totalOutflow:       sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        recurringIncome:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow'  AND ${transactions.recurrenceType}='recurring' THEN ${transactions.amount} ELSE 0 END),0)`,
-        oneTimeIncome:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='inflow'  AND ${transactions.recurrenceType}='one-time'  THEN ${transactions.amount} ELSE 0 END),0)`,
-        oneTimeExpenses:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        discretionarySpend: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.flowType}='outflow' AND ${discIn} THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        utilitiesTotal:     sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='utilities' AND ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        softwareTotal:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='software'  AND ${transactions.flowType}='outflow' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        // Use transactionClass (not flowType) so every aggregate matches the ledger's
+        // transactionClass filter exactly.  flowType includes transfers; transactionClass
+        // does not — the two differ whenever a user has inter-account transfer rows.
+        totalInflow:        sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        totalOutflow:       sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        recurringIncome:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  AND ${transactions.recurrenceType}='recurring' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        recurringExpenses:  sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${transactions.recurrenceType}='recurring' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        oneTimeIncome:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        oneTimeExpenses:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        discretionarySpend: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${discIn} THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        utilitiesTotal:     sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='utilities' AND ${transactions.transactionClass}='expense' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        softwareTotal:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.category}='software'  AND ${transactions.transactionClass}='expense' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
         count: count(),
       })
       .from(transactions)
@@ -135,7 +139,7 @@ export async function buildDashboardSummary(
         count: count(),
       })
       .from(transactions)
-      .where(and(baseWhere, eq(transactions.flowType, "outflow")))
+      .where(and(baseWhere, eq(transactions.transactionClass, "expense")))
       .groupBy(transactions.category)
       .orderBy(sql`SUM(ABS(${transactions.amount})) DESC`),
 
@@ -179,6 +183,7 @@ export async function buildDashboardSummary(
   const totalInflow        = parseFloat(t.totalInflow) || 0;
   const totalOutflow       = parseFloat(t.totalOutflow) || 0;
   const recurringIncome    = parseFloat(t.recurringIncome) || 0;
+  const recurringExpenses  = parseFloat(t.recurringExpenses) || 0;
   const oneTimeIncome      = parseFloat(t.oneTimeIncome) || 0;
   const oneTimeExpenses    = parseFloat(t.oneTimeExpenses) || 0;
   const discretionarySpend = parseFloat(t.discretionarySpend) || 0;
@@ -226,18 +231,14 @@ export async function buildDashboardSummary(
   const utilitiesMonthly = utilitiesTotal / months;
   const softwareMonthly  = softwareTotal  / months;
 
-  // ── Detector-based recurring & leak calculations ──────────────────────────
-  // Running the detector here ensures recurringExpenses is always a stable
-  // monthly baseline (sum of monthlyEquivalent for active recurring candidates)
-  // rather than a raw sum of transactions that happen to fall in the window.
-  // Quarterly/annual charges are correctly normalised to their monthly fraction.
-  const allTxns     = await listAllTransactionsForExport({ userId });
-  const candidates  = detectRecurringCandidates(allTxns as any);
-  const activeCands = candidates.filter((c) => c.isActive);
-
-  const recurringExpenses = Math.round(
-    activeCands.reduce((sum, c) => sum + c.monthlyEquivalent, 0) * 100,
-  ) / 100;
+  // ── Detector-based leak calculations ─────────────────────────────────────
+  // `recurringExpenses` is now a plain SQL aggregate (see totalsResult above),
+  // so it correctly matches the ledger's transactionClass=expense filter and
+  // respects the selected date range and manual recurrenceType edits.
+  // The detector is still needed here to compute leakMonthlyAmount for the
+  // confirmed-leak card, which requires the normalised monthly-equivalent rate.
+  const allTxns    = await listAllTransactionsForExport({ userId });
+  const candidates = detectRecurringCandidates(allTxns as any);
 
   // leakMonthlyAmount: sum of monthlyEquivalent for CONFIRMED leaks only —
   // not a proxy of total recurring outflow.
