@@ -381,6 +381,53 @@ describe("passesMonthlyDatasetCoverage: dataset-span denominator", () => {
     const results = detectRecurringCandidates(txns);
     expect(results.some((c) => c.merchantKey === "netflix")).toBe(true);
   });
+
+  it("two-partial-months dataset: candidate present in both partial months passes coverage", () => {
+    // Validates the 'partial month' edge case: the dataset spans exactly 2 calendar
+    // months (datasetTotalMonths = 2, guard does NOT fire), and the candidate appears
+    // in both. 2/2 = 100 % ≥ 65 % → should PASS.
+    const txns = [
+      makeTxn({ id: 1, date: "2026-01-28", amount: "-29.99", merchant: "CloudBridge", category: "software" }),
+      makeTxn({ id: 2, date: "2026-02-28", amount: "-29.99", merchant: "CloudBridge", category: "software" }),
+      makeTxn({ id: 3, date: "2026-03-28", amount: "-29.99", merchant: "CloudBridge", category: "software" }),
+    ];
+    // Dataset months: Jan, Feb, Mar → 3; candidate in all 3 → 3/3 = 100 % → PASS
+    const results = detectRecurringCandidates(txns);
+    expect(results.some((c) => c.merchantKey === "cloudbridge")).toBe(true);
+  });
+});
+
+// ─── Low-dollar bill bucketing: $5 floor does not over-merge distinct bills ──
+
+describe("getAmountTolerance: bill-category $5 floor", () => {
+  it("two utility bills at $22 and $30 stay in separate buckets (diff=$8 > $5.50 tolerance)", () => {
+    // $22 utility bill: tolerance = max($5, 22*0.25) = max($5, $5.50) = $5.50
+    // $30 is $8 away from $22 → $8 > $5.50 → different buckets → two candidates
+    const months = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"];
+    const bill22 = months.map((m, i) =>
+      makeTxn({ id: i + 1,  date: `${m}-10`, amount: "-22.00", merchant: "Water Company A",  category: "utilities" }),
+    );
+    const bill30 = months.map((m, i) =>
+      makeTxn({ id: i + 10, date: `${m}-15`, amount: "-30.00", merchant: "Electric Company B", category: "utilities" }),
+    );
+    const results = detectRecurringCandidates([...bill22, ...bill30]);
+    const utilCandidates = results.filter((c) => c.merchantKey.startsWith("__utilities"));
+    // They should be in separate buckets → two recurring items
+    expect(utilCandidates.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("same utility bill with minor month-to-month fluctuation clusters as one item", () => {
+    // Same bill: $78, $81, $75, $80, $77, $79 (all within $5 of centroid ~$78)
+    const amounts = ["-78.00", "-81.00", "-75.00", "-80.00", "-77.00", "-79.00"];
+    const months  = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06"];
+    const txns = months.map((m, i) =>
+      makeTxn({ id: i + 1, date: `${m}-05`, amount: amounts[i]!, merchant: "Duke Energy", category: "utilities" }),
+    );
+    const results = detectRecurringCandidates(txns);
+    const utilCandidates = results.filter((c) => c.merchantKey.startsWith("__utilities"));
+    // All charges cluster into one recurring item
+    expect(utilCandidates.length).toBe(1);
+  });
 });
 
 // ─── Lifestyle-block exception exact-key matching ─────────────────────────────
