@@ -230,9 +230,9 @@ function LeakCard({
         <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 sm:min-w-[120px] sm:text-right">
           <div>
             <p className="text-lg font-bold leading-none text-red-500" data-testid={`leak-spend-${slug}`}>
-              {fmt(l.recentSpend)}
+              {fmt(l.recentSpend)}{" "}
+              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">this month</span>
             </p>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">this month</p>
           </div>
           <a
             href={ledgerHref}
