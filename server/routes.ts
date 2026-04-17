@@ -158,13 +158,18 @@ async function syncRecurringCandidates(
     for (const id of c.transactionIds) recurringIds.add(id);
   }
 
-  // Step 1: reset all outflow transactions to "one-time" / "none" EXCEPT rows
+  // Step 1: reset all outflow transactions to "one-time" / "detected" EXCEPT rows
   // where the user has explicitly set a recurrence value (userCorrected=true →
   // labelSource "manual") or a same-merchant propagation carried that value
   // (labelSource "propagated"). User edits are law — the detector never overwrites them.
+  //
+  // recurrenceSource is set to "detected" (not "none") because the batch detector
+  // has now evaluated every outflow row for this user. A reset row means the
+  // detector explicitly found insufficient evidence — that IS a detector determination,
+  // distinguishable from rows the detector never touched (source="none"/"hint").
   await db
     .update(txnTable)
-    .set({ recurrenceType: "one-time", recurrenceSource: "none" })
+    .set({ recurrenceType: "one-time", recurrenceSource: "detected" })
     .where(
       and(
         eq(txnTable.userId, userId),
@@ -178,9 +183,11 @@ async function syncRecurringCandidates(
   // Step 1b: Roll back any previously-promoted recurring-transfer rows that
   // are no longer in the recurring set (stale promotions). Skips user-corrected
   // rows so explicit manual edits are always preserved.
+  // recurrenceSource stays "detected" (set by Step 1) — the detector evaluated
+  // and rejected these rows on this sync cycle.
   await db
     .update(txnTable)
-    .set({ transactionClass: "transfer", labelSource: "rule", recurrenceSource: "none" })
+    .set({ transactionClass: "transfer", labelSource: "rule" })
     .where(
       and(
         eq(txnTable.userId, userId),

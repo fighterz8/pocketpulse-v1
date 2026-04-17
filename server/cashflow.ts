@@ -255,7 +255,9 @@ export function detectLeaks(
     const amountVariance =
       amounts.length > 1 ? Math.max(...amounts) - Math.min(...amounts) : 0;
 
-    const isRecurring = entries.some((e) => e.recurrenceSource === "detected");
+    const isRecurring = entries.some(
+      (e) => e.recurrenceSource === "detected" && e.recurrenceType === "recurring",
+    );
 
     // Build per-category breakdown (sorted by count desc, tiebreak by total desc)
     const catMap: Record<string, { total: number; count: number }> = {};
