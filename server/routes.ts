@@ -854,7 +854,7 @@ export function createApp(options?: CreateAppOptions) {
         recurrenceType: (q.recurrenceType as string) || undefined,
         dateFrom: (q.dateFrom as string) || undefined,
         dateTo: (q.dateTo as string) || undefined,
-        excluded: (q.excluded as "true" | "false" | "all") || undefined,
+        excluded: (q.excluded === "true" || q.excluded === "all") ? (q.excluded as "true" | "all") : "false",
       });
 
       res.json(result);
@@ -1093,7 +1093,7 @@ export function createApp(options?: CreateAppOptions) {
           recurrenceType: q.recurrenceType || undefined,
           dateFrom: q.dateFrom || undefined,
           dateTo: q.dateTo || undefined,
-          excluded: (q.excluded as "true" | "false" | "all") || undefined,
+          excluded: (q.excluded === "true" || q.excluded === "all") ? (q.excluded as "true" | "all") : "false",
         }),
         listAccountsForUser(userId),
       ]);

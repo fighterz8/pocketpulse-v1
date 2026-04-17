@@ -440,7 +440,7 @@ export async function listTransactionsForUser(options: ListTransactionsOptions) 
   const conditions = buildTransactionFilters(options);
   const where = and(...conditions);
 
-  const [rows, totalResult] = await Promise.all([
+  const [rows, totalResult, amountResult] = await Promise.all([
     db
       .select()
       .from(transactions)
@@ -452,9 +452,18 @@ export async function listTransactionsForUser(options: ListTransactionsOptions) 
       .select({ total: count() })
       .from(transactions)
       .where(where),
+    db
+      .select({
+        totalInflow:  sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        totalOutflow: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        totalRefund:  sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='refund'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+      })
+      .from(transactions)
+      .where(where),
   ]);
 
   const total = totalResult[0]?.total ?? 0;
+  const a = amountResult[0];
 
   return {
     transactions: rows,
@@ -463,6 +472,11 @@ export async function listTransactionsForUser(options: ListTransactionsOptions) 
       limit,
       total,
       totalPages: Math.ceil(total / limit),
+    },
+    totals: {
+      totalInflow:  parseFloat(a?.totalInflow  ?? "0") || 0,
+      totalOutflow: parseFloat(a?.totalOutflow ?? "0") || 0,
+      totalRefund:  parseFloat(a?.totalRefund  ?? "0") || 0,
     },
   };
 }

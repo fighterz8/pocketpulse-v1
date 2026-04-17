@@ -27,6 +27,10 @@ function amountColorClass(txnClass: string): string {
   return "";
 }
 
+function currency(n: number): string {
+  return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function Ledger() {
   const { accounts } = useAuth();
   const [location] = useLocation();
@@ -104,6 +108,7 @@ export function Ledger() {
   const {
     transactions,
     pagination,
+    totals,
     isLoading,
     error,
     updateTransaction,
@@ -368,10 +373,37 @@ export function Ledger() {
             </div>
           )}
 
-          {pagination && (
-            <p className="ledger-total-info">
-              {pagination.total} transaction{pagination.total !== 1 ? "s" : ""}
-            </p>
+          {pagination && totals && (
+            <div className="ledger-totals-bar" data-testid="ledger-totals-bar">
+              <span className="ledger-totals-count">
+                {pagination.total} transaction{pagination.total !== 1 ? "s" : ""}
+              </span>
+              <span className="ledger-totals-divider" aria-hidden="true">·</span>
+              {totals.totalInflow > 0 && (
+                <span className="ledger-totals-item ledger-totals-item--inflow" data-testid="ledger-total-inflow">
+                  <span className="ledger-totals-label">Income</span>
+                  <span className="ledger-totals-value">{currency(totals.totalInflow)}</span>
+                </span>
+              )}
+              {totals.totalInflow > 0 && totals.totalOutflow > 0 && (
+                <span className="ledger-totals-divider" aria-hidden="true">·</span>
+              )}
+              {totals.totalOutflow > 0 && (
+                <span className="ledger-totals-item ledger-totals-item--outflow" data-testid="ledger-total-outflow">
+                  <span className="ledger-totals-label">Expenses</span>
+                  <span className="ledger-totals-value">{currency(totals.totalOutflow)}</span>
+                </span>
+              )}
+              {totals.totalRefund > 0 && (
+                <>
+                  <span className="ledger-totals-divider" aria-hidden="true">·</span>
+                  <span className="ledger-totals-item ledger-totals-item--inflow" data-testid="ledger-total-refund">
+                    <span className="ledger-totals-label">Refunds</span>
+                    <span className="ledger-totals-value">{currency(totals.totalRefund)}</span>
+                  </span>
+                </>
+              )}
+            </div>
           )}
         </>
       )}

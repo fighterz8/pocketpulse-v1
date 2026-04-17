@@ -52,6 +52,11 @@ export type TransactionsResponse = {
     total: number;
     totalPages: number;
   };
+  totals: {
+    totalInflow: number;
+    totalOutflow: number;
+    totalRefund: number;
+  };
 };
 
 export type UpdateTransactionInput = {
@@ -168,6 +173,7 @@ export function useTransactions(filters: TransactionFilters) {
   return {
     transactions: query.data?.transactions ?? [],
     pagination: query.data?.pagination ?? null,
+    totals: query.data?.totals ?? null,
     isLoading: query.isPending,
     error: query.error as Error | null,
     updateTransaction: updateMutation,
