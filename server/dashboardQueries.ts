@@ -120,8 +120,13 @@ export async function buildDashboardSummary(
         // does not — the two differ whenever a user has inter-account transfer rows.
         totalInflow:        sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
         totalOutflow:       sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        recurringIncome:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  AND ${transactions.recurrenceType}='recurring' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
-        recurringExpenses:  sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${transactions.recurrenceType}='recurring' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        // Income recurring: detector never runs on inflows, so 'hint' is the
+        // highest possible source for income rows. Accept both 'hint' and 'detected'
+        // for forward compatibility.
+        recurringIncome:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  AND ${transactions.recurrenceType}='recurring' AND ${transactions.recurrenceSource} IN ('hint','detected') THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
+        // Expense recurring: require detector confirmation (recurrenceSource='detected')
+        // so keyword-only hints from before the first detector sync are excluded.
+        recurringExpenses:  sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${transactions.recurrenceType}='recurring' AND ${transactions.recurrenceSource}='detected' THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
         oneTimeIncome:      sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='income'  AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
         oneTimeExpenses:    sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${transactions.recurrenceType}='one-time'  THEN ABS(${transactions.amount}) ELSE 0 END),0)`,
         discretionarySpend: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.transactionClass}='expense' AND ${discIn} THEN ABS(${transactions.amount}) ELSE 0 END),0)`,

@@ -1542,6 +1542,23 @@ export function createApp(options?: CreateAppOptions) {
   // immediately for all existing users without requiring a manual re-upload.
   setImmediate(async () => {
     try {
+      // Step 0: Backfill recurrenceSource for pre-feature rows.
+      // Rows with recurrenceSource='none' but recurrenceType='recurring' were
+      // written before this column existed — they got their recurring label from
+      // a classifier keyword pass (hint), so promote them to 'hint' now.
+      // syncRecurringCandidates (below) will then promote outflow rows to
+      // 'detected' once it evaluates them, making the full corpus consistent.
+      const backfillResult = await db
+        .update(txnTable)
+        .set({ recurrenceSource: "hint" })
+        .where(
+          and(
+            eq(txnTable.recurrenceSource, "none"),
+            eq(txnTable.recurrenceType, "recurring"),
+          ),
+        );
+      console.log(`[startup] recurrenceSource backfill: ${(backfillResult as { rowCount?: number }).rowCount ?? 0} rows promoted to 'hint'`);
+
       const allUsers = await db.select({ id: usersTable.id }).from(usersTable);
       for (const user of allUsers) {
         await syncRecurringCandidates(user.id);
