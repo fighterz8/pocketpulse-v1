@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { reclassifyTransactions } from "./reclassify.js";
+import type { PipelineOutput } from "./classifyPipeline.js";
 
 // Mock classifyPipeline at the boundary — reclassify.ts owns the diff/update
 // logic; the pipeline itself is tested separately in classifyPipeline.test.ts.
@@ -50,7 +51,7 @@ function makeTxn(overrides: Record<string, unknown>) {
   };
 }
 
-function makePipelineOut(overrides: Record<string, unknown> = {}) {
+function makePipelineOut(overrides: Partial<PipelineOutput> = {}): PipelineOutput {
   return {
     merchant: "Netflix Inc",
     amount: -15.99,
