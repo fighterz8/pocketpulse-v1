@@ -10,7 +10,7 @@ import crypto from "crypto";
 import { parse as csvParseSync } from "csv-parse/sync";
 import { doubleCsrfProtection, generateToken, invalidCsrfTokenError } from "./csrf.js";
 import { hashPassword, verifyPassword } from "./auth.js";
-import { classifyTransaction } from "./classifier.js";
+import { classifyPipeline } from "./classifyPipeline.js";
 import { parseCSV } from "./csvParser.js";
 import { detectCsvFormat } from "./csvFormatDetector.js";
 import { ensureUserPreferences, pool } from "./db.js";
@@ -22,12 +22,9 @@ import {
   createUpload,
   createUser,
   deleteAllTransactionsForUser,
-  batchUpsertMerchantClassifications,
   deleteWorkspaceDataForUser,
   DuplicateEmailError,
   getFormatSpec,
-  getMerchantClassifications,
-  getMerchantRules,
   getTransactionById,
   getUserByEmailForAuth,
   getUserById,
@@ -37,7 +34,6 @@ import {
   listTransactionsForUser,
   listUploadsForUser,
   propagateUserCorrection,
-  recordCacheHits,
   saveFormatSpec,
   updateTransaction,
   updateUploadStatus,
@@ -52,7 +48,6 @@ import { db } from "./db.js";
 import { detectRecurringCandidates, recurrenceKey } from "./recurrenceDetector.js";
 import { detectLeaks } from "./cashflow.js";
 import { reclassifyTransactions } from "./reclassify.js";
-import { aiClassifyBatch, type AiClassificationInput, type AiClassificationResult } from "./ai-classifier.js";
 import { transactions as txnTable, users as usersTable } from "../shared/schema.js";
 
 declare module "express-session" {
@@ -754,203 +749,39 @@ export function createApp(options?: CreateAppOptions) {
             continue;
           }
 
-          // Phase 1: rules-based classification (fast, synchronous)
-          const AI_THRESHOLD = 0.5;
-          const txnInputs: Array<{
-            userId: number;
-            uploadId: number;
-            accountId: number;
-            date: string;
-            amount: string;
-            merchant: string;
-            rawDescription: string;
-            flowType: string;
-            transactionClass: string;
-            recurrenceType: string;
-            recurrenceSource: string;
-            category: string;
-            labelSource: string;
-            labelConfidence: string;
-            labelReason: string;
-            aiAssisted: boolean;
-          }> = parseResult.rows.map((row) => {
-            const classification = classifyTransaction(
-              row.description,
-              row.amount,
-            );
-
-            // Normalise amount sign to match the resolved flowType.
-            // The classifier may have flipped the expected direction (e.g. a
-            // positively-signed credit-card payment becomes outflow after the
-            // debt merchant rule fires). Keeping the sign and flowType in sync
-            // prevents the dashboard from double-counting transfers or debts.
-            const effectiveAmount =
-              classification.flowType === "outflow" && row.amount > 0
-                ? -Math.abs(row.amount)
-                : classification.flowType === "inflow" && row.amount < 0
-                  ? Math.abs(row.amount)
-                  : row.amount;
-
-            return {
+          // Classification pipeline: rules → user-rules → cache → AI → cache-writeback.
+          const pipelineOutputs = await classifyPipeline(
+            parseResult.rows.map((r) => ({
+              rawDescription: r.description,
+              amount: r.amount,
+              ambiguous: r.ambiguous,
+            })),
+            {
               userId,
-              uploadId: uploadRecord.id,
-              accountId: fileMeta.accountId,
-              date: row.date,
-              amount: effectiveAmount.toFixed(2),
-              merchant: classification.merchant,
-              rawDescription: row.description,
-              flowType: classification.flowType,
-              transactionClass: classification.transactionClass,
-              recurrenceType: classification.recurrenceType,
-              recurrenceSource: classification.recurrenceSource,
-              category: classification.category,
-              labelSource: classification.labelSource,
-              labelConfidence: classification.labelConfidence.toFixed(2),
-              labelReason: classification.labelReason,
-              // OR with row.ambiguous: rows with an ambiguous amount direction
-              // (positive single-column with no direction hint) also get AI review.
-              aiAssisted: classification.aiAssisted || row.ambiguous,
-            };
-          });
+              aiTimeoutMs: 6_000,
+              aiConfidenceThreshold: 0.5,
+              cacheWriteMinConfidence: 0.7,
+            },
+          );
 
-          // Phase 1.5: apply user-specific merchant rules before AI enrichment.
-          // Rows matched here get labelSource="user-rule" and confidence=1.0
-          // so they are excluded from the AI candidate pool below.
-          const userRules = await getMerchantRules(userId);
-          if (userRules.size > 0) {
-            for (const t of txnInputs) {
-              const key = recurrenceKey(t.merchant);
-              const rule = key ? userRules.get(key) : undefined;
-              if (rule) {
-                if (rule.category) t.category = rule.category;
-                if (rule.transactionClass) t.transactionClass = rule.transactionClass;
-                // Mirror reclassify.ts: only reset recurrenceSource when the rule
-                // explicitly overrides recurrenceType; otherwise preserve the
-                // classifier-derived hint so provenance is not discarded.
-                if (rule.recurrenceType) {
-                  t.recurrenceType = rule.recurrenceType;
-                  t.recurrenceSource = "none";
-                }
-                t.labelSource = "user-rule";
-                t.labelConfidence = "1.00";
-                t.labelReason = `user rule: ${key}`;
-                t.aiAssisted = false;
-              }
-            }
-          }
-
-          // Phase 1.7: merchant classification cache — short-circuits AI for known merchants.
-          // Batch-fetch cache for rows still needing AI, apply hits before the AI call.
-          const txnIndexToKey = new Map<number, string>();
-          const cacheKeyNeeded: string[] = [];
-          for (let i = 0; i < txnInputs.length; i++) {
-            const t = txnInputs[i]!;
-            const conf = parseFloat(t.labelConfidence);
-            if ((conf < AI_THRESHOLD || t.category === "other") && t.labelSource !== "user-rule") {
-              const key = recurrenceKey(t.merchant);
-              if (key) {
-                txnIndexToKey.set(i, key);
-                cacheKeyNeeded.push(key);
-              }
-            }
-          }
-
-          if (cacheKeyNeeded.length > 0) {
-            try {
-              const cacheHits = await getMerchantClassifications(userId, cacheKeyNeeded);
-              const hitKeys: string[] = [];
-              for (const [i, key] of txnIndexToKey) {
-                const hit = cacheHits.get(key);
-                if (!hit) continue;
-                const t = txnInputs[i]!;
-                t.category = hit.category;
-                t.transactionClass = hit.transactionClass;
-                t.recurrenceType = hit.recurrenceType;
-                t.recurrenceSource = "none";
-                t.labelConfidence = hit.labelConfidence.toFixed(2);
-                t.labelReason = `cache hit: ${key} (${hit.source})`;
-                t.labelSource = "cache";
-                t.aiAssisted = false;
-                txnIndexToKey.delete(i);
-                hitKeys.push(key);
-              }
-              if (hitKeys.length > 0) {
-                recordCacheHits(userId, hitKeys).catch(() => undefined);
-              }
-            } catch {
-              // Non-fatal — fall through to AI pass
-            }
-          }
-
-          // Phase 2: AI fallback for low-confidence rows — runs inline before
-          // insert, but races against a 6-second timeout so the upload cannot
-          // be blocked by a slow or unavailable OpenAI response.
-          const aiCandidates: AiClassificationInput[] = [];
-          const txnIndexToAiIdx = new Map<number, number>();
-
-          for (let i = 0; i < txnInputs.length; i++) {
-            const t = txnInputs[i]!;
-            const conf = parseFloat(t.labelConfidence);
-            if ((conf < AI_THRESHOLD || t.category === "other") && t.labelSource !== "user-rule" && t.labelSource !== "cache") {
-              const aiIdx = aiCandidates.length;
-              txnIndexToAiIdx.set(i, aiIdx);
-              aiCandidates.push({
-                index: aiIdx,
-                merchant: t.merchant,
-                rawDescription: t.rawDescription,
-                amount: parseFloat(t.amount),
-                flowType: t.flowType as "inflow" | "outflow",
-              });
-            }
-          }
-
-          if (aiCandidates.length > 0) {
-            const AI_TIMEOUT_MS = 6000;
-            try {
-              const timeout = new Promise<Map<number, AiClassificationResult>>(
-                (resolve) => setTimeout(() => resolve(new Map()), AI_TIMEOUT_MS),
-              );
-              const aiResults = await Promise.race([
-                aiClassifyBatch(aiCandidates),
-                timeout,
-              ]);
-              for (const [txnIdx, aiIdx] of txnIndexToAiIdx) {
-                const aiResult = aiResults.get(aiIdx);
-                if (!aiResult) continue;
-                const t = txnInputs[txnIdx]!;
-                t.category = aiResult.category;
-                t.transactionClass = aiResult.transactionClass;
-                t.recurrenceType = aiResult.recurrenceType;
-                t.recurrenceSource = "none";
-                t.labelConfidence = aiResult.labelConfidence.toFixed(2);
-                t.labelReason = aiResult.labelReason;
-                t.labelSource = "ai";
-                t.aiAssisted = true;
-              }
-              // Write qualifying AI results back to the merchant cache (fire-and-forget).
-              const cacheEntries = [];
-              for (const [txnIdx, aiIdx] of txnIndexToAiIdx) {
-                const aiResult = aiResults.get(aiIdx);
-                if (!aiResult || aiResult.labelConfidence < 0.7) continue;
-                const t = txnInputs[txnIdx]!;
-                const key = recurrenceKey(t.merchant);
-                if (!key) continue;
-                cacheEntries.push({
-                  merchantKey: key,
-                  category: aiResult.category,
-                  transactionClass: aiResult.transactionClass,
-                  recurrenceType: aiResult.recurrenceType,
-                  labelConfidence: aiResult.labelConfidence,
-                  source: "ai" as const,
-                });
-              }
-              if (cacheEntries.length > 0) {
-                batchUpsertMerchantClassifications(userId, cacheEntries, 0.7).catch(() => undefined);
-              }
-            } catch {
-              // AI unavailable — keep rules results, upload succeeds regardless
-            }
-          }
+          const txnInputs = pipelineOutputs.map((out, i) => ({
+            userId,
+            uploadId: uploadRecord.id,
+            accountId: fileMeta.accountId,
+            date: parseResult.rows[i]!.date,
+            amount: out.amount.toFixed(2),
+            merchant: out.merchant,
+            rawDescription: parseResult.rows[i]!.description,
+            flowType: out.flowType,
+            transactionClass: out.transactionClass,
+            recurrenceType: out.recurrenceType,
+            recurrenceSource: out.recurrenceSource,
+            category: out.category,
+            labelSource: out.labelSource,
+            labelConfidence: out.labelConfidence.toFixed(2),
+            labelReason: out.labelReason,
+            aiAssisted: out.aiAssisted,
+          }));
 
           const { insertedCount, previouslyImported, intraBatchDuplicates } =
             await createTransactionBatch(txnInputs, sessionSeen);
