@@ -824,8 +824,13 @@ export function createApp(options?: CreateAppOptions) {
               if (rule) {
                 if (rule.category) t.category = rule.category;
                 if (rule.transactionClass) t.transactionClass = rule.transactionClass;
-                if (rule.recurrenceType) t.recurrenceType = rule.recurrenceType;
-                t.recurrenceSource = "none";
+                // Mirror reclassify.ts: only reset recurrenceSource when the rule
+                // explicitly overrides recurrenceType; otherwise preserve the
+                // classifier-derived hint so provenance is not discarded.
+                if (rule.recurrenceType) {
+                  t.recurrenceType = rule.recurrenceType;
+                  t.recurrenceSource = "none";
+                }
                 t.labelSource = "user-rule";
                 t.labelConfidence = "1.00";
                 t.labelReason = `user rule: ${key}`;
