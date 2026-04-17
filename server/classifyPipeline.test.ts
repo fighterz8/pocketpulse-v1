@@ -167,6 +167,25 @@ describe("Resolution step 3 — global merchant_classifications_global seed", ()
     expect(out!.category).toBe("medical");
     expect(out!.labelSource).toBe("cache");
   });
+
+  it("global seed overrides a high-confidence structural keyword match", async () => {
+    // "restaurant" is a structural keyword (dining, 0.80 confidence → needsAi=false at threshold=0.5).
+    // A global seed entry for this merchant should override the structural result.
+    const desc = "POCKETPULSE RESTAURANT GLOBAL OVERRIDE";
+    const key = toMerchantKey(desc);
+    await seedGlobal(key, "business");  // global seed: business
+
+    // Use production-like threshold (0.5) so structural "dining" match gives needsAi=false
+    const [out] = await classifyPipeline(
+      [row(desc, -75)],
+      { ...aiOpts(), aiTimeoutMs: 100 },
+    );
+    expect(out).toBeTruthy();
+    // Structural rules say "dining" but global seed wins
+    expect(out!.category).toBe("business");
+    expect(out!.labelSource).toBe("cache");
+    expect(out!.fromCache).toBe(true);
+  });
 });
 
 describe("Resolution step 4 — structural keyword rules (classifier.ts)", () => {

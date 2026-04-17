@@ -250,13 +250,15 @@ export async function classifyPipeline(
   }
 
   // ── Phase 1.8: global seed lookup ─────────────────────────────────────────
-  // Resolution order: per-user cache (1.7) → global seed (1.8) → AI (2).
-  // Queries merchant_classifications_global which is populated at boot from
-  // RULE_SEED_ENTRIES and is shared across all users. Non-fatal on error.
-  const stillNeedingGlobal = internal.filter((r) => r.needsAi);
-  if (stillNeedingGlobal.length > 0) {
+  // Runs for ALL rows not resolved by user-rules or per-user cache, so that
+  // global seed entries can override even high-confidence structural keyword matches.
+  // Required resolution order: user-rules (1.5) → per-user cache (1.7) → global seed (1.8) → structural → AI.
+  const globalEligible = internal.filter(
+    (r) => r.labelSource !== "user-rule" && r.labelSource !== "cache",
+  );
+  if (globalEligible.length > 0) {
     try {
-      const globalKeys = stillNeedingGlobal
+      const globalKeys = globalEligible
         .map((r) => recurrenceKey(r.merchant))
         .filter(Boolean) as string[];
 
@@ -264,7 +266,7 @@ export async function classifyPipeline(
         const globalHits = await getGlobalMerchantClassifications(globalKeys);
         const hitKeys: string[] = [];
 
-        for (const row of stillNeedingGlobal) {
+        for (const row of globalEligible) {
           const key = recurrenceKey(row.merchant);
           if (!key) continue;
           const hit = globalHits.get(key);
