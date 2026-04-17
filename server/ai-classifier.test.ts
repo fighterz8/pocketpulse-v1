@@ -11,6 +11,8 @@ import { describe, it, expect } from "vitest";
 import { V1_CATEGORIES } from "../shared/schema.js";
 import { _AI_SYSTEM_PROMPT } from "./ai-classifier.js";
 
+const VALID_TRANSACTION_CLASSES = new Set(["income", "expense", "transfer", "refund"]);
+
 /**
  * Extract category names from the "Category definitions" block of the prompt.
  * Each definition line looks like:  "- categoryname: description text"
@@ -24,17 +26,12 @@ function extractDefinedCategories(prompt: string): string[] {
 
   let inDefinitionsBlock = false;
   for (const line of lines) {
-    if (line.startsWith("Category definitions")) {
+    if (/^Category definitions/i.test(line)) {
       inDefinitionsBlock = true;
       continue;
     }
-    // Exit the definitions block when we hit an empty line followed by a non-bullet line
-    if (inDefinitionsBlock && line.trim() === "") {
-      // peek: next non-blank line might start a new section
-      // We stop when we see a line that is not a bullet and not blank
-      continue;
-    }
-    if (inDefinitionsBlock && line.startsWith("For each transaction")) {
+    // Exit the definitions block when we reach the next section header
+    if (inDefinitionsBlock && /^For each transaction/i.test(line.trim())) {
       break;
     }
     if (inDefinitionsBlock) {
@@ -48,27 +45,37 @@ function extractDefinedCategories(prompt: string): string[] {
 }
 
 /**
- * Extract all words that appear as values in decision-rule examples of the form
- * category="word" or use "word" in the Decision rules block.
+ * Extract ALL category-like token references from the entire prompt string.
+ * Looks for patterns that unambiguously set a category value:
+ *   - category="foo" or category='foo'
+ *   - use "foo" / Use "foo" (case-insensitive)
+ *   - prefer "foo" / Prefer "foo" (case-insensitive)
+ *   - category-like token anywhere in quoted assignment context
+ *
+ * This is case-insensitive so it catches all capitalisation variants.
  */
-function extractDecisionRuleCategories(prompt: string): string[] {
+function extractAllCategoryReferences(prompt: string): string[] {
   const found: string[] = [];
-  // Match: category="foo" or category='foo'
-  const quotedEq = /category=["']([a-z_]+)["']/g;
+
+  // 1. category="foo" or category='foo'  (anywhere in the prompt)
+  const quotedEq = /category=["']([a-z_]+)["']/gi;
   let m: RegExpExecArray | null;
   while ((m = quotedEq.exec(prompt)) !== null) {
-    found.push(m[1]!);
+    found.push(m[1]!.toLowerCase());
   }
-  // Match: use "foo" for ... or use "foo" as ... patterns
-  const useQuoted = /\buse "([a-z_]+)"/g;
-  while ((m = useQuoted.exec(prompt)) !== null) {
-    found.push(m[1]!);
+
+  // 2. use "foo" for ...  — case-insensitive
+  const usePattern = /\buse\s+"([a-z_]+)"/gi;
+  while ((m = usePattern.exec(prompt)) !== null) {
+    found.push(m[1]!.toLowerCase());
   }
-  // Match: Prefer "foo" over ... patterns
-  const preferQuoted = /\bPrefer "([a-z_]+)"/g;
-  while ((m = preferQuoted.exec(prompt)) !== null) {
-    found.push(m[1]!);
+
+  // 3. prefer "foo" over ...  — case-insensitive
+  const preferPattern = /\bprefer\s+"([a-z_]+)"/gi;
+  while ((m = preferPattern.exec(prompt)) !== null) {
+    found.push(m[1]!.toLowerCase());
   }
+
   return [...new Set(found)];
 }
 
@@ -93,16 +100,15 @@ describe("AI classifier SYSTEM_PROMPT drift prevention", () => {
     }
   });
 
-  it("every category referenced in decision rules is a valid V1_CATEGORY or a transactionClass", () => {
-    const VALID_TRANSACTION_CLASSES = new Set(["income", "expense", "transfer", "refund"]);
-    const ruleCategories = extractDecisionRuleCategories(prompt);
+  it("every category referenced anywhere in the prompt is valid (case-insensitive)", () => {
+    const allRefs = extractAllCategoryReferences(prompt);
 
-    for (const cat of ruleCategories) {
+    for (const cat of allRefs) {
       const isValidCategory = (V1_CATEGORIES as readonly string[]).includes(cat);
       const isValidClass = VALID_TRANSACTION_CLASSES.has(cat);
       expect(
         isValidCategory || isValidClass,
-        `"${cat}" appears in decision rules but is neither a V1_CATEGORY nor a valid transactionClass`
+        `"${cat}" appears as a category reference but is neither a V1_CATEGORY nor a valid transactionClass`
       ).toBe(true);
     }
   });
@@ -113,28 +119,52 @@ describe("AI classifier SYSTEM_PROMPT drift prevention", () => {
       "subscriptions",
       "transportation",
       "health",
-      "transfers",  // transactionClass, should never be a category value
     ];
 
-    // We check only in the Category definitions block, not in prose
-    const defined = extractDefinedCategories(prompt);
+    const allRefs = new Set(extractAllCategoryReferences(prompt));
     for (const bad of knownBadCategories) {
       expect(
-        defined,
-        `"${bad}" must not appear as a category definition — it is not in V1_CATEGORIES`
-      ).not.toContain(bad);
+        allRefs.has(bad),
+        `"${bad}" must not appear as a category reference — it is not in V1_CATEGORIES`
+      ).toBe(false);
     }
   });
 
-  it("all V1_CATEGORIES except 'other' have a definition in the prompt", () => {
+  it("all V1_CATEGORIES have a definition in the prompt", () => {
     const defined = new Set(extractDefinedCategories(prompt));
-    const categoriesNeedingDefinition = V1_CATEGORIES.filter((c) => c !== "other");
 
-    for (const cat of categoriesNeedingDefinition) {
+    for (const cat of V1_CATEGORIES) {
       expect(
         defined.has(cat),
         `V1_CATEGORY "${cat}" has no definition in the Category definitions block of SYSTEM_PROMPT`
       ).toBe(true);
     }
+  });
+
+  it("the allowed-category list in the prompt is derived from V1_CATEGORIES (no extra or missing entries)", () => {
+    // Extract the inline list block: lines matching "- categoryname" in the
+    // "Use ONLY the following categories" section.
+    const lines = prompt.split("\n");
+    const listItems: string[] = [];
+    let inList = false;
+    for (const line of lines) {
+      if (/Use ONLY the following categories/i.test(line)) {
+        inList = true;
+        continue;
+      }
+      if (inList && line.trim() === "") {
+        // blank line ends the list
+        if (listItems.length > 0) break;
+        continue;
+      }
+      if (inList) {
+        const m = /^- ([a-z_]+)$/.exec(line.trim());
+        if (m) listItems.push(m[1]!);
+        else if (listItems.length > 0) break; // non-bullet after items = end of list
+      }
+    }
+
+    expect(listItems.length).toBeGreaterThan(0);
+    expect(new Set(listItems)).toEqual(new Set(V1_CATEGORIES));
   });
 });
