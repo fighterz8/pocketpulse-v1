@@ -204,6 +204,14 @@ function LeakCard({
                 Subscription-like
               </span>
             )}
+            {typeof l.firstDate === "string" && l.firstDate >= startDate && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700"
+                data-testid={`leak-new-${slug}`}
+              >
+                New this period
+              </span>
+            )}
           </div>
 
           {/* Bucket label */}
@@ -310,8 +318,33 @@ export function Leaks() {
     staleTime: 60_000,
   });
 
-  const totalFlagged = leaks.reduce((s, l) => s + l.recentSpend, 0);
-  const totalMonthly = leaks.reduce((s, l) => s + l.monthlyAmount, 0);
+  const totals = leaks.reduce(
+    (acc, l) => {
+      acc.all.flagged += l.recentSpend;
+      acc.all.count   += 1;
+      if (l.confidence === "High") {
+        acc.high.flagged += l.recentSpend; acc.high.count += 1;
+      } else if (l.confidence === "Medium") {
+        acc.medium.flagged += l.recentSpend; acc.medium.count += 1;
+      } else {
+        acc.low.flagged += l.recentSpend; acc.low.count += 1;
+      }
+      return acc;
+    },
+    {
+      all:    { flagged: 0, count: 0 },
+      high:   { flagged: 0, count: 0 },
+      medium: { flagged: 0, count: 0 },
+      low:    { flagged: 0, count: 0 },
+    },
+  );
+
+  const sortedLeaks = [...leaks].sort((a, b) => {
+    const aNew = typeof a.firstDate === "string" && a.firstDate >= startDate ? 1 : 0;
+    const bNew = typeof b.firstDate === "string" && b.firstDate >= startDate ? 1 : 0;
+    if (aNew !== bNew) return bNew - aNew;
+    return b.recentSpend - a.recentSpend;
+  });
 
   const pageHeader = (
     <motion.div className="mb-4" variants={fadeUp} initial="hidden" animate="visible" custom={0}>
@@ -344,12 +377,18 @@ export function Leaks() {
       data-testid="leaks-summary-inline"
       variants={fadeUp} initial="hidden" animate="visible" custom={2}
     >
-      {leaks.length} leak{leaks.length !== 1 ? "s" : ""} detected in{" "}
+      {totals.all.count} leak{totals.all.count !== 1 ? "s" : ""} detected in{" "}
       <span className="text-slate-700 dark:text-slate-200">{monthLabelStr}</span>
       {" "}·{" "}
-      <span className="text-red-500">{fmt(totalFlagged)} flagged</span>
-      {totalMonthly > 0 && (
-        <span className="text-slate-500 font-normal"> (~{fmtShort(totalMonthly)}/mo)</span>
+      <span className="text-red-500">{fmt(totals.all.flagged)} flagged</span>
+      {totals.high.count > 0 && (
+        <span className="text-emerald-600 font-normal"> · {totals.high.count} high</span>
+      )}
+      {totals.medium.count > 0 && (
+        <span className="text-amber-600 font-normal"> · {totals.medium.count} medium</span>
+      )}
+      {totals.low.count > 0 && (
+        <span className="text-slate-400 font-normal"> · {totals.low.count} low</span>
       )}
     </motion.p>
   );
@@ -395,7 +434,7 @@ export function Leaks() {
       {monthSelector}
       {summaryLine}
       <div className="flex flex-col gap-3">
-        {leaks.map((l, i) => (
+        {sortedLeaks.map((l, i) => (
           <LeakCard
             key={l.merchantKey}
             leak={l}

@@ -3,6 +3,8 @@
  *   (a) mutual exclusion with recurring merchant keys
  *   (b) catch-all repeat-purchase rule for unfamiliar categories
  *   (c) inactive recurring merchants (not in exclusion set) can surface as leaks
+ * Plus Task #49 requirements:
+ *   (d) rangeDays parameter governs monthlyAmount normalisation
  */
 
 import { describe, expect, it } from "vitest";
@@ -49,6 +51,7 @@ describe("detectLeaks: recurringMerchantKeys mutual exclusion", () => {
   it("merchant in recurringMerchantKeys is excluded from leaks entirely", () => {
     const txns = monthlyTxns("Netflix.com", "-15.99", "entertainment", 6);
     const leaks = detectLeaks(txns, {
+      rangeDays: 180,
       recurringMerchantKeys: new Set(["netflix"]),
     });
     expect(leaks.some((l) => l.merchantKey === "netflix")).toBe(false);
@@ -57,6 +60,7 @@ describe("detectLeaks: recurringMerchantKeys mutual exclusion", () => {
   it("same merchant NOT in recurringMerchantKeys still appears as a leak", () => {
     const txns = monthlyTxns("Hulu.com", "-7.99", "entertainment", 6);
     const leaks = detectLeaks(txns, {
+      rangeDays: 180,
       recurringMerchantKeys: new Set(["netflix"]), // hulu not in the set
     });
     expect(leaks.some((l) => l.merchantKey === "hulu")).toBe(true);
@@ -66,6 +70,7 @@ describe("detectLeaks: recurringMerchantKeys mutual exclusion", () => {
     // Starbucks 4× counts as convenience leak — but if it were in the recurring set, skip it
     const txns = monthlyTxns("Starbucks", "-8.50", "coffee", 4);
     const leaks = detectLeaks(txns, {
+      rangeDays: 120,
       recurringMerchantKeys: new Set(["starbucks"]),
     });
     expect(leaks.find((l) => l.merchantKey === "starbucks")).toBeUndefined();
@@ -79,7 +84,7 @@ describe("detectLeaks: catch-all repeat-purchase rule", () => {
     // 'banking' is NOT in ESSENTIAL_LEAK_EXCLUSIONS, NOT in DISCRETIONARY_CATEGORIES,
     // NOT in CATCH_ALL_HARD_EXCLUSIONS — so only the catch-all rule qualifies it → Low confidence.
     const txns = monthlyTxns("QuickPay ProcessingFee", "-30.00", "banking", 3);
-    const leaks = detectLeaks(txns);
+    const leaks = detectLeaks(txns, { rangeDays: 90 });
     const found = leaks.find((l) => l.merchantKey === "quickpay processingfee");
     expect(found).toBeDefined();
     expect(found!.confidence).toBe("Low");
@@ -90,7 +95,7 @@ describe("detectLeaks: catch-all repeat-purchase rule", () => {
     // 'software' is now outside ESSENTIAL_LEAK_EXCLUSIONS and outside DISCRETIONARY_CATEGORIES.
     // 3 txns of $35 each = total $105 ≥ $75, avg $35 ≥ $25 → catch-all fires → Low confidence.
     const txns = monthlyTxns("DevToolX", "-35.00", "software", 3);
-    const leaks = detectLeaks(txns);
+    const leaks = detectLeaks(txns, { rangeDays: 90 });
     const found = leaks.find((l) => l.merchantKey === "devtoolx");
     expect(found).toBeDefined();
     expect(found!.confidence).toBe("Low");
@@ -98,7 +103,7 @@ describe("detectLeaks: catch-all repeat-purchase rule", () => {
 
   it("housing category merchant is NEVER surfaced by catch-all (hard exclusion)", () => {
     const txns = monthlyTxns("Mortgage Payment", "-1500.00", "housing", 6);
-    const leaks = detectLeaks(txns);
+    const leaks = detectLeaks(txns, { rangeDays: 180 });
     expect(leaks.some((l) => l.merchantKey.includes("mortgage"))).toBe(false);
   });
 
@@ -107,21 +112,21 @@ describe("detectLeaks: catch-all repeat-purchase rule", () => {
       makeTx({ merchant: "RareSoftwareTool", amount: "-49.99", category: "other", date: "2026-01-15" }),
       makeTx({ merchant: "RareSoftwareTool", amount: "-49.99", category: "other", date: "2026-02-15" }),
     ];
-    const leaks = detectLeaks(txns);
+    const leaks = detectLeaks(txns, { rangeDays: 60 });
     expect(leaks.some((l) => l.merchantKey === "raresoftwaretool")).toBe(false);
   });
 
   it("catch-all requires avg ≥$25 — low-average-amount merchant below threshold is not surfaced", () => {
     // avg = $10, total = $30 — both below thresholds
     const txns = monthlyTxns("TinyPurchase", "-10.00", "other", 3);
-    const leaks = detectLeaks(txns);
+    const leaks = detectLeaks(txns, { rangeDays: 90 });
     expect(leaks.some((l) => l.merchantKey === "tinypurchase")).toBe(false);
   });
 
   it("software category repeat purchases now surface as leaks (software removed from exclusion list)", () => {
     // A software tool bought 3× at $35/ea with category 'software' — NOT in CATCH_ALL_HARD_EXCLUSIONS
     const txns = monthlyTxns("SomeDevTool", "-35.00", "software", 3);
-    const leaks = detectLeaks(txns);
+    const leaks = detectLeaks(txns, { rangeDays: 90 });
     const found = leaks.find((l) => l.merchantKey === "somedevtool");
     expect(found).toBeDefined();
     expect(found!.confidence).toBe("Low");
@@ -136,6 +141,7 @@ describe("detectLeaks: inactive recurring merchants", () => {
     const txns = monthlyTxns("Netflix.com", "-15.99", "entertainment", 4);
     // Empty exclusion set = no active recurring candidates
     const leaks = detectLeaks(txns, {
+      rangeDays: 120,
       recurringMerchantKeys: new Set<string>(), // netflix is NOT excluded
     });
     expect(leaks.some((l) => l.merchantKey === "netflix")).toBe(true);
@@ -148,10 +154,39 @@ describe("detectLeaks: inactive recurring merchants", () => {
 
     // Only netflix is currently active; hulu is inactive (not in the set)
     const leaks = detectLeaks(all, {
+      rangeDays: 180,
       recurringMerchantKeys: new Set(["netflix"]),
     });
 
     expect(leaks.some((l) => l.merchantKey === "netflix")).toBe(false); // excluded
     expect(leaks.some((l) => l.merchantKey === "hulu")).toBe(true);     // not excluded
+  });
+});
+
+// ─── (d) rangeDays parameter governs monthlyAmount ───────────────────────────
+
+describe("detectLeaks: rangeDays parameter", () => {
+  it("uses the provided rangeDays, not the transactions' date span", () => {
+    // 4 transactions clustered in a single week
+    const txns = [
+      makeTx({ merchant: "CoffeeBar", amount: "-6.00", category: "coffee", date: "2026-03-01" }),
+      makeTx({ merchant: "CoffeeBar", amount: "-6.00", category: "coffee", date: "2026-03-03" }),
+      makeTx({ merchant: "CoffeeBar", amount: "-6.00", category: "coffee", date: "2026-03-05" }),
+      makeTx({ merchant: "CoffeeBar", amount: "-6.00", category: "coffee", date: "2026-03-07" }),
+    ];
+    // Query window = 90 days → monthFactor = 3 → monthlyAmount = $24 / 3 = $8
+    const leaks = detectLeaks(txns, { rangeDays: 90 });
+    const leak = leaks.find((l) => l.merchantKey === "coffeebar");
+    expect(leak).toBeDefined();
+    expect(leak!.monthlyAmount).toBeCloseTo(8.0, 1);
+    expect(leak!.recentSpend).toBeCloseTo(24.0, 1);
+  });
+
+  it("a 30-day window makes monthlyAmount equal totalSpend", () => {
+    const txns = monthlyTxns("Pizza Place", "-20.00", "dining", 4);
+    const leaks = detectLeaks(txns, { rangeDays: 30 });
+    const leak = leaks.find((l) => l.merchantKey === "pizza place");
+    expect(leak).toBeDefined();
+    expect(leak!.monthlyAmount).toBeCloseTo(leak!.recentSpend, 1);
   });
 });

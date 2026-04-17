@@ -157,17 +157,6 @@ function getMonthFactor(rangeDays: number): number {
   return Math.max(1, rangeDays / 30);
 }
 
-function getRangeDaysFromTransactions(txns: TxRow[]): number {
-  const dates = txns.map((t) => t.date).filter(Boolean).sort();
-  if (dates.length < 2) return 30;
-  const minDate = new Date(`${dates[0]}T00:00:00Z`);
-  const maxDate = new Date(`${dates[dates.length - 1]}T00:00:00Z`);
-  return Math.max(
-    1,
-    Math.floor((maxDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24)) + 1,
-  );
-}
-
 // ─── Core algorithm ───────────────────────────────────────────────────────────
 
 /**
@@ -181,9 +170,11 @@ function getRangeDaysFromTransactions(txns: TxRow[]): number {
  * @param txns   Flat transaction rows (all classes/flow-types are accepted — the
  *               function itself filters to `transactionClass === "expense"` and
  *               excludes the essential category set).
- * @param options.rangeDays             Explicit date-window length in days. When omitted the
- *                                      function calculates it from the earliest → latest date
- *                                      found in the provided transactions.
+ * @param options.rangeDays             The query-window length in days (required). Used to
+ *                                      normalise monthlyAmount so it reflects the actual
+ *                                      period the user is looking at, not the transactions'
+ *                                      own date span (which can be much shorter and would
+ *                                      artificially inflate the per-month figure).
  * @param options.recurringMerchantKeys Normalized merchant keys (output of recurrenceKey())
  *                                      of currently active recurring candidates. Any merchant
  *                                      whose key appears in this set is SKIPPED — preventing
@@ -192,9 +183,9 @@ function getRangeDaysFromTransactions(txns: TxRow[]): number {
  */
 export function detectLeaks(
   txns: TxRow[],
-  options: { rangeDays?: number; recurringMerchantKeys?: ReadonlySet<string> } = {},
+  options: { rangeDays: number; recurringMerchantKeys?: ReadonlySet<string> },
 ): LeakItem[] {
-  const rangeDays = options.rangeDays ?? getRangeDaysFromTransactions(txns);
+  const rangeDays = options.rangeDays;
   const monthFactor = getMonthFactor(rangeDays);
   const recurringKeys = options.recurringMerchantKeys ?? new Set<string>();
 
