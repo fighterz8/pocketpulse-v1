@@ -76,29 +76,6 @@ describe("Leaks page", () => {
     });
   });
 
-  it("shows confidence breakdown in summary with count and dollar subtotal", async () => {
-    renderLeaks();
-    await waitFor(() => {
-      const summary = document.querySelector("[data-testid='leaks-summary-inline']");
-      expect(summary).toBeInTheDocument();
-      // High segment: count + dollar subtotal
-      expect(summary!.textContent).toMatch(/High: 1 \(\$24\.00\)/);
-    });
-  });
-
-  it("hides zero-count confidence segments in summary", async () => {
-    renderLeaks();
-    await waitFor(() => {
-      // MOCK_LEAK has confidence "High" only — Medium and Low should not render.
-      expect(
-        document.querySelector("[data-testid='leaks-summary-medium']"),
-      ).not.toBeInTheDocument();
-      expect(
-        document.querySelector("[data-testid='leaks-summary-low']"),
-      ).not.toBeInTheDocument();
-    });
-  });
-
   it("shows empty state when no leaks returned", async () => {
     vi.stubGlobal("fetch", makeMockFetch([]));
     renderLeaks();

@@ -89,11 +89,6 @@ function categoryColor(cat: string): string {
   return CATEGORY_COLORS[cat] ?? "bg-slate-100 text-slate-600";
 }
 
-const CONFIDENCE_DOT: Record<string, string> = {
-  High:   "bg-emerald-600",
-  Medium: "bg-amber-500",
-  Low:    "bg-slate-400",
-};
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -294,23 +289,11 @@ export function Leaks() {
 
   const totals = leaks.reduce(
     (acc, l) => {
-      acc.all.flagged += l.recentSpend;
-      acc.all.count   += 1;
-      if (l.confidence === "High") {
-        acc.high.flagged += l.recentSpend; acc.high.count += 1;
-      } else if (l.confidence === "Medium") {
-        acc.medium.flagged += l.recentSpend; acc.medium.count += 1;
-      } else {
-        acc.low.flagged += l.recentSpend; acc.low.count += 1;
-      }
+      acc.flagged += l.recentSpend;
+      acc.count   += 1;
       return acc;
     },
-    {
-      all:    { flagged: 0, count: 0 },
-      high:   { flagged: 0, count: 0 },
-      medium: { flagged: 0, count: 0 },
-      low:    { flagged: 0, count: 0 },
-    },
+    { flagged: 0, count: 0 },
   );
 
   const sortedLeaks = [...leaks].sort((a, b) => {
@@ -351,37 +334,10 @@ export function Leaks() {
       data-testid="leaks-summary-inline"
       variants={fadeUp} initial="hidden" animate="visible" custom={2}
     >
-      {totals.all.count} leak{totals.all.count !== 1 ? "s" : ""} detected in{" "}
+      {totals.count} leak{totals.count !== 1 ? "s" : ""} detected in{" "}
       <span className="text-slate-700 dark:text-slate-200">{monthLabelStr}</span>
       {" "}·{" "}
-      <span className="text-red-500">{fmt(totals.all.flagged)} flagged</span>
-      {totals.high.count > 0 && (
-        <span className="font-normal" data-testid="leaks-summary-high">
-          {" "}·{" "}
-          <span className={`inline-block w-2 h-2 rounded-full align-middle mr-0.5 ${CONFIDENCE_DOT.High}`} />
-          <span className="text-emerald-700 dark:text-emerald-400">
-            High: {totals.high.count} ({fmt(totals.high.flagged)})
-          </span>
-        </span>
-      )}
-      {totals.medium.count > 0 && (
-        <span className="font-normal" data-testid="leaks-summary-medium">
-          {" "}·{" "}
-          <span className={`inline-block w-2 h-2 rounded-full align-middle mr-0.5 ${CONFIDENCE_DOT.Medium}`} />
-          <span className="text-amber-700 dark:text-amber-400">
-            Medium: {totals.medium.count} ({fmt(totals.medium.flagged)})
-          </span>
-        </span>
-      )}
-      {totals.low.count > 0 && (
-        <span className="font-normal" data-testid="leaks-summary-low">
-          {" "}·{" "}
-          <span className={`inline-block w-2 h-2 rounded-full align-middle mr-0.5 ${CONFIDENCE_DOT.Low}`} />
-          <span className="text-slate-500 dark:text-slate-400">
-            Low: {totals.low.count} ({fmt(totals.low.flagged)})
-          </span>
-        </span>
-      )}
+      <span className="text-red-500">{fmt(totals.flagged)} flagged</span>
     </motion.p>
   );
 
