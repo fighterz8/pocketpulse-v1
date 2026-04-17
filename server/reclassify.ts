@@ -36,6 +36,7 @@ type IntermediateRow = {
   labelReason: string;
   needsAi: boolean;
   userRule: boolean;
+  fromCache: boolean;
 };
 
 export async function reclassifyTransactions(
@@ -98,6 +99,7 @@ export async function reclassifyTransactions(
           classification.labelConfidence < AI_CONFIDENCE_THRESHOLD ||
           classification.category === "other",
         userRule: false,
+        fromCache: false,
       });
     } catch {
       result.unchanged++;
@@ -152,6 +154,7 @@ export async function reclassifyTransactions(
         row.labelConfidence = hit.labelConfidence;
         row.labelReason = `cache hit: ${key} (${hit.source})`;
         row.needsAi = false;
+        row.fromCache = true;
         hitKeys.push(key);
       }
 
@@ -253,8 +256,14 @@ export async function reclassifyTransactions(
       }
     }
 
-    // Compute the final label source based on whether AI applied.
-    const finalLabelSource = aiAssisted ? "ai" : row.userRule ? "user-rule" : "rule";
+    // Compute the final label source based on how the classification was resolved.
+    const finalLabelSource = aiAssisted
+      ? "ai"
+      : row.userRule
+        ? "user-rule"
+        : row.fromCache
+          ? "cache"
+          : "rule";
 
     // Treat AI-applied metadata changes as "changed" even when category/class
     // stayed the same, so that aiAssisted=true / labelSource=ai / updated

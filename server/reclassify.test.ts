@@ -4,12 +4,22 @@ import { reclassifyTransactions } from "./reclassify.js";
 vi.mock("./storage.js", () => ({
   listAllTransactionsForExport: vi.fn(),
   bulkUpdateTransactions: vi.fn().mockResolvedValue(undefined),
+  getMerchantRules: vi.fn().mockResolvedValue(new Map()),
+  getUserCorrectionExamples: vi.fn().mockResolvedValue([]),
+  getMerchantClassifications: vi.fn().mockResolvedValue(new Map()),
+  batchUpsertMerchantClassifications: vi.fn().mockResolvedValue(undefined),
+  recordCacheHits: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { listAllTransactionsForExport, bulkUpdateTransactions } from "./storage.js";
+import {
+  listAllTransactionsForExport,
+  bulkUpdateTransactions,
+  getMerchantClassifications,
+} from "./storage.js";
 
 const mockList = vi.mocked(listAllTransactionsForExport);
 const mockBulkUpdate = vi.mocked(bulkUpdateTransactions);
+const mockGetMerchantClassifications = vi.mocked(getMerchantClassifications);
 
 function makeTxn(overrides: Record<string, unknown>) {
   return {
@@ -103,5 +113,52 @@ describe("reclassifyTransactions", () => {
 
     expect(result.total).toBe(0);
     expect(result.updated).toBe(0);
+  });
+
+  it("applies cache hit and persists labelSource='cache' without calling AI", async () => {
+    // Use a description the rules classifier cannot resolve (produces category="other").
+    // classifyTransaction("ACME CONSULTING SERVICES 8473", -99) → merchant="Acme Consulting Services",
+    // category="other", needsAi=true, recurrenceKey → "acme consulting services".
+    mockList.mockResolvedValue([
+      makeTxn({
+        id: 42,
+        merchant: "Acme Consulting Services",
+        rawDescription: "ACME CONSULTING SERVICES 8473",
+        category: "income",
+        transactionClass: "income",
+        flowType: "inflow",
+        amount: "99.00",
+        labelConfidence: "0.80",
+        labelSource: "rule",
+      }),
+    ]);
+    // Cache hit for the normalized key the classifier produces.
+    mockGetMerchantClassifications.mockResolvedValue(
+      new Map([
+        [
+          "acme consulting services",
+          {
+            merchantKey: "acme consulting services",
+            category: "fees",
+            transactionClass: "expense",
+            recurrenceType: "one-time",
+            labelConfidence: 0.92,
+            source: "ai" as const,
+          },
+        ],
+      ]),
+    );
+
+    const result = await reclassifyTransactions(1);
+
+    expect(result.updated).toBe(1);
+    const updates = mockBulkUpdate.mock.calls[0]![1];
+    expect(updates[0]).toMatchObject({
+      id: 42,
+      category: "fees",
+      transactionClass: "expense",
+      labelSource: "cache",
+      aiAssisted: false,
+    });
   });
 });
