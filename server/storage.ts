@@ -719,6 +719,7 @@ export type BulkTransactionUpdate = {
   transactionClass: string;
   category: string;
   recurrenceType: string;
+  recurrenceSource?: string;
   labelSource: string;
   labelConfidence: string;
   labelReason: string;
@@ -741,6 +742,7 @@ export async function bulkUpdateTransactions(
           transactionClass: u.transactionClass,
           category: u.category,
           recurrenceType: u.recurrenceType,
+          ...(u.recurrenceSource !== undefined ? { recurrenceSource: u.recurrenceSource } : {}),
           labelSource: u.labelSource,
           labelConfidence: u.labelConfidence,
           labelReason: u.labelReason,

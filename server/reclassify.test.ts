@@ -35,6 +35,7 @@ function makeTxn(overrides: Record<string, unknown>) {
     transactionClass: "income",
     category: "income",
     recurrenceType: "one-time",
+    recurrenceSource: "none",
     labelSource: "rule",
     labelConfidence: "0.80",
     labelReason: "inflow",

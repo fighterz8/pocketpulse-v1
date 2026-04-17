@@ -142,6 +142,8 @@ type TxRow = {
   amount: string | number;
   date: string;
   recurrenceType?: string | null;
+  /** "detected" = batch detector confirmed; "hint" = classifier guess; "none" = not recurring. */
+  recurrenceSource?: string | null;
   excludedFromAnalysis?: boolean | null;
 };
 
@@ -212,6 +214,7 @@ export function detectLeaks(
     amount: number;
     category: string;
     recurrenceType: string;
+    recurrenceSource: string;
   };
   const merchantGroups: Record<string, TxEntry[]> = {};
 
@@ -228,6 +231,7 @@ export function detectLeaks(
       amount: Math.abs(parseFloat(String(tx.amount))),
       category: tx.category,
       recurrenceType: tx.recurrenceType ?? "one-time",
+      recurrenceSource: tx.recurrenceSource ?? "none",
     });
   }
 
@@ -251,7 +255,7 @@ export function detectLeaks(
     const amountVariance =
       amounts.length > 1 ? Math.max(...amounts) - Math.min(...amounts) : 0;
 
-    const isRecurring = entries.some((e) => e.recurrenceType === "recurring");
+    const isRecurring = entries.some((e) => e.recurrenceSource === "detected");
 
     // Build per-category breakdown (sorted by count desc, tiebreak by total desc)
     const catMap: Record<string, { total: number; count: number }> = {};

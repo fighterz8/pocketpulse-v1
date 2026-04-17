@@ -158,13 +158,13 @@ async function syncRecurringCandidates(
     for (const id of c.transactionIds) recurringIds.add(id);
   }
 
-  // Step 1: reset all outflow transactions to "one-time" EXCEPT rows where the
-  // user has explicitly set a recurrence value (userCorrected=true → labelSource
-  // "manual") or a same-merchant propagation carried that value (labelSource
-  // "propagated"). User edits are law — the detector never overwrites them.
+  // Step 1: reset all outflow transactions to "one-time" / "none" EXCEPT rows
+  // where the user has explicitly set a recurrence value (userCorrected=true →
+  // labelSource "manual") or a same-merchant propagation carried that value
+  // (labelSource "propagated"). User edits are law — the detector never overwrites them.
   await db
     .update(txnTable)
-    .set({ recurrenceType: "one-time" })
+    .set({ recurrenceType: "one-time", recurrenceSource: "none" })
     .where(
       and(
         eq(txnTable.userId, userId),
@@ -180,7 +180,7 @@ async function syncRecurringCandidates(
   // rows so explicit manual edits are always preserved.
   await db
     .update(txnTable)
-    .set({ transactionClass: "transfer", labelSource: "rule" })
+    .set({ transactionClass: "transfer", labelSource: "rule", recurrenceSource: "none" })
     .where(
       and(
         eq(txnTable.userId, userId),
@@ -189,14 +189,15 @@ async function syncRecurringCandidates(
       ),
     );
 
-  // Step 2: mark detected IDs as "recurring". Same user-edit guard as Step 1 —
-  // a manually-set "one-time" on a recurring-looking transaction stays "one-time".
+  // Step 2: mark detected IDs as "recurring" / "detected". Same user-edit guard
+  // as Step 1 — a manually-set "one-time" on a recurring-looking transaction
+  // stays "one-time".
   if (recurringIds.size > 0) {
     const ids = [...recurringIds];
     for (let i = 0; i < ids.length; i += 500) {
       await db
         .update(txnTable)
-        .set({ recurrenceType: "recurring" })
+        .set({ recurrenceType: "recurring", recurrenceSource: "detected" })
         .where(
           and(
             eq(txnTable.userId, userId),
@@ -1460,6 +1461,7 @@ export function createApp(options?: CreateAppOptions) {
         amount:               t.amount,
         date:                 t.date,
         recurrenceType:       t.recurrenceType,
+        recurrenceSource:     t.recurrenceSource,
         excludedFromAnalysis: t.excludedFromAnalysis,
       }));
 

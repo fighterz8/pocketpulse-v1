@@ -189,4 +189,49 @@ describe("classifyTransaction", () => {
       expect(result.aiAssisted).toBe(false);
     });
   });
+
+  describe("recurrenceSource field", () => {
+    it("returns recurrenceSource='none' for a non-recurring transaction", () => {
+      const result = classifyTransaction("WHOLE FOODS MARKET", -85.20);
+      expect(result.recurrenceSource).toBe("none");
+      expect(result.recurrenceType).toBe("one-time");
+    });
+
+    it("returns recurrenceSource='hint' when Pass 8 fires on 'recurring' keyword", () => {
+      // No CategoryRule matches 'GENERIC RECURRING PAYMENT' → Pass 8 fires and owns the recurrenceSource
+      const result = classifyTransaction("GENERIC RECURRING PAYMENT DEPT123", -9.99);
+      expect(result.recurrenceType).toBe("recurring");
+      expect(result.recurrenceSource).toBe("hint");
+    });
+
+    it("returns recurrenceSource='hint' when Pass 8 fires on 'membership' keyword", () => {
+      const result = classifyTransaction("ABC MEMBERSHIP FEE", -20.00);
+      expect(result.recurrenceType).toBe("recurring");
+      expect(result.recurrenceSource).toBe("hint");
+    });
+
+    it("returns recurrenceSource='hint' when Pass 9 fires on payroll income (positive amount)", () => {
+      // Pass 9 only fires for income transactions; must use a positive amount
+      const result = classifyTransaction("PAYROLL DEPOSIT", 3500.00);
+      expect(result.recurrenceType).toBe("recurring");
+      expect(result.recurrenceSource).toBe("hint");
+    });
+
+    it("returns recurrenceSource='none' when a CategoryRule sets recurrenceType (rule wins over keyword passes)", () => {
+      // Netflix is in the entertainment CategoryRule with recurrenceType:'recurring'.
+      // CategoryRule fires in Pass 7 → Pass 8b's guard (recurrenceType === 'one-time') fails
+      // → recurrenceSource stays 'none' (rule-based, not a keyword hint).
+      const result = classifyTransaction("NETFLIX INC", -15.99);
+      expect(result.recurrenceType).toBe("recurring");
+      expect(result.recurrenceSource).toBe("none");
+    });
+
+    it("never returns recurrenceSource='detected' (only the batch detector sets that)", () => {
+      const unknown = classifyTransaction("XYZZY CORP #99", -150.00);
+      expect(unknown.recurrenceSource).not.toBe("detected");
+
+      const subscription = classifyTransaction("NETFLIX INC", -15.99);
+      expect(subscription.recurrenceSource).not.toBe("detected");
+    });
+  });
 });

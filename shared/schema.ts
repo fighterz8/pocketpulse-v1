@@ -175,6 +175,7 @@ export const transactions = pgTable(
     flowType: text("flow_type").notNull(),
     transactionClass: text("transaction_class").notNull(),
     recurrenceType: text("recurrence_type").notNull().default("one-time"),
+    recurrenceSource: text("recurrence_source").notNull().default("none"),
     category: text("category").notNull().default("other"),
     labelSource: text("label_source").notNull().default("rule"),
     labelConfidence: numeric("label_confidence", { precision: 5, scale: 2 }),

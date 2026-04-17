@@ -32,6 +32,7 @@ type IntermediateRow = {
   transactionClass: string;
   category: string;
   recurrenceType: string;
+  recurrenceSource: string;
   labelConfidence: number;
   labelReason: string;
   needsAi: boolean;
@@ -92,6 +93,7 @@ export async function reclassifyTransactions(
         transactionClass: classification.transactionClass,
         category: classification.category,
         recurrenceType: classification.recurrenceType,
+        recurrenceSource: classification.recurrenceSource,
         labelConfidence: classification.labelConfidence,
         labelReason: classification.labelReason,
         needsAi:
@@ -118,7 +120,10 @@ export async function reclassifyTransactions(
         if (rule) {
           if (rule.category) row.category = rule.category;
           if (rule.transactionClass) row.transactionClass = rule.transactionClass;
-          if (rule.recurrenceType) row.recurrenceType = rule.recurrenceType;
+          if (rule.recurrenceType) {
+            row.recurrenceType = rule.recurrenceType;
+            row.recurrenceSource = "none";
+          }
           row.labelConfidence = 1.0;
           row.labelReason = `user rule: ${key}`;
           row.needsAi = false;
@@ -151,6 +156,7 @@ export async function reclassifyTransactions(
         row.category = hit.category;
         row.transactionClass = hit.transactionClass;
         row.recurrenceType = hit.recurrenceType;
+        row.recurrenceSource = "none";
         row.labelConfidence = hit.labelConfidence;
         row.labelReason = `cache hit: ${key} (${hit.source})`;
         row.needsAi = false;
@@ -240,7 +246,7 @@ export async function reclassifyTransactions(
     const row = intermediate[k]!;
     const txn = allTxns[row.txnIndex]!;
 
-    let { category, transactionClass, recurrenceType, labelConfidence, labelReason, effectiveFlowType, newAmount } = row;
+    let { category, transactionClass, recurrenceType, recurrenceSource, labelConfidence, labelReason, effectiveFlowType, newAmount } = row;
     let aiAssisted = false;
 
     if (row.needsAi) {
@@ -250,6 +256,7 @@ export async function reclassifyTransactions(
         category = aiResult.category;
         transactionClass = aiResult.transactionClass;
         recurrenceType = aiResult.recurrenceType;
+        recurrenceSource = "none";
         labelConfidence = aiResult.labelConfidence;
         labelReason = aiResult.labelReason;
         aiAssisted = true;
@@ -288,6 +295,7 @@ export async function reclassifyTransactions(
       transactionClass,
       category,
       recurrenceType,
+      recurrenceSource,
       labelSource: finalLabelSource,
       labelConfidence: labelConfidence.toFixed(2),
       labelReason,

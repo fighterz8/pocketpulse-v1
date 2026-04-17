@@ -71,6 +71,15 @@ export type ClassificationResult = {
   flowType: "inflow" | "outflow";
   category: V1Category;
   recurrenceType: "recurring" | "one-time";
+  /**
+   * Indicates the origin of the recurrenceType value:
+   *  "hint"     — a keyword pass (8, 8b, or 9) flagged this as recurring.
+   *               Tentative; will be overwritten by the batch detector.
+   *  "detected" — the batch recurrence detector confirmed this as recurring
+   *               based on multi-occurrence pattern matching.
+   *  "none"     — no recurring signal; recurrenceType is "one-time".
+   */
+  recurrenceSource: "none" | "hint" | "detected";
   merchant: string;
   labelSource: "rule";
   labelConfidence: number;
@@ -1667,6 +1676,7 @@ export function classifyTransaction(
     amount >= 0 ? "income" : "expense";
   let flowType: "inflow" | "outflow" = amount >= 0 ? "inflow" : "outflow";
   let recurrenceType: "recurring" | "one-time" = "one-time";
+  let recurrenceSource: "none" | "hint" | "detected" = "none";
   let category: V1Category = amount >= 0 ? "income" : "other";
   let labelReason = "Initial amount-sign heuristic";
   let matchedRule = false;
@@ -1852,6 +1862,7 @@ export function classifyTransaction(
       lower.includes("membership")
     ) {
       recurrenceType = "recurring";
+      recurrenceSource = "hint";
     }
   }
 
@@ -1860,6 +1871,7 @@ export function classifyTransaction(
   if (recurrenceType === "one-time" && transactionClass === "income") {
     if (RECURRING_INCOME_KEYWORDS.some((kw) => lower.includes(kw))) {
       recurrenceType = "recurring";
+      recurrenceSource = "hint";
     }
   }
 
@@ -1873,6 +1885,7 @@ export function classifyTransaction(
   ) {
     if (RECURRING_KEYWORDS.some((kw) => lower.includes(kw))) {
       recurrenceType = "recurring";
+      recurrenceSource = "hint";
     }
   }
 
@@ -1920,6 +1933,7 @@ export function classifyTransaction(
     flowType,
     category,
     recurrenceType,
+    recurrenceSource,
     merchant: cleanedMerchant,
     labelSource: "rule",
     labelConfidence,
