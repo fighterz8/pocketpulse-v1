@@ -17,7 +17,6 @@ type TeamUser = {
     correctedCount: number;
     skippedCount: number;
   } | null;
-  parser: unknown | null;
 };
 
 /** Spec §6: every percent must be paired with a raw fraction. */
