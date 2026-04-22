@@ -113,7 +113,6 @@ type AiBatchResponse = {
 let _client: OpenAI | null = null;
 
 function getClient(): OpenAI | null {
-  console.log('[ai-classifier] OPENAI_API_KEY present:', Boolean(process.env.OPENAI_API_KEY));
   if (!process.env.OPENAI_API_KEY) return null;
   if (!_client) {
     _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -252,7 +251,6 @@ export async function aiClassifyBatch(
   items: AiClassificationInput[],
   userExamples: Array<{ merchant: string; category: string; transactionClass: string; recurrenceType: string }> = [],
 ): Promise<Map<number, AiClassificationResult>> {
-  console.log('[ai-classifier] aiClassifyBatch called with', items.length, 'items, client:', getClient() !== null ? 'ready' : 'null');
   const resultMap = new Map<number, AiClassificationResult>();
   if (items.length === 0) return resultMap;
 

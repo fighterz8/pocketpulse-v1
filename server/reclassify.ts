@@ -67,15 +67,39 @@ export async function reclassifyTransactions(
 
     const newAmount = out.amount.toFixed(2);
 
-    const finalChanged =
+    // Data fields that represent a genuine classification change.
+    const dataChanged =
       newAmount !== String(txn.amount) ||
       out.flowType !== txn.flowType ||
       out.transactionClass !== txn.transactionClass ||
       out.category !== txn.category ||
       out.recurrenceType !== txn.recurrenceType ||
-      out.recurrenceSource !== txn.recurrenceSource ||
-      (out.aiAssisted && !txn.aiAssisted) ||
-      out.labelSource !== txn.labelSource;
+      out.recurrenceSource !== txn.recurrenceSource;
+
+    // A labelSource transition is only meaningful when the classification data
+    // actually changed, or the pipeline newly produced an "ai" label this pass
+    // (upgrading the row's provenance).
+    //
+    // Specifically: do NOT overwrite an existing "ai" label with a lower-signal
+    // source ("cache" or "rule") when the category, class, recurrence, flow,
+    // and amount are all identical. Two common paths cause these spurious
+    // demotions:
+    //   - "ai" → "cache": the AI result was written to the merchant cache at
+    //     upload time; on the next reclassify pass the merchant hits the cache
+    //     and returns labelSource="cache" — identical data, no real change.
+    //   - "ai" → "rule": AI timed out during this reclassify pass and the
+    //     structural rules returned the same classification — identical data,
+    //     no real change.
+    // In both cases the right behaviour is to leave the DB row untouched so
+    // "ai" provenance is preserved across reclassify runs.
+    const isAiDemotion =
+      txn.labelSource === "ai" &&
+      (out.labelSource === "cache" || out.labelSource === "rule") &&
+      !dataChanged;
+
+    const labelSourceChanged = out.labelSource !== txn.labelSource && !isAiDemotion;
+
+    const finalChanged = dataChanged || (out.aiAssisted && !txn.aiAssisted) || labelSourceChanged;
 
     if (!finalChanged) {
       result.unchanged++;
