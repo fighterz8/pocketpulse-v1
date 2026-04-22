@@ -20,19 +20,31 @@ import {
   CLASSIFICATION_CLASS_VALUES,
   CLASSIFICATION_RECURRENCE_VALUES,
   CLASSIFICATION_VERDICT_VALUES,
+  PARSER_AMOUNT_VERDICTS,
+  PARSER_DATE_VERDICTS,
+  PARSER_DESC_VERDICTS,
+  PARSER_DIRECTION_VERDICTS,
   V1_CATEGORIES,
   type ClassificationVerdict,
+  type ParserVerdict,
 } from "../shared/schema.js";
 import {
   completeClassificationSample,
+  completeParserSample,
   createClassificationSample,
+  createParserSample,
   getClassificationSampleById,
   getLatestCompletedClassificationByUsers,
+  getParserSampleById,
   getTransactionDisplayByIds,
   getUserById,
   getUsersByIds,
+  getLatestCompletedParserByUsers,
   listClassificationSamplesForUser,
+  listParserSamplesForUser,
   pickClassificationSampleTransactions,
+  pickParserSampleTransactions,
+  resolveParserSampleUpload,
 } from "./storage.js";
 
 const V1_SET = new Set<string>(V1_CATEGORIES);
@@ -186,6 +198,148 @@ function dimensionAccuracy(
   if (nonSkipped.length === 0) return null;
   const correct = nonSkipped.filter((v) => v[correctedField] == null).length;
   return correct / nonSkipped.length;
+}
+
+// ─── Parser fidelity (PR2) ────────────────────────────────────────────────────
+
+const PARSER_DATE_SET   = new Set<string>(PARSER_DATE_VERDICTS);
+const PARSER_DESC_SET   = new Set<string>(PARSER_DESC_VERDICTS);
+const PARSER_AMOUNT_SET = new Set<string>(PARSER_AMOUNT_VERDICTS);
+const PARSER_DIR_SET    = new Set<string>(PARSER_DIRECTION_VERDICTS);
+
+/**
+ * Reconstruct a "raw CSV row" from stored fields. Display-only (per spec §6
+ * Option 2) — never persisted back to the transactions table. Sign comes from
+ * flowType so users can compare the parser's direction call against what they
+ * remember about the original statement.
+ */
+function reconstructRawRow(t: {
+  date: string;
+  rawDescription: string;
+  amount: string;
+  flowType: string;
+}): { rawDate: string; rawDescription: string; rawAmount: string } {
+  const abs = Math.abs(parseFloat(String(t.amount)));
+  const signed = t.flowType === "outflow" ? -abs : abs;
+  return {
+    rawDate: t.date,
+    rawDescription: t.rawDescription,
+    rawAmount: signed.toFixed(2),
+  };
+}
+
+type ValidatedParserVerdicts =
+  | { ok: true; verdicts: ParserVerdict[]; confirmed: number; flagged: number }
+  | { ok: false; error: string };
+
+/**
+ * Validate parser verdict payloads against the original sample's snapshot.
+ * Same anti-tamper posture as the classification validator: only known
+ * transactionIds, only allowed enum values, snapshots are never overwritten.
+ */
+function validateParserVerdicts(
+  incoming: unknown,
+  original: ParserVerdict[],
+): ValidatedParserVerdicts {
+  if (!Array.isArray(incoming)) return { ok: false, error: "verdicts must be an array" };
+  const byId = new Map<number, ParserVerdict>();
+  for (const v of original) byId.set(v.transactionId, v);
+
+  const out: ParserVerdict[] = [];
+  let confirmed = 0;
+  let flagged = 0;
+  const seen = new Set<number>();
+
+  for (const raw of incoming) {
+    if (!raw || typeof raw !== "object") return { ok: false, error: "verdict must be an object" };
+    const r = raw as Record<string, unknown>;
+    const tid = typeof r.transactionId === "number" ? r.transactionId : NaN;
+    const orig = byId.get(tid);
+    if (!orig) return { ok: false, error: `Unknown transactionId in verdicts: ${tid}` };
+    if (seen.has(tid)) return { ok: false, error: `Duplicate verdict for transactionId ${tid}` };
+    seen.add(tid);
+
+    const skipped = r.skipped === true;
+    let dateV = String(r.dateVerdict ?? "ok");
+    let descV = String(r.descriptionVerdict ?? "ok");
+    let amtV  = String(r.amountVerdict ?? "ok");
+    let dirV  = String(r.directionVerdict ?? "ok");
+
+    if (skipped) {
+      // Force per-field verdicts to "ok" for skipped rows so they don't pollute
+      // the wrong-* counts (they're already excluded from accuracy denominators).
+      dateV = "ok"; descV = "ok"; amtV = "ok"; dirV = "ok";
+    } else {
+      if (!PARSER_DATE_SET.has(dateV))   return { ok: false, error: `Invalid dateVerdict: ${dateV}` };
+      if (!PARSER_DESC_SET.has(descV))   return { ok: false, error: `Invalid descriptionVerdict: ${descV}` };
+      if (!PARSER_AMOUNT_SET.has(amtV))  return { ok: false, error: `Invalid amountVerdict: ${amtV}` };
+      if (!PARSER_DIR_SET.has(dirV))     return { ok: false, error: `Invalid directionVerdict: ${dirV}` };
+    }
+
+    const allOk = dateV === "ok" && descV === "ok" && amtV === "ok" && dirV === "ok";
+    if (skipped) {
+      // Skipped rows count as neither confirmed nor flagged — they're tracked
+      // implicitly as (sampleSize - confirmed - flagged).
+    } else if (allOk) {
+      confirmed++;
+    } else {
+      flagged++;
+    }
+
+    const notes = r.notes == null ? null : String(r.notes).slice(0, 500);
+
+    out.push({
+      transactionId: tid,
+      // Snapshots are never overwritten by client input.
+      rawDate:           orig.rawDate,
+      rawDescription:    orig.rawDescription,
+      rawAmount:         orig.rawAmount,
+      parsedDate:        orig.parsedDate,
+      parsedDescription: orig.parsedDescription,
+      parsedAmount:      orig.parsedAmount,
+      parsedFlowType:    orig.parsedFlowType,
+      parsedAmbiguous:   orig.parsedAmbiguous,
+      skipped,
+      dateVerdict:        dateV as ParserVerdict["dateVerdict"],
+      descriptionVerdict: descV as ParserVerdict["descriptionVerdict"],
+      amountVerdict:      amtV  as ParserVerdict["amountVerdict"],
+      directionVerdict:   dirV  as ParserVerdict["directionVerdict"],
+      notes,
+    });
+  }
+
+  return { ok: true, verdicts: out, confirmed, flagged };
+}
+
+/** Per-field accuracy = (# non-skipped rows where field === "ok") / (# non-skipped). */
+function parserFieldAccuracy(
+  verdicts: ParserVerdict[],
+  field: "dateVerdict" | "descriptionVerdict" | "amountVerdict" | "directionVerdict",
+): number | null {
+  const nonSkipped = verdicts.filter((v) => !v.skipped);
+  if (nonSkipped.length === 0) return null;
+  const ok = nonSkipped.filter((v) => v[field] === "ok").length;
+  return ok / nonSkipped.length;
+}
+
+function parserSampleToJson(row: Awaited<ReturnType<typeof getParserSampleById>>) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    uploadId: row.uploadId,
+    createdAt: row.createdAt,
+    completedAt: row.completedAt,
+    sampleSize: row.sampleSize,
+    dateAccuracy:        row.dateAccuracy        != null ? parseFloat(String(row.dateAccuracy))        : null,
+    descriptionAccuracy: row.descriptionAccuracy != null ? parseFloat(String(row.descriptionAccuracy)) : null,
+    amountAccuracy:      row.amountAccuracy      != null ? parseFloat(String(row.amountAccuracy))      : null,
+    directionAccuracy:   row.directionAccuracy   != null ? parseFloat(String(row.directionAccuracy))   : null,
+    uploadRowCount:     row.uploadRowCount,
+    uploadWarningCount: row.uploadWarningCount,
+    confirmedCount: row.confirmedCount,
+    flaggedCount:   row.flaggedCount,
+    verdicts: row.verdicts,
+  };
 }
 
 // ─── Helpers shared by JSON output ────────────────────────────────────────────
@@ -392,6 +546,178 @@ export function createDevTestSuiteRouter(): Router {
     }
   });
 
+  // --- Parser fidelity sampler (PR2) ---------------------------------------
+
+  /** POST /api/dev/parser-samples — start a new parser sample */
+  router.post("/parser-samples", async (req: Request, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const sampleSize = clampSampleSize(req.body?.sampleSize);
+      const explicitUploadId =
+        req.body?.uploadId == null ? null :
+        (typeof req.body.uploadId === "number" ? req.body.uploadId :
+          Number.parseInt(String(req.body.uploadId), 10));
+
+      const upload = await resolveParserSampleUpload(
+        userId,
+        Number.isFinite(explicitUploadId) ? explicitUploadId as number : null,
+      );
+      if (!upload) {
+        res.status(400).json({
+          error: explicitUploadId != null
+            ? "Upload not found, or it does not belong to you."
+            : "No completed upload found. Upload a CSV first.",
+        });
+        return;
+      }
+
+      const txns = await pickParserSampleTransactions(userId, upload.id, sampleSize);
+      if (txns.length === 0) {
+        res.status(400).json({
+          error: "No eligible transactions in that upload to sample.",
+        });
+        return;
+      }
+
+      // Snapshot raw + parsed view of every row at sample creation. The "raw"
+      // side is reconstructed from stored fields (display-only, never persisted
+      // back). Parsed side reflects what the parser produced for that row.
+      const verdicts: ParserVerdict[] = txns.map((t) => {
+        const raw = reconstructRawRow(t);
+        return {
+          transactionId: t.id,
+          rawDate: raw.rawDate,
+          rawDescription: raw.rawDescription,
+          rawAmount: raw.rawAmount,
+          parsedDate: t.date,
+          parsedDescription: t.rawDescription,
+          parsedAmount: parseFloat(String(t.amount)),
+          parsedFlowType: t.flowType,
+          parsedAmbiguous: false,
+          skipped: false,
+          dateVerdict: "ok",
+          descriptionVerdict: "ok",
+          amountVerdict: "ok",
+          directionVerdict: "ok",
+          notes: null,
+        };
+      });
+
+      const sample = await createParserSample({
+        userId,
+        uploadId: upload.id,
+        sampleSize: txns.length,
+        uploadRowCount: upload.rowCount,
+        uploadWarningCount: upload.warningCount,
+        verdicts,
+      });
+
+      res.status(201).json({
+        sampleId: sample.id,
+        uploadId: upload.id,
+        createdAt: sample.createdAt,
+        sampleSize: sample.sampleSize,
+        uploadRowCount: upload.rowCount,
+        uploadWarningCount: upload.warningCount,
+        verdicts,
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  /** GET /api/dev/parser-samples — list current user's parser samples */
+  router.get("/parser-samples", async (req, res, next) => {
+    try {
+      const list = await listParserSamplesForUser(req.session.userId!);
+      res.json({ samples: list });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  /** GET /api/dev/parser-samples/:id — fetch one (own user's only) */
+  router.get("/parser-samples/:id", async (req, res, next) => {
+    try {
+      const id = Number.parseInt(req.params.id ?? "", 10);
+      if (!Number.isFinite(id)) return notFound(res);
+      const userId = req.session.userId!;
+      const row = await getParserSampleById(id, userId);
+      if (!row) return notFound(res);
+      res.json({ sample: parserSampleToJson(row) });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  /** PATCH /api/dev/parser-samples/:id — submit verdicts */
+  router.patch("/parser-samples/:id", async (req, res, next) => {
+    try {
+      const id = Number.parseInt(req.params.id ?? "", 10);
+      if (!Number.isFinite(id)) return notFound(res);
+      const userId = req.session.userId!;
+
+      const existing = await getParserSampleById(id, userId);
+      if (!existing) return notFound(res);
+      if (existing.completedAt != null) {
+        res.status(409).json({ error: "Sample already submitted" });
+        return;
+      }
+
+      const validated = validateParserVerdicts(req.body?.verdicts, existing.verdicts);
+      if (!validated.ok) {
+        res.status(400).json({ error: validated.error });
+        return;
+      }
+
+      // Same ≥80% gate as the classification sampler (spec §4) so the metrics
+      // table can never be salted with a one-row submission.
+      const decided = validated.verdicts.length;
+      const minDecided = Math.ceil(existing.sampleSize * 0.8);
+      if (decided < minDecided) {
+        res.status(400).json({
+          error: `Need at least ${minDecided} of ${existing.sampleSize} verdicts to submit (got ${decided}).`,
+        });
+        return;
+      }
+
+      // Merge into the original snapshot so omitted rows keep their default
+      // (skipped=false, all "ok") and the persisted set always equals sampleSize.
+      const incomingById = new Map(validated.verdicts.map((v) => [v.transactionId, v]));
+      const merged: ParserVerdict[] = existing.verdicts.map((orig) =>
+        incomingById.get(orig.transactionId) ?? orig,
+      );
+
+      // Recount over the merged set so confirmed/flagged match what's stored.
+      let confirmed = 0;
+      let flagged = 0;
+      for (const v of merged) {
+        if (v.skipped) continue;
+        const allOk = v.dateVerdict === "ok" && v.descriptionVerdict === "ok"
+          && v.amountVerdict === "ok" && v.directionVerdict === "ok";
+        if (allOk) confirmed++;
+        else flagged++;
+      }
+
+      const updated = await completeParserSample({
+        id,
+        userId,
+        verdicts: merged,
+        dateAccuracy:        parserFieldAccuracy(merged, "dateVerdict"),
+        descriptionAccuracy: parserFieldAccuracy(merged, "descriptionVerdict"),
+        amountAccuracy:      parserFieldAccuracy(merged, "amountVerdict"),
+        directionAccuracy:   parserFieldAccuracy(merged, "directionVerdict"),
+        confirmedCount: confirmed,
+        flaggedCount:   flagged,
+      });
+
+      if (!updated) return notFound(res);
+      res.json({ sample: parserSampleToJson(updated) });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // --- Team summary --------------------------------------------------------
 
   /** GET /api/dev/team-summary — latest completed sample per whitelisted teammate */
@@ -406,15 +732,17 @@ export function createDevTestSuiteRouter(): Router {
         return;
       }
 
-      const [users, samples] = await Promise.all([
+      const [users, samples, parsers] = await Promise.all([
         getUsersByIds(ids),
         getLatestCompletedClassificationByUsers(ids),
+        getLatestCompletedParserByUsers(ids),
       ]);
       const userById = new Map(users.map((u) => [u.id, u]));
 
       const out = ids.map((userId) => {
         const u = userById.get(userId);
         const s = samples.get(userId);
+        const p = parsers.get(userId);
         return {
           userId,
           email: u?.email ?? null,
@@ -432,8 +760,21 @@ export function createDevTestSuiteRouter(): Router {
                 skippedCount:   s.skippedCount,
               }
             : null,
-          // Parser samples ship in PR2; field reserved so the client shape is stable.
-          parser: null,
+          parser: p
+            ? {
+                sampleId: p.id,
+                completedAt: p.completedAt,
+                sampleSize: p.sampleSize,
+                dateAccuracy:        p.dateAccuracy        != null ? parseFloat(String(p.dateAccuracy))        : null,
+                descriptionAccuracy: p.descriptionAccuracy != null ? parseFloat(String(p.descriptionAccuracy)) : null,
+                amountAccuracy:      p.amountAccuracy      != null ? parseFloat(String(p.amountAccuracy))      : null,
+                directionAccuracy:   p.directionAccuracy   != null ? parseFloat(String(p.directionAccuracy))   : null,
+                confirmedCount: p.confirmedCount,
+                flaggedCount:   p.flaggedCount,
+                uploadRowCount:     p.uploadRowCount,
+                uploadWarningCount: p.uploadWarningCount,
+              }
+            : null,
         };
       });
 

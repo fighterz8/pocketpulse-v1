@@ -258,4 +258,387 @@ describe.skipIf(!runRouteIntegrationTests)("Dev Test Suite routes (/api/dev/*)",
     expect(Array.isArray(res.body.users)).toBe(true);
     expect(res.body.users[0]).toMatchObject({ userId, classification: null, parser: null });
   });
+
+  // ── Parser fidelity sampler (PR2) ───────────────────────────────────────
+
+  /**
+   * Seed an upload row with status="complete" (what the live upload route
+   * writes) plus N transactions tied to it, so the parser sampler can pick
+   * from a single upload. Returns the uploadId for explicit-id tests.
+   */
+  async function seedUploadAndTransactions(
+    agent: ReturnType<typeof request.agent>,
+    csrf: string,
+    userId: number,
+    n: number,
+    warningCount = 0,
+  ): Promise<{ uploadId: number; accountId: number }> {
+    const created = await agent.post("/api/accounts").set("X-CSRF-Token", csrf).send({
+      label: "Parser Test Account",
+      lastFour: "0001",
+      accountType: "checking",
+    });
+    expect(created.status).toBe(201);
+    const accountId = created.body.account.id as number;
+
+    const { db } = await import("./db.js");
+    const { transactions, uploads } = await import("../shared/schema.js");
+
+    const [upload] = await db
+      .insert(uploads)
+      .values({
+        userId, accountId,
+        filename: "parser-seed.csv",
+        rowCount: n,
+        warningCount,
+        status: "complete",
+      })
+      .returning({ id: uploads.id });
+    const uploadId = upload!.id;
+
+    const rows = Array.from({ length: n }, (_, i) => {
+      const day = String(((i % 27) + 1)).padStart(2, "0");
+      return {
+        userId,
+        accountId,
+        uploadId,
+        date: `2025-05-${day}`,
+        rawDescription: `STARBUCKS PARSER #${i + 1}`,
+        merchant: "Starbucks",
+        amount: String(-(5 + i).toFixed(2)),
+        flowType: "outflow",
+        category: "coffee",
+        transactionClass: "expense",
+        recurrenceType: "one-time",
+        labelSource: "rule" as const,
+        labelConfidence: "0.90",
+      };
+    });
+    await db.insert(transactions).values(rows);
+    return { uploadId, accountId };
+  }
+
+  it("parser-samples returns 404 when isDev=false", async () => {
+    const app = testApp();
+    const { agent } = await registerUser(app, { isDev: false });
+    const res = await agent.get("/api/dev/parser-samples");
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "Not found" });
+  });
+
+  it("parser-samples POST 400s when the user has no uploads", async () => {
+    const app = testApp();
+    const { agent, csrf } = await registerUser(app, { isDev: true });
+    const res = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 50 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/upload/i);
+  });
+
+  it("parser-samples POST 400s when explicit uploadId belongs to another user", async () => {
+    const app = testApp();
+    const { agent: ownerAgent, csrf: ownerCsrf, userId: ownerId } =
+      await registerUser(app, { isDev: true });
+    const { uploadId } = await seedUploadAndTransactions(ownerAgent, ownerCsrf, ownerId, 5);
+
+    const { agent, csrf } = await registerUser(app, { isDev: true });
+    const res = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 5, uploadId });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/upload/i);
+  });
+
+  it("supports the full parser create → list → fetch → submit flow", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    const { uploadId } = await seedUploadAndTransactions(agent, csrf, userId, 25, 3);
+
+    // POST — create
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 20 });
+    expect(create.status).toBe(201);
+    expect(create.body.sampleId).toEqual(expect.any(Number));
+    expect(create.body.uploadId).toBe(uploadId);
+    expect(create.body.uploadRowCount).toBe(25);
+    expect(create.body.uploadWarningCount).toBe(3);
+    expect(Array.isArray(create.body.verdicts)).toBe(true);
+    const sampleId = create.body.sampleId as number;
+    const sampleSize = create.body.sampleSize as number;
+    const verdictsSnapshot = create.body.verdicts as Array<{
+      transactionId: number; rawAmount: string; parsedFlowType: string;
+    }>;
+    // Reconstructed raw amount must be signed (outflow → negative).
+    expect(verdictsSnapshot[0].rawAmount.startsWith("-")).toBe(true);
+    expect(verdictsSnapshot[0].parsedFlowType).toBe("outflow");
+
+    // GET list
+    const list = await agent.get("/api/dev/parser-samples");
+    expect(list.status).toBe(200);
+    expect((list.body.samples as Array<{ id: number }>).map((s) => s.id)).toContain(sampleId);
+
+    // GET :id
+    const fetched = await agent.get(`/api/dev/parser-samples/${sampleId}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.sample.id).toBe(sampleId);
+    expect(fetched.body.sample.completedAt).toBeNull();
+    expect(fetched.body.sample.uploadRowCount).toBe(25);
+    expect(fetched.body.sample.uploadWarningCount).toBe(3);
+
+    // PATCH — submit verdicts: most "ok", one with wrong-amount, one skipped.
+    const verdicts = verdictsSnapshot.map((v, i) => {
+      if (i === 0) {
+        return {
+          transactionId: v.transactionId, skipped: false,
+          dateVerdict: "ok", descriptionVerdict: "ok",
+          amountVerdict: "wrong-amount", directionVerdict: "ok",
+          notes: "off by a penny",
+        };
+      }
+      if (i === 1) {
+        return {
+          transactionId: v.transactionId, skipped: true,
+          dateVerdict: "ok", descriptionVerdict: "ok",
+          amountVerdict: "ok", directionVerdict: "ok",
+          notes: null,
+        };
+      }
+      return {
+        transactionId: v.transactionId, skipped: false,
+        dateVerdict: "ok", descriptionVerdict: "ok",
+        amountVerdict: "ok", directionVerdict: "ok",
+        notes: null,
+      };
+    });
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts });
+    expect(submit.status).toBe(200);
+    expect(submit.body.sample.completedAt).not.toBeNull();
+    // 1 skipped → non-skipped denominator = sampleSize - 1
+    const denom = sampleSize - 1;
+    // 1 wrong-amount → amountAccuracy = (denom - 1) / denom
+    expect(submit.body.sample.amountAccuracy).toBeCloseTo((denom - 1) / denom, 4);
+    expect(submit.body.sample.dateAccuracy).toBe(1);
+    expect(submit.body.sample.directionAccuracy).toBe(1);
+    expect(submit.body.sample.confirmedCount).toBe(sampleSize - 2);
+    expect(submit.body.sample.flaggedCount).toBe(1);
+    // Notes survive the round trip on the flagged row.
+    const stored = submit.body.sample.verdicts as Array<{ transactionId: number; notes: string | null }>;
+    expect(stored.find((v) => v.transactionId === verdictsSnapshot[0].transactionId)?.notes)
+      .toBe("off by a penny");
+
+    // PATCH again — already submitted → 409
+    const second = await agent
+      .patch(`/api/dev/parser-samples/${sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts });
+    expect(second.status).toBe(409);
+  });
+
+  it("parser-samples PATCH rejects fewer than 80% verdicts", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    await seedUploadAndTransactions(agent, csrf, userId, 20);
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 15 });
+    expect(create.status).toBe(201);
+    const tooFew = (create.body.verdicts as Array<{ transactionId: number }>)
+      .slice(0, 1)
+      .map((v) => ({
+        transactionId: v.transactionId, skipped: false,
+        dateVerdict: "ok", descriptionVerdict: "ok",
+        amountVerdict: "ok", directionVerdict: "ok", notes: null,
+      }));
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${create.body.sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts: tooFew });
+    expect(submit.status).toBe(400);
+    expect(submit.body.error).toMatch(/at least/i);
+  });
+
+  it("parser-samples POST 400s when explicit uploadId points to a non-complete upload", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    // Create a successful upload + transactions so the most-recent fallback would
+    // otherwise succeed; we want to prove the explicit-ID branch independently
+    // rejects the failed upload below.
+    await seedUploadAndTransactions(agent, csrf, userId, 5);
+
+    const created = await agent.post("/api/accounts").set("X-CSRF-Token", csrf).send({
+      label: "Failed Upload Account",
+      lastFour: "0099",
+      accountType: "checking",
+    });
+    const accountId = created.body.account.id as number;
+    const { db } = await import("./db.js");
+    const { uploads } = await import("../shared/schema.js");
+    const [failed] = await db
+      .insert(uploads)
+      .values({ userId, accountId, filename: "broken.csv", rowCount: 0, status: "failed" })
+      .returning({ id: uploads.id });
+
+    const res = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 5, uploadId: failed!.id });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/upload/i);
+  });
+
+  it("parser-samples PATCH merges partial verdicts: omitted rows keep defaults", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    await seedUploadAndTransactions(agent, csrf, userId, 25);
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 20 });
+    const sampleId = create.body.sampleId as number;
+    const sampleSize = create.body.sampleSize as number;
+    const snapshot = create.body.verdicts as Array<{ transactionId: number }>;
+
+    // Submit only the first 16 rows (80% threshold) — flag exactly one with
+    // wrong-amount, leave the remaining 4 omitted from the payload.
+    const partial = snapshot.slice(0, 16).map((v, i) => ({
+      transactionId: v.transactionId, skipped: false,
+      dateVerdict: "ok", descriptionVerdict: "ok",
+      amountVerdict: i === 0 ? "wrong-amount" : "ok",
+      directionVerdict: "ok", notes: null,
+    }));
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts: partial });
+    expect(submit.status).toBe(200);
+
+    const stored = submit.body.sample.verdicts as Array<{ transactionId: number; dateVerdict: string; amountVerdict: string }>;
+    // Persisted set must equal sampleSize — omitted rows weren't dropped.
+    expect(stored.length).toBe(sampleSize);
+    // Omitted rows keep the default ("ok" / not-skipped) snapshot.
+    const omittedIds = snapshot.slice(16).map((v) => v.transactionId);
+    for (const id of omittedIds) {
+      const row = stored.find((s) => s.transactionId === id);
+      expect(row?.dateVerdict).toBe("ok");
+      expect(row?.amountVerdict).toBe("ok");
+    }
+    // Counts reflect the full merged set: 1 flagged, sampleSize-1 confirmed.
+    expect(submit.body.sample.flaggedCount).toBe(1);
+    expect(submit.body.sample.confirmedCount).toBe(sampleSize - 1);
+  });
+
+  it("parser-samples PATCH rejects unknown transactionId (anti-tamper)", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    await seedUploadAndTransactions(agent, csrf, userId, 20);
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 15 });
+    const verdicts = (create.body.verdicts as Array<{ transactionId: number }>)
+      .map((v) => ({
+        transactionId: v.transactionId, skipped: false,
+        dateVerdict: "ok", descriptionVerdict: "ok",
+        amountVerdict: "ok", directionVerdict: "ok", notes: null,
+      }));
+    verdicts.push({
+      transactionId: 99_999_999, skipped: false,
+      dateVerdict: "ok", descriptionVerdict: "ok",
+      amountVerdict: "ok", directionVerdict: "ok", notes: null,
+    });
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${create.body.sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts });
+    expect(submit.status).toBe(400);
+    expect(submit.body.error).toMatch(/Unknown transactionId/);
+  });
+
+  it("parser-samples PATCH rejects duplicate transactionId in payload", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    await seedUploadAndTransactions(agent, csrf, userId, 20);
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 15 });
+    const snapshot = create.body.verdicts as Array<{ transactionId: number }>;
+    const verdicts = snapshot.map((v) => ({
+      transactionId: v.transactionId, skipped: false,
+      dateVerdict: "ok", descriptionVerdict: "ok",
+      amountVerdict: "ok", directionVerdict: "ok", notes: null,
+    }));
+    // Duplicate the first row's verdict.
+    verdicts.push({ ...verdicts[0]! });
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${create.body.sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts });
+    expect(submit.status).toBe(400);
+    expect(submit.body.error).toMatch(/duplicate/i);
+  });
+
+  it("parser-samples PATCH rejects invalid enum values", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    await seedUploadAndTransactions(agent, csrf, userId, 20);
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 15 });
+    const verdicts = (create.body.verdicts as Array<{ transactionId: number }>)
+      .map((v, i) => ({
+        transactionId: v.transactionId, skipped: false,
+        dateVerdict: "ok", descriptionVerdict: "ok",
+        // Inject one bad value
+        amountVerdict: i === 0 ? "totally-bogus" : "ok",
+        directionVerdict: "ok", notes: null,
+      }));
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${create.body.sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts });
+    expect(submit.status).toBe(400);
+    expect(submit.body.error).toMatch(/Invalid amountVerdict/i);
+  });
+
+  it("team-summary surfaces the latest completed parser sample", async () => {
+    const app = testApp();
+    const { agent, csrf, userId } = await registerUser(app, { isDev: true });
+    await seedUploadAndTransactions(agent, csrf, userId, 20, 1);
+    const create = await agent
+      .post("/api/dev/parser-samples")
+      .set("X-CSRF-Token", csrf)
+      .send({ sampleSize: 15 });
+    const verdicts = (create.body.verdicts as Array<{ transactionId: number }>)
+      .map((v) => ({
+        transactionId: v.transactionId, skipped: false,
+        dateVerdict: "ok", descriptionVerdict: "ok",
+        amountVerdict: "ok", directionVerdict: "ok", notes: null,
+      }));
+    const submit = await agent
+      .patch(`/api/dev/parser-samples/${create.body.sampleId}`)
+      .set("X-CSRF-Token", csrf)
+      .send({ verdicts });
+    expect(submit.status).toBe(200);
+
+    process.env.DEV_TEAM_USER_IDS = String(userId);
+    const team = await agent.get("/api/dev/team-summary");
+    expect(team.status).toBe(200);
+    expect(team.body.users[0].parser).toMatchObject({
+      sampleId: create.body.sampleId,
+      sampleSize: 15,
+      dateAccuracy: 1,
+      uploadWarningCount: 1,
+    });
+  });
 });

@@ -793,6 +793,7 @@ export function createApp(options?: CreateAppOptions) {
             insertedCount,
             null,
             appliedSpec,
+            parseResult.warnings.length,
           );
 
           results.push({

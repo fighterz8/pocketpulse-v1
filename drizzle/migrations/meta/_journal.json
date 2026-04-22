@@ -15,6 +15,13 @@
       "when": 1777000000000,
       "tag": "0006_dev_test_suite_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777100000000,
+      "tag": "0007_dev_test_suite_parser",
+      "breakpoints": true
     }
   ]
 }

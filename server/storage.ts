@@ -8,6 +8,7 @@ import {
   merchantClassifications,
   merchantClassificationsGlobal,
   merchantRules,
+  parserSamples,
   recurringReviews,
   transactions,
   uploads,
@@ -19,6 +20,8 @@ import {
   type CsvFormatSpec,
   type MerchantClassification,
   type MerchantClassificationSource,
+  type ParserSampleRow,
+  type ParserVerdict,
 } from "../shared/schema.js";
 
 import { normalizeEmail } from "./auth.js";
@@ -215,11 +218,13 @@ export async function updateUploadStatus(
   rowCount?: number,
   errorMessage?: string | null,
   formatSpec?: CsvFormatSpec | null,
+  warningCount?: number,
 ) {
   const values: Record<string, unknown> = { status };
   if (rowCount !== undefined) values.rowCount = rowCount;
   if (errorMessage !== undefined) values.errorMessage = errorMessage;
   if (formatSpec !== undefined) values.formatSpec = formatSpec;
+  if (warningCount !== undefined) values.warningCount = warningCount;
 
   const [row] = await db
     .update(uploads)
@@ -1527,6 +1532,206 @@ export async function getTransactionDisplayByIds(
     .from(transactions)
     .where(and(inArray(transactions.id, ids), eq(transactions.userId, userId)));
   return new Map(rows.map((r) => [r.id, r]));
+}
+
+// ---------------------------------------------------------------------------
+// Dev Test Suite — parser fidelity samples (PR2; sandboxed; never mutates txns)
+// ---------------------------------------------------------------------------
+
+export type ParserSampleListItem = {
+  id: number;
+  uploadId: number | null;
+  createdAt: Date;
+  completedAt: Date | null;
+  sampleSize: number;
+  dateAccuracy: number | null;
+  descriptionAccuracy: number | null;
+  amountAccuracy: number | null;
+  directionAccuracy: number | null;
+  uploadRowCount: number | null;
+  uploadWarningCount: number | null;
+  confirmedCount: number;
+  flaggedCount: number;
+};
+
+function parserRowToListItem(r: ParserSampleRow): ParserSampleListItem {
+  return {
+    id: r.id,
+    uploadId: r.uploadId,
+    createdAt: r.createdAt,
+    completedAt: r.completedAt,
+    sampleSize: r.sampleSize,
+    dateAccuracy:        r.dateAccuracy        != null ? parseFloat(String(r.dateAccuracy))        : null,
+    descriptionAccuracy: r.descriptionAccuracy != null ? parseFloat(String(r.descriptionAccuracy)) : null,
+    amountAccuracy:      r.amountAccuracy      != null ? parseFloat(String(r.amountAccuracy))      : null,
+    directionAccuracy:   r.directionAccuracy   != null ? parseFloat(String(r.directionAccuracy))   : null,
+    uploadRowCount:     r.uploadRowCount,
+    uploadWarningCount: r.uploadWarningCount,
+    confirmedCount: r.confirmedCount,
+    flaggedCount:   r.flaggedCount,
+  };
+}
+
+/**
+ * Resolve which upload to draw a parser sample from. Either honors the explicit
+ * uploadId (verifying it belongs to the user) or returns the user's most recent
+ * successfully-parsed upload. Returns null if neither yields a valid choice.
+ */
+export async function resolveParserSampleUpload(
+  userId: number,
+  uploadId: number | null,
+): Promise<{ id: number; rowCount: number; warningCount: number } | null> {
+  if (uploadId != null) {
+    // Explicit ID must still match a *successful* upload — sampling from a
+    // failed/in-flight upload yields nothing useful and would confuse the
+    // parser-fidelity report (denominator from a partially-parsed batch).
+    const [row] = await db
+      .select({ id: uploads.id, rowCount: uploads.rowCount, warningCount: uploads.warningCount })
+      .from(uploads)
+      .where(
+        and(
+          eq(uploads.id, uploadId),
+          eq(uploads.userId, userId),
+          eq(uploads.status, "complete"),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+  const [row] = await db
+    .select({ id: uploads.id, rowCount: uploads.rowCount, warningCount: uploads.warningCount })
+    .from(uploads)
+    .where(and(eq(uploads.userId, userId), eq(uploads.status, "complete")))
+    .orderBy(desc(uploads.uploadedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Draw a random sample of transactions from a single upload for parser
+ * fidelity review. Excludes user-flagged-as-not-business rows so we only audit
+ * data the parser was actually expected to handle.
+ */
+export async function pickParserSampleTransactions(
+  userId: number,
+  uploadId: number,
+  sampleSize: number,
+) {
+  return db
+    .select({
+      id: transactions.id,
+      date: transactions.date,
+      rawDescription: transactions.rawDescription,
+      amount: transactions.amount,
+      flowType: transactions.flowType,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.uploadId, uploadId),
+        eq(transactions.excludedFromAnalysis, false),
+      ),
+    )
+    .orderBy(sql`random()`)
+    .limit(sampleSize);
+}
+
+export async function createParserSample(input: {
+  userId: number;
+  uploadId: number;
+  sampleSize: number;
+  uploadRowCount: number;
+  uploadWarningCount: number;
+  verdicts: ParserVerdict[];
+}): Promise<ParserSampleRow> {
+  const [row] = await db
+    .insert(parserSamples)
+    .values({
+      userId: input.userId,
+      uploadId: input.uploadId,
+      sampleSize: input.sampleSize,
+      uploadRowCount: input.uploadRowCount,
+      uploadWarningCount: input.uploadWarningCount,
+      verdicts: input.verdicts,
+    })
+    .returning();
+  if (!row) throw new Error("createParserSample: insert returned no row");
+  return row;
+}
+
+export async function getParserSampleById(
+  id: number,
+  userId: number,
+): Promise<ParserSampleRow | null> {
+  const [row] = await db
+    .select()
+    .from(parserSamples)
+    .where(and(eq(parserSamples.id, id), eq(parserSamples.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listParserSamplesForUser(
+  userId: number,
+): Promise<ParserSampleListItem[]> {
+  const rows = await db
+    .select()
+    .from(parserSamples)
+    .where(eq(parserSamples.userId, userId))
+    .orderBy(desc(parserSamples.createdAt))
+    .limit(50);
+  return rows.map(parserRowToListItem);
+}
+
+export async function completeParserSample(input: {
+  id: number;
+  userId: number;
+  verdicts: ParserVerdict[];
+  dateAccuracy: number | null;
+  descriptionAccuracy: number | null;
+  amountAccuracy: number | null;
+  directionAccuracy: number | null;
+  confirmedCount: number;
+  flaggedCount: number;
+}): Promise<ParserSampleRow | null> {
+  const [row] = await db
+    .update(parserSamples)
+    .set({
+      verdicts: input.verdicts,
+      completedAt: new Date(),
+      dateAccuracy:        input.dateAccuracy        != null ? input.dateAccuracy.toFixed(4)        : null,
+      descriptionAccuracy: input.descriptionAccuracy != null ? input.descriptionAccuracy.toFixed(4) : null,
+      amountAccuracy:      input.amountAccuracy      != null ? input.amountAccuracy.toFixed(4)      : null,
+      directionAccuracy:   input.directionAccuracy   != null ? input.directionAccuracy.toFixed(4)   : null,
+      confirmedCount: input.confirmedCount,
+      flaggedCount:   input.flaggedCount,
+    })
+    .where(and(eq(parserSamples.id, input.id), eq(parserSamples.userId, input.userId)))
+    .returning();
+  return row ?? null;
+}
+
+/** Latest completed parser sample per user — for the team summary page. */
+export async function getLatestCompletedParserByUsers(
+  userIds: number[],
+): Promise<Map<number, ParserSampleRow>> {
+  if (userIds.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(parserSamples)
+    .where(
+      and(
+        inArray(parserSamples.userId, userIds),
+        sql`${parserSamples.completedAt} IS NOT NULL`,
+      ),
+    )
+    .orderBy(desc(parserSamples.completedAt));
+  const out = new Map<number, ParserSampleRow>();
+  for (const r of rows) {
+    if (!out.has(r.userId)) out.set(r.userId, r);
+  }
+  return out;
 }
 
 export async function getUsersByIds(

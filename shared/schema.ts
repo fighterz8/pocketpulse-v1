@@ -137,6 +137,10 @@ export const uploads = pgTable(
       .references(() => accounts.id, { onDelete: "cascade" }),
     filename: text("filename").notNull(),
     rowCount: integer("row_count").notNull().default(0),
+    /** Count of non-fatal parser warnings (skipped rows, preamble notices, etc.).
+     *  Used by the Dev Test Suite parser fidelity tool to snapshot upload-level
+     *  context at sample creation time. */
+    warningCount: integer("warning_count").notNull().default(0),
     status: text("status").notNull().default("pending"),
     errorMessage: text("error_message"),
     /**
@@ -451,6 +455,76 @@ export const classificationSamples = pgTable(
 );
 
 export type ClassificationSampleRow = typeof classificationSamples.$inferSelect;
+
+// ─── Dev Test Suite — parser fidelity check (PR2) ────────────────────────────
+// Same sandboxing rules as the classification sampler: verdicts NEVER write
+// back to the transactions/uploads tables. The "raw CSV" view is reconstructed
+// at display time from stored fields — see spec §6 (Option 2 chosen).
+
+/** Per-row verdict shape stored in `parser_samples.verdicts` (json). */
+export type ParserVerdict = {
+  transactionId: number;
+  // Best-effort reconstruction of the originating CSV cells (display-only,
+  // never persisted on the transactions table). Built from rawDescription +
+  // |amount| + stored date at sample-creation time.
+  rawDate: string;
+  rawDescription: string;
+  rawAmount: string;
+  // Parser output snapshot (taken at sample creation; never recomputed).
+  parsedDate: string;
+  parsedDescription: string;
+  parsedAmount: number;
+  parsedFlowType: string;
+  parsedAmbiguous: boolean;
+  // Top-level skip when the reviewer cannot evaluate the row at all.
+  skipped: boolean;
+  // Per-field verdicts (only meaningful when !skipped).
+  dateVerdict: "ok" | "wrong-date";
+  descriptionVerdict: "ok" | "wrong-description";
+  amountVerdict: "ok" | "wrong-amount" | "wrong-sign" | "wrong-column";
+  directionVerdict: "ok" | "wrong-direction";
+  notes: string | null;
+};
+
+export const PARSER_DATE_VERDICTS = ["ok", "wrong-date"] as const;
+export const PARSER_DESC_VERDICTS = ["ok", "wrong-description"] as const;
+export const PARSER_AMOUNT_VERDICTS = ["ok", "wrong-amount", "wrong-sign", "wrong-column"] as const;
+export const PARSER_DIRECTION_VERDICTS = ["ok", "wrong-direction"] as const;
+
+export const parserSamples = pgTable(
+  "parser_samples",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Nullable + ON DELETE SET NULL so a sample survives the underlying upload
+    // being deleted (the verdicts snapshot is still valid for reporting).
+    uploadId: integer("upload_id").references(() => uploads.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { mode: "date", withTimezone: true }),
+    sampleSize: integer("sample_size").notNull(),
+    dateAccuracy:        numeric("date_accuracy",        { precision: 5, scale: 4 }),
+    descriptionAccuracy: numeric("description_accuracy", { precision: 5, scale: 4 }),
+    amountAccuracy:      numeric("amount_accuracy",      { precision: 5, scale: 4 }),
+    directionAccuracy:   numeric("direction_accuracy",   { precision: 5, scale: 4 }),
+    // Upload-level snapshot taken at sample creation (so later upload deletions
+    // / reuploads don't change the sample's denominator context).
+    uploadRowCount:     integer("upload_row_count"),
+    uploadWarningCount: integer("upload_warning_count"),
+    confirmedCount: integer("confirmed_count").notNull().default(0),
+    flaggedCount:   integer("flagged_count").notNull().default(0),
+    verdicts: json("verdicts").$type<ParserVerdict[]>().notNull().default([]),
+  },
+  (t) => [
+    index("parser_samples_user_id_idx").on(t.userId),
+    index("parser_samples_upload_id_idx").on(t.uploadId),
+  ],
+);
+
+export type ParserSampleRow = typeof parserSamples.$inferSelect;
 
 export type MerchantClassificationSource = "manual" | "ai" | "rule-seed";
 
