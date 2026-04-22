@@ -250,6 +250,196 @@ export async function getUploadById(uploadId: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Async-AI upload lifecycle helpers (PR2)
+//
+// These functions own all writes to the AI tracking columns added in PR1
+// (ai_status, ai_rows_pending, ai_rows_done, ai_started_at, ai_completed_at,
+// ai_error). They are deliberately small typed setters so the worker, the
+// upload handler, and the startup sweep can move uploads through the
+// pending → processing → complete/failed lifecycle without each caller
+// re-stating the column list.
+// ---------------------------------------------------------------------------
+
+export type UploadAiStatusUpdate = {
+  aiStatus?: "none" | "pending" | "processing" | "complete" | "failed";
+  aiRowsPending?: number;
+  aiRowsDone?: number;
+  aiStartedAt?: Date | null;
+  aiCompletedAt?: Date | null;
+  aiError?: string | null;
+};
+
+/**
+ * Apply a partial AI-status update to an upload row. Only the fields
+ * present in `patch` are written; everything else is left untouched.
+ * Returns the updated row, or null when the upload does not exist.
+ */
+export async function updateUploadAiStatus(
+  uploadId: number,
+  patch: UploadAiStatusUpdate,
+) {
+  if (Object.keys(patch).length === 0) {
+    return getUploadById(uploadId);
+  }
+  const [row] = await db
+    .update(uploads)
+    .set(patch)
+    .where(eq(uploads.id, uploadId))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Atomically bump an upload's `ai_rows_done` counter. Used by the worker
+ * after each chunk so progress is visible to status pollers without the
+ * worker needing to re-read the row first.
+ */
+export async function incrementUploadAiRowsDone(
+  uploadId: number,
+  delta: number,
+): Promise<void> {
+  if (delta <= 0) return;
+  await db
+    .update(uploads)
+    .set({ aiRowsDone: sql`${uploads.aiRowsDone} + ${delta}` })
+    .where(eq(uploads.id, uploadId));
+}
+
+/**
+ * Count the rows in `transactions` that the AI worker still needs to
+ * enhance for a given upload. The worker pool is "rule/cache labeled
+ * rows that the pipeline flagged as wanting AI" — i.e. aiAssisted=true
+ * and labelSource has not been promoted to "ai" yet.
+ *
+ * Used by the upload handler to seed `ai_rows_pending` after insert,
+ * and by the worker to detect when there is genuinely nothing to do.
+ */
+export async function countNeedsAiForUpload(uploadId: number): Promise<number> {
+  const [row] = await db
+    .select({ c: count() })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.uploadId, uploadId),
+        eq(transactions.aiAssisted, true),
+        ne(transactions.labelSource, "ai"),
+      ),
+    );
+  return row?.c ?? 0;
+}
+
+/**
+ * Return the rows that the AI worker should process for one upload, in
+ * insertion order. Includes the data the worker needs to call the AI
+ * batch (merchant, rawDescription, amount, flowType) and write results
+ * back individually (id, current category for skip-on-no-change).
+ */
+export async function listNeedsAiTransactionsForUpload(
+  userId: number,
+  uploadId: number,
+) {
+  return db
+    .select({
+      id: transactions.id,
+      merchant: transactions.merchant,
+      rawDescription: transactions.rawDescription,
+      amount: transactions.amount,
+      flowType: transactions.flowType,
+      category: transactions.category,
+      transactionClass: transactions.transactionClass,
+      recurrenceType: transactions.recurrenceType,
+      labelSource: transactions.labelSource,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.uploadId, uploadId),
+        eq(transactions.aiAssisted, true),
+        ne(transactions.labelSource, "ai"),
+      ),
+    )
+    .orderBy(asc(transactions.id));
+}
+
+/**
+ * Return uploads currently flagged as `ai_status='processing'`. Used by
+ * the startup sweep to find work that was interrupted by a server
+ * restart.
+ */
+export async function findStuckProcessingUploads() {
+  return db
+    .select({
+      id: uploads.id,
+      userId: uploads.userId,
+      aiStartedAt: uploads.aiStartedAt,
+    })
+    .from(uploads)
+    .where(eq(uploads.aiStatus, "processing"));
+}
+
+/**
+ * Per-upload AI status lookup, scoped to the calling user. Returns null
+ * when the upload does not exist OR belongs to a different user — both
+ * cases collapse to a 404 in the route handler so we never leak whether
+ * an unrelated upload id exists.
+ */
+export async function getUploadAiStatusForUser(
+  userId: number,
+  uploadId: number,
+) {
+  const [row] = await db
+    .select({
+      id: uploads.id,
+      aiStatus: uploads.aiStatus,
+      aiRowsPending: uploads.aiRowsPending,
+      aiRowsDone: uploads.aiRowsDone,
+      aiStartedAt: uploads.aiStartedAt,
+      aiCompletedAt: uploads.aiCompletedAt,
+      aiError: uploads.aiError,
+    })
+    .from(uploads)
+    .where(and(eq(uploads.id, uploadId), eq(uploads.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Aggregate AI status for a user's recent uploads. Returns anything
+ * still moving (`pending` / `processing`) plus anything that finished
+ * within the last 24h, so the frontend pulse badge can show "just
+ * completed" results without polling forever. Capped at 50 rows.
+ */
+export async function listActiveAiUploadsForUser(userId: number) {
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return db
+    .select({
+      id: uploads.id,
+      aiStatus: uploads.aiStatus,
+      aiRowsPending: uploads.aiRowsPending,
+      aiRowsDone: uploads.aiRowsDone,
+      aiStartedAt: uploads.aiStartedAt,
+      aiCompletedAt: uploads.aiCompletedAt,
+      aiError: uploads.aiError,
+    })
+    .from(uploads)
+    .where(
+      and(
+        eq(uploads.userId, userId),
+        or(
+          inArray(uploads.aiStatus, ["pending", "processing"]),
+          and(
+            inArray(uploads.aiStatus, ["complete", "failed"]),
+            gte(uploads.uploadedAt, dayAgo),
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(uploads.uploadedAt))
+    .limit(50);
+}
+
+// ---------------------------------------------------------------------------
 // Transactions
 // ---------------------------------------------------------------------------
 

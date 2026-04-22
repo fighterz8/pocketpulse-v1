@@ -17,6 +17,7 @@ import { ensureUserPreferences, pool } from "./db.js";
 import { AUTO_ESSENTIAL_CATEGORIES, REVIEW_STATUSES, V1_CATEGORIES } from "../shared/schema.js";
 import { DEV_MODE_ENABLED } from "../shared/devConfig.js";
 import {
+  countNeedsAiForUpload,
   createAccountForUser,
   createTransactionBatch,
   createUpload,
@@ -26,9 +27,11 @@ import {
   DuplicateEmailError,
   getFormatSpec,
   getTransactionById,
+  getUploadAiStatusForUser,
   getUserByEmailForAuth,
   getUserById,
   listAccountsForUser,
+  listActiveAiUploadsForUser,
   listAllTransactionsForExport,
   listRecurringReviewsForUser,
   listTransactionsForUser,
@@ -36,6 +39,7 @@ import {
   propagateUserCorrection,
   saveFormatSpec,
   updateTransaction,
+  updateUploadAiStatus,
   updateUploadStatus,
   upsertMerchantClassification,
   upsertMerchantRule,
@@ -49,6 +53,7 @@ import { detectRecurringCandidates, recurrenceKey } from "./recurrenceDetector.j
 import { detectLeaks } from "./cashflow.js";
 import { createDevTestSuiteRouter } from "./devTestSuite.js";
 import { reclassifyTransactions } from "./reclassify.js";
+import { runUploadAiWorker } from "./aiWorker.js";
 import { transactions as txnTable, users as usersTable } from "../shared/schema.js";
 
 declare module "express-session" {
@@ -750,7 +755,15 @@ export function createApp(options?: CreateAppOptions) {
             continue;
           }
 
-          // Classification pipeline: rules → user-rules → cache → AI → cache-writeback.
+          // Classification pipeline: rules → user-rules → cache → (AI deferred).
+          //
+          // We pass `skipAi: true` here so the upload request returns as soon
+          // as rule + cache labels are applied. Rows that still want an AI
+          // verdict are flagged via `needsAi` / `aiAssisted=true`; the
+          // background worker spawned after `res.json()` (see below) then
+          // promotes them to `labelSource='ai'` and writes the merchant
+          // cache. `aiTimeoutMs` is unused on this code path but the option
+          // type still requires a number — set to 0 for clarity.
           const pipelineOutputs = await classifyPipeline(
             parseResult.rows.map((r) => ({
               rawDescription: r.description,
@@ -759,9 +772,10 @@ export function createApp(options?: CreateAppOptions) {
             })),
             {
               userId,
-              aiTimeoutMs: 6_000,
+              aiTimeoutMs: 0,
               aiConfidenceThreshold: 0.5,
               cacheWriteMinConfidence: 0.7,
+              skipAi: true,
             },
           );
 
@@ -796,6 +810,25 @@ export function createApp(options?: CreateAppOptions) {
             parseResult.warnings.length,
           );
 
+          // Seed the AI tracking columns based on what actually landed in
+          // the DB. dedup may have removed some inputs, so we count the
+          // surviving rows that still want AI rather than trusting the
+          // pre-insert pipeline output count.
+          let needsAiCount = 0;
+          try {
+            needsAiCount = await countNeedsAiForUpload(uploadRecord.id);
+          } catch {
+            // Non-fatal: the worker will recount when it starts.
+          }
+          await updateUploadAiStatus(uploadRecord.id, {
+            aiStatus: needsAiCount > 0 ? "pending" : "complete",
+            aiRowsPending: needsAiCount,
+            aiRowsDone: 0,
+            aiStartedAt: null,
+            aiCompletedAt: needsAiCount > 0 ? null : new Date(),
+            aiError: null,
+          });
+
           results.push({
             filename: file.originalname,
             uploadId: uploadRecord.id,
@@ -824,11 +857,101 @@ export function createApp(options?: CreateAppOptions) {
         }
 
         res.status(201).json({ results });
+
+        // Fire-and-forget the AI worker for every upload that has pending
+        // rows. Runs AFTER res.json so the user sees their data immediately;
+        // rule + cache labels are already in the response. Each worker
+        // self-guards against double-spawn via an in-process Set, so it is
+        // safe to call here even if the startup sweep also picked up the
+        // same uploadId.
+        for (const r of results) {
+          if (r.status === "complete" && r.uploadId != null) {
+            const uploadId = r.uploadId;
+            // Detached intentionally — never awaited from the request.
+            void runUploadAiWorker(userId, uploadId).catch((err) => {
+              console.error(
+                `[aiWorker] uncaught error for upload=${uploadId}: ${err}`,
+              );
+            });
+          }
+        }
       } catch (e) {
         next(e);
       }
     },
   );
+
+  /**
+   * GET /api/uploads/:id/status
+   *
+   * Per-upload AI progress poll. Returns the worker's current state plus
+   * a derived `progress` ratio for convenient frontend rendering. 404 when
+   * the upload does not belong to the calling user (we collapse "not found"
+   * and "not yours" so we don't leak the existence of unrelated uploads).
+   */
+  app.get("/api/uploads/:id/status", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const uploadId = parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(uploadId) || uploadId <= 0) {
+        res.status(400).json({ error: "Invalid upload id" });
+        return;
+      }
+      const status = await getUploadAiStatusForUser(userId, uploadId);
+      if (!status) {
+        res.status(404).json({ error: "Upload not found" });
+        return;
+      }
+      const pending = status.aiRowsPending ?? 0;
+      const done = status.aiRowsDone ?? 0;
+      res.json({
+        uploadId: status.id,
+        aiStatus: status.aiStatus,
+        aiRowsPending: pending,
+        aiRowsDone: done,
+        progress: pending > 0 ? Math.min(1, done / pending) : 1,
+        aiStartedAt: status.aiStartedAt,
+        aiCompletedAt: status.aiCompletedAt,
+        aiError: status.aiError,
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  /**
+   * GET /api/uploads/ai-status
+   *
+   * Aggregate poll: returns AI status for the user's recently active
+   * uploads (anything still in pending/processing, plus anything that
+   * completed/failed within the last 24h). Used by the dashboard "pulse"
+   * badge so the frontend doesn't have to track upload IDs across page
+   * navigations.
+   */
+  app.get("/api/uploads/ai-status", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const rows = await listActiveAiUploadsForUser(userId);
+      res.json({
+        uploads: rows.map((row) => {
+          const pending = row.aiRowsPending ?? 0;
+          const done = row.aiRowsDone ?? 0;
+          return {
+            uploadId: row.id,
+            aiStatus: row.aiStatus,
+            aiRowsPending: pending,
+            aiRowsDone: done,
+            progress: pending > 0 ? Math.min(1, done / pending) : 1,
+            aiStartedAt: row.aiStartedAt,
+            aiCompletedAt: row.aiCompletedAt,
+            aiError: row.aiError,
+          };
+        }),
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
 
   app.get("/api/uploads", requireAuth, async (req, res, next) => {
     try {

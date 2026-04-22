@@ -2,7 +2,11 @@ import http from "node:http";
 
 import { createApp } from "./routes.js";
 import { runMigrations } from "./migrations.js";
-import { seedGlobalMerchantSeed, seedMerchantClassifications } from "./startup.js";
+import {
+  recoverStuckAiUploads,
+  seedGlobalMerchantSeed,
+  seedMerchantClassifications,
+} from "./startup.js";
 
 // Apply any pending Drizzle migrations before the server accepts traffic.
 // Idempotent — already-applied migrations are skipped automatically.
@@ -23,6 +27,15 @@ try {
   await seedMerchantClassifications();
 } catch (err) {
   console.warn("[startup] merchant classification seed skipped:", err);
+}
+
+// Restart-recovery for the async AI worker: anything stuck in
+// ai_status='processing' is either re-kicked (recent) or marked failed
+// (older than 1h). Idempotent and self-contained — never throws.
+try {
+  await recoverStuckAiUploads();
+} catch (err) {
+  console.warn("[startup] AI worker recovery skipped:", err);
 }
 
 const app = createApp();
