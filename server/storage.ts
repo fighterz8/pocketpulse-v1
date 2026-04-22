@@ -757,34 +757,46 @@ export async function getTransactionById(id: number, userId: number) {
   return row ?? null;
 }
 
-export async function updateTransaction(
-  id: number,
-  userId: number,
+/**
+ * Pure helper: build the column/value map for an updateTransaction call.
+ * Exported so unit tests can verify field-mapping rules (including the
+ * recurrenceSource='manual' co-write) without needing a live database.
+ */
+export function buildUpdateSetValues(
   fields: UpdateTransactionInput,
-) {
+): Record<string, unknown> {
   const setValues: Record<string, unknown> = {
     userCorrected: true,
     labelSource: "manual",
   };
-
   if (fields.date !== undefined) setValues.date = fields.date;
   if (fields.merchant !== undefined) setValues.merchant = fields.merchant;
   if (fields.amount !== undefined) setValues.amount = fields.amount;
   if (fields.flowType !== undefined) setValues.flowType = fields.flowType;
   if (fields.category !== undefined) setValues.category = fields.category;
-  if (fields.transactionClass !== undefined) setValues.transactionClass = fields.transactionClass;
+  if (fields.transactionClass !== undefined)
+    setValues.transactionClass = fields.transactionClass;
   if (fields.recurrenceType !== undefined) {
     setValues.recurrenceType = fields.recurrenceType;
-    // Record that a human explicitly set this value so the KPI aggregates
-    // and any future provenance queries can distinguish manual overrides
-    // from system-detected or keyword-hinted classifications.
+    // Stamp recurrenceSource so KPI aggregates and future provenance queries
+    // can distinguish manual overrides from system-detected classifications.
     setValues.recurrenceSource = "manual";
   }
   if (fields.excludedFromAnalysis !== undefined) {
     setValues.excludedFromAnalysis = fields.excludedFromAnalysis;
     setValues.excludedAt = fields.excludedFromAnalysis ? new Date() : null;
   }
-  if (fields.excludedReason !== undefined) setValues.excludedReason = fields.excludedReason;
+  if (fields.excludedReason !== undefined)
+    setValues.excludedReason = fields.excludedReason;
+  return setValues;
+}
+
+export async function updateTransaction(
+  id: number,
+  userId: number,
+  fields: UpdateTransactionInput,
+) {
+  const setValues = buildUpdateSetValues(fields);
 
   const [row] = await db
     .update(transactions)
