@@ -2807,6 +2807,13 @@ html.dark .leaks-error {
 }
 
 .acc-run-btn {
+  /* Task #60: Link components render as inline <a>, so vertical padding
+     here was bleeding the blue background over the line above (visible on
+     the Test Suite cards where the button overlapped the description text).
+     Switching to inline-flex makes the padding form a real block box and
+     also lets us drop the underline that comes from <a> defaults. */
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
   padding: 0.6rem 1.25rem;
   border-radius: 0.75rem;
@@ -2816,9 +2823,11 @@ html.dark .leaks-error {
   font-weight: 600;
   border: none;
   cursor: pointer;
+  text-decoration: none;
   transition: background 0.15s;
   white-space: nowrap;
 }
+.acc-run-btn:hover { color: #fff; text-decoration: none; }
 .acc-run-btn:hover:not(:disabled) { background: #1d4ed8; }
 .acc-run-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
