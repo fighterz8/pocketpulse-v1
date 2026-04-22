@@ -415,6 +415,7 @@ export async function listActiveAiUploadsForUser(userId: number) {
   return db
     .select({
       id: uploads.id,
+      filename: uploads.filename,
       aiStatus: uploads.aiStatus,
       aiRowsPending: uploads.aiRowsPending,
       aiRowsDone: uploads.aiRowsDone,

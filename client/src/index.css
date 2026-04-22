@@ -3788,3 +3788,192 @@ html.dark .mobile-hamburger:hover {
   background: rgb(96 165 250 / 0.12);
 }
 
+
+/* ─── AI enhancement pulse badge ──────────────────────────────────── */
+
+.ai-pulse-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  margin: 0.25rem 0.2rem 0;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  cursor: default;
+  user-select: none;
+  background: linear-gradient(135deg, rgb(14 165 233 / 0.10), rgb(37 99 235 / 0.10));
+  border: 1px solid rgb(56 189 248 / 0.4);
+  color: #1e3a8a;
+  box-shadow: 0 1px 6px rgb(37 99 235 / 0.10);
+  transition: opacity 250ms ease;
+  white-space: nowrap;
+}
+
+.ai-pulse-badge--complete {
+  background: rgb(220 252 231 / 0.85);
+  border-color: rgb(34 197 94 / 0.4);
+  color: #14532d;
+  animation: ai-pulse-fade 2s ease forwards;
+}
+
+.ai-pulse-badge--failed {
+  background: rgb(254 226 226 / 0.85);
+  border-color: rgb(239 68 68 / 0.45);
+  color: #7f1d1d;
+  animation: ai-pulse-fade 4s ease forwards;
+}
+
+@keyframes ai-pulse-fade {
+  0%   { opacity: 0; transform: translateY(2px); }
+  10%  { opacity: 1; transform: translateY(0); }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.ai-pulse-dot {
+  position: relative;
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.ai-pulse-dot--complete,
+.ai-pulse-dot--failed {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+}
+.ai-pulse-dot--complete { background: #16a34a; }
+.ai-pulse-dot--failed   { background: #dc2626; }
+
+.ai-pulse-core {
+  position: absolute;
+  inset: 0.15rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #38bdf8, #2563eb);
+  box-shadow: 0 0 4px rgb(37 99 235 / 0.6);
+}
+
+.ai-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgb(37 99 235 / 0.55);
+  animation: ai-pulse-ring 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+@keyframes ai-pulse-ring {
+  0%   { transform: scale(0.6); opacity: 0.85; }
+  100% { transform: scale(1.85); opacity: 0; }
+}
+
+.ai-pulse-text {
+  display: inline-block;
+}
+
+/* Tooltip: per-upload progress, hover only. */
+.ai-pulse-tooltip {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 50;
+  min-width: 16rem;
+  max-width: 22rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.65rem;
+  background: rgb(255 255 255 / 0.97);
+  border: 1px solid rgb(15 23 42 / 0.1);
+  box-shadow: 0 8px 28px rgb(15 23 42 / 0.18);
+  color: #0f172a;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.ai-pulse-badge:hover .ai-pulse-tooltip,
+.ai-pulse-badge:focus-within .ai-pulse-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.ai-pulse-tooltip-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.ai-pulse-tooltip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.ai-pulse-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.ai-pulse-tooltip-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+}
+
+.ai-pulse-tooltip-progress {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: #475569;
+}
+
+/* Dark-mode polish */
+html.dark .ai-pulse-badge {
+  background: linear-gradient(135deg, rgb(14 165 233 / 0.18), rgb(37 99 235 / 0.18));
+  border-color: rgb(56 189 248 / 0.45);
+  color: #cbd5e1;
+}
+html.dark .ai-pulse-badge--complete {
+  background: rgb(20 83 45 / 0.55);
+  color: #bbf7d0;
+}
+html.dark .ai-pulse-badge--failed {
+  background: rgb(127 29 29 / 0.55);
+  color: #fecaca;
+}
+html.dark .ai-pulse-tooltip {
+  background: #1e293b;
+  border-color: rgb(255 255 255 / 0.08);
+  color: #e2e8f0;
+}
+html.dark .ai-pulse-tooltip-title { color: #94a3b8; }
+html.dark .ai-pulse-tooltip-name  { color: #f1f5f9; }
+html.dark .ai-pulse-tooltip-progress { color: #94a3b8; }
+
+/* Compact variant — used in the mobile header where space is tight. */
+.ai-pulse-badge.ai-pulse-badge--active.ai-pulse-badge--compact,
+.mobile-header-brand .ai-pulse-badge {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem;
+  margin-left: 0.4rem;
+}
+.mobile-header-brand .ai-pulse-tooltip { left: auto; right: 0; }

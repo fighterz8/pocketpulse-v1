@@ -938,6 +938,7 @@ export function createApp(options?: CreateAppOptions) {
           const done = row.aiRowsDone ?? 0;
           return {
             uploadId: row.id,
+            filename: row.filename,
             aiStatus: row.aiStatus,
             aiRowsPending: pending,
             aiRowsDone: done,

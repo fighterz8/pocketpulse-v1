@@ -8,6 +8,7 @@ import {
   type TransactionFilters,
   type UpdateTransactionInput,
 } from "../hooks/use-transactions";
+import { useAiEnhancementStatus } from "../hooks/use-ai-enhancement-status";
 import { V1_CATEGORIES } from "../../../shared/schema";
 
 const CLASS_OPTIONS = ["income", "expense", "transfer", "refund"] as const;
@@ -105,6 +106,12 @@ export function Ledger() {
     propagationTimerRef.current = setTimeout(() => setPropagationNotice(null), 5000);
   };
 
+  // While the async AI worker is enhancing rows for any of this user's
+  // recent uploads, refetch the ledger every 5s so newly-AI'd categories
+  // appear without a manual reload. The hook short-circuits to no
+  // polling the moment nothing is active, so idle users are unaffected.
+  const { anyActive: hasActiveAiEnhancement } = useAiEnhancementStatus();
+
   const {
     transactions,
     pagination,
@@ -114,7 +121,9 @@ export function Ledger() {
     updateTransaction,
     wipeData,
     resetWorkspace,
-  } = useTransactions(filters);
+  } = useTransactions(filters, {
+    refetchInterval: hasActiveAiEnhancement ? 5000 : false,
+  });
 
   const setPage = (p: number) => setFilters((f) => ({ ...f, page: p }));
 

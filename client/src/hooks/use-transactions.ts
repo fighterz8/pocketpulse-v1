@@ -98,7 +98,10 @@ function buildQueryString(filters: TransactionFilters): string {
   return qs ? `?${qs}` : "";
 }
 
-export function useTransactions(filters: TransactionFilters) {
+export function useTransactions(
+  filters: TransactionFilters,
+  options?: { refetchInterval?: number | false },
+) {
   const queryClient = useQueryClient();
   const queryKey = [...transactionsQueryKey, filters] as const;
 
@@ -109,6 +112,9 @@ export function useTransactions(filters: TransactionFilters) {
       if (!res.ok) throw new Error(await readJsonError(res));
       return res.json() as Promise<TransactionsResponse>;
     },
+    // Caller (e.g. Ledger) drives this so the same hook can stay still
+    // on pages that don't care about AI progress.
+    refetchInterval: options?.refetchInterval ?? false,
   });
 
   const updateMutation = useMutation({

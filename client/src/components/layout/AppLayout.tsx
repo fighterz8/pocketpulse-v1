@@ -4,6 +4,7 @@ import { DEV_MODE_ENABLED } from "@shared/devConfig";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../hooks/use-auth";
 import { useTheme } from "../../hooks/use-theme";
+import { AiEnhancementBadge } from "./AiEnhancementBadge";
 
 /* ── Nav item definitions with unique icons ───────────────────────────────── */
 
@@ -220,6 +221,7 @@ export function AppLayout({
         <div className="mobile-header-brand">
           <PulseLogo gradId="pulseGradMobile" />
           <span className="app-nav-brand">PocketPulse</span>
+          <AiEnhancementBadge compact />
         </div>
 
         <button
@@ -247,6 +249,9 @@ export function AppLayout({
           <PulseLogo gradId="pulseGradSidebar" />
           <p className="app-nav-brand">PocketPulse</p>
         </div>
+
+        <AiEnhancementBadge />
+
 
         <nav className="app-nav" aria-label="Main navigation">
           <ul className="app-nav-list">
