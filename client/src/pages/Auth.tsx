@@ -4,7 +4,7 @@ import { DEV_MODE_ENABLED } from "@shared/devConfig";
 
 type Mode = "login" | "register";
 
-export function Auth() {
+export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean }) {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
@@ -59,6 +59,12 @@ export function Auth() {
         <h1 className="auth-title">
           {mode === "login" ? "Sign in" : "Create account"}
         </h1>
+
+        {inactivityLogout && (
+          <p className="auth-inactivity-notice" role="status" data-testid="inactivity-notice">
+            You were logged out due to inactivity.
+          </p>
+        )}
 
         <form className="auth-form" onSubmit={(e) => void onSubmit(e)}>
           <label className="auth-field">

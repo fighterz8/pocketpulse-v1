@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
 import { AppLayout } from "./components/layout/AppLayout";
 import { useAuth } from "./hooks/use-auth";
+import { useInactivityLogout } from "./hooks/use-inactivity-logout";
 import { useTheme } from "./hooks/use-theme";
 import { AccountSetup } from "./pages/AccountSetup";
 import { Auth } from "./pages/Auth";
@@ -16,9 +17,17 @@ import { createQueryClient } from "./lib/queryClient";
 import { cn } from "./lib/utils";
 import { DEV_MODE_ENABLED } from "@shared/devConfig";
 
-function AppAuthenticated() {
+function AppAuthenticated({ onInactivityLogout }: { onInactivityLogout: () => void }) {
   const { logout, user } = useAuth();
   const canAccessAccuracy = DEV_MODE_ENABLED && user?.isDev === true;
+
+  useInactivityLogout({
+    enabled: true,
+    onTimeout: () => {
+      onInactivityLogout();
+      void logout.mutateAsync();
+    },
+  });
 
   return (
     <AppLayout
@@ -51,6 +60,11 @@ function AppAuthenticated() {
 
 function AppGate() {
   const auth = useAuth();
+  const [inactivityLogout, setInactivityLogout] = useState(false);
+
+  useEffect(() => {
+    if (auth.isAuthenticated) setInactivityLogout(false);
+  }, [auth.isAuthenticated]);
 
   if (auth.isLoading) {
     return (
@@ -78,7 +92,7 @@ function AppGate() {
   }
 
   if (!auth.isAuthenticated) {
-    return <Auth />;
+    return <Auth inactivityLogout={inactivityLogout} />;
   }
 
   if (auth.accountsLoading) {
@@ -110,7 +124,7 @@ function AppGate() {
     return <AccountSetup />;
   }
 
-  return <AppAuthenticated />;
+  return <AppAuthenticated onInactivityLogout={() => setInactivityLogout(true)} />;
 }
 
 function ThemeInit() {

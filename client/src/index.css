@@ -639,6 +639,16 @@ body {
   color: #b91c1c;
 }
 
+.auth-inactivity-notice {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #0369a1;
+  background: #e0f2fe;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.75rem;
+}
+
 .auth-submit {
   margin-top: 0.35rem;
   padding: 0.9rem 1rem;
@@ -3339,6 +3349,11 @@ html.dark .app-placeholder {
 
 html.dark .auth-error {
   color: #f87171;
+}
+
+html.dark .auth-inactivity-notice {
+  color: #7dd3fc;
+  background: #0c2a3e;
 }
 
 html.dark .ledger-filter-label {
