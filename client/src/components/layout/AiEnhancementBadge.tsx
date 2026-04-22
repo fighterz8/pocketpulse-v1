@@ -11,6 +11,10 @@ function pct(p: number): string {
  * a run just finished / failed.
  */
 export function AiEnhancementBadge({ compact = false }: { compact?: boolean }) {
+  // Both hooks must run on EVERY render — never put a hook call after an
+  // early return. The previous arrangement called useId() only on the
+  // active path, which crashed the badge with "Rendered more hooks than
+  // during the previous render" the first time the active set drained.
   const {
     anyActive,
     activeCount,
@@ -20,6 +24,8 @@ export function AiEnhancementBadge({ compact = false }: { compact?: boolean }) {
     lastJustCompleted,
     lastJustFailed,
   } = useAiEnhancementStatus();
+  const reactId = useId();
+  const tooltipId = `ai-pulse-tooltip-${reactId}`;
 
   if (!anyActive && !lastJustCompleted && !lastJustFailed) return null;
 
@@ -66,11 +72,6 @@ export function AiEnhancementBadge({ compact = false }: { compact?: boolean }) {
   const label = compact
     ? `${remaining} left · ${pct(overallProgress)}`
     : `Enhancing ${remaining} transaction${remaining === 1 ? "" : "s"}… (${pct(overallProgress)})`;
-
-  // useId() so multiple badge instances (sidebar + mobile header) never
-  // emit duplicate DOM ids — important for aria-describedby correctness
-  // and for any QA tooling that walks the accessibility tree.
-  const tooltipId = `ai-pulse-tooltip-${useId()}`;
 
   return (
     <div
