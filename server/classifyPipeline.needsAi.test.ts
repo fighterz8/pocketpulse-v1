@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 
-const aiSpy = vi.fn(async (_items: unknown[]) => new Map());
+const aiSpy = vi.fn(async (_items: unknown[], _examples?: unknown[]) => new Map());
 
 vi.mock("./ai-classifier.js", () => ({
   aiClassifyBatch: (items: unknown[], examples: unknown[]) => aiSpy(items, examples),

@@ -65,6 +65,7 @@ function makePipelineOut(overrides: Partial<PipelineOutput> = {}): PipelineOutpu
     labelReason: "classifier match",
     aiAssisted: false,
     fromCache: false,
+    needsAi: false,
     ...overrides,
   };
 }

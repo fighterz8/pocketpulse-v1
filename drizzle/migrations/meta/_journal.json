@@ -29,6 +29,13 @@
       "when": 1777200000000,
       "tag": "0008_drop_parser_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777300000000,
+      "tag": "0009_uploads_ai_status",
+      "breakpoints": true
     }
   ]
 }

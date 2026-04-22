@@ -152,6 +152,24 @@ export const uploads = pgTable(
     uploadedAt: timestamp("uploaded_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Async AI classification lifecycle (independent of `status`, which
+     * tracks file parse/insert).
+     * "none"        no AI work was ever required
+     * "pending"     rows queued for the background worker, not started
+     * "processing"  worker actively running AI batches
+     * "complete"    worker finished successfully
+     * "failed"      worker hit a fatal error (see aiError)
+     */
+    aiStatus: text("ai_status").notNull().default("none"),
+    /** Rows the worker still needs to enhance. Captured at upload completion. */
+    aiRowsPending: integer("ai_rows_pending").notNull().default(0),
+    /** Rows the worker has already enhanced. Climbs monotonically. */
+    aiRowsDone: integer("ai_rows_done").notNull().default(0),
+    aiStartedAt: timestamp("ai_started_at", { mode: "date", withTimezone: true }),
+    aiCompletedAt: timestamp("ai_completed_at", { mode: "date", withTimezone: true }),
+    /** Human-readable diagnostic; populated only when aiStatus='failed'. */
+    aiError: text("ai_error"),
   },
   (t) => [
     index("uploads_user_id_idx").on(t.userId),

@@ -58,6 +58,16 @@ export type PipelineOutput = {
   labelReason: string;
   aiAssisted: boolean;
   fromCache: boolean;
+  /**
+   * True when this row would benefit from AI classification but didn't get
+   * a definitive AI label this pass. Set by the rule pass and cleared as
+   * later phases (user-rule, cache, global seed, AI) resolve the row.
+   *
+   * Callers use this to count rows the async AI worker still needs to
+   * enhance. After a successful AI pass, this is false; after `skipAi:true`
+   * or an AI timeout, the rows that wanted AI come back with `needsAi:true`.
+   */
+  needsAi: boolean;
 };
 
 export type PipelineOptions = {
@@ -76,6 +86,18 @@ export type PipelineOptions = {
    * from even a small set of examples.
    */
   includeUserExamplesInAi?: boolean;
+  /**
+   * When true, the pipeline runs Phase 1 (rules) → 1.5 (user rules) →
+   * 1.7 (per-user cache) → 1.8 (global seed) ONLY. Phase 2 (AI) is
+   * skipped entirely: aiClassifyBatch is never called and no AI cache
+   * writeback occurs. Rows that would have gone to AI are returned with
+   * `needsAi: true` and whatever labelSource the rule pass produced.
+   *
+   * The upload handler uses this to keep the request fast and defer AI
+   * to a background worker. Reclassify never sets it.
+   * Default: false.
+   */
+  skipAi?: boolean;
 };
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -305,6 +327,26 @@ export async function classifyPipeline(
   }
 
   // ── Phase 2: AI fallback for low-confidence / uncertain rows ──────────────
+  // Skipped when the caller opts into deferred AI (upload path uses this so
+  // the request returns fast; a background worker picks up `needsAi` rows).
+  if (opts.skipAi) {
+    return internal.map((row) => ({
+      merchant: row.merchant,
+      amount: row.amount,
+      flowType: row.flowType,
+      transactionClass: row.transactionClass,
+      category: row.category,
+      recurrenceType: row.recurrenceType,
+      recurrenceSource: row.recurrenceSource,
+      labelSource: row.labelSource,
+      labelConfidence: row.labelConfidence,
+      labelReason: row.labelReason,
+      aiAssisted: row.aiAssisted,
+      fromCache: row.fromCache,
+      needsAi: row.needsAi,
+    }));
+  }
+
   const aiCandidates: AiClassificationInput[] = [];
   const internalToAiIdx = new Map<number, number>();
 
@@ -356,6 +398,7 @@ export async function classifyPipeline(
       row.labelReason = aiResult.labelReason;
       row.labelSource = "ai";
       row.aiAssisted = true;
+      row.needsAi = false;
     }
 
     // Write qualifying AI results back to the merchant cache (fire-and-forget).
@@ -405,5 +448,6 @@ export async function classifyPipeline(
     labelReason: row.labelReason,
     aiAssisted: row.aiAssisted,
     fromCache: row.fromCache,
+    needsAi: row.needsAi,
   }));
 }
