@@ -64,8 +64,10 @@ function AppGate() {
   useInactivityLogout({
     enabled: auth.isAuthenticated,
     onTimeout: () => {
-      setInactivityLogout(true);
-      void auth.logout.mutateAsync();
+      void auth.logout.mutateAsync().then(
+        () => setInactivityLogout(true),
+        () => { /* logout failed — leave session as-is, don't show notice */ },
+      );
     },
   });
 
