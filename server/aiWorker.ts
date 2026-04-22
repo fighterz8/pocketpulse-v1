@@ -297,8 +297,15 @@ export async function runUploadAiWorker(
       };
     }
 
+    // Reconcile pending=done at success. AI may return a partial map for
+    // a chunk (e.g. 23 verdicts for 25 rows) — those un-verdicted rows
+    // are still in the needs-AI pool and will be picked up by the next
+    // reclassify, but for THIS upload we're done attempting them. Setting
+    // aiRowsPending = processedRows guarantees pollers always see a
+    // self-consistent terminal state (pending == done at complete).
     await updateUploadAiStatus(uploadId, {
       aiStatus: "complete",
+      aiRowsPending: processedRows,
       aiCompletedAt: new Date(),
       aiError: null,
     });
