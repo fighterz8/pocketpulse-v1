@@ -30,8 +30,11 @@ vi.mock("./storage.js", async () => {
   const actual = await vi.importActual<typeof import("./storage.js")>("./storage.js");
   return {
     ...actual,
-    recordCacheHits: (...args: unknown[]) => recordCacheHitsSpy(...args),
-    batchUpsertMerchantClassifications: (...args: unknown[]) => batchUpsertSpy(...args),
+    recordCacheHits: (...args: Parameters<typeof actual.recordCacheHits>) =>
+      recordCacheHitsSpy(...(args as unknown as [])),
+    batchUpsertMerchantClassifications: (
+      ...args: Parameters<typeof actual.batchUpsertMerchantClassifications>
+    ) => batchUpsertSpy(...(args as unknown as [])),
   };
 });
 
