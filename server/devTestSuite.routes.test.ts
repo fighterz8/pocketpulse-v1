@@ -405,8 +405,10 @@ describe.skipIf(!runRouteIntegrationTests)("Dev Test Suite routes (/api/dev/*)",
     const verdictsSnapshot = create.body.verdicts as Array<{
       transactionId: number; rawAmount: string; parsedFlowType: string;
     }>;
-    // Reconstructed raw amount must be signed (outflow → negative).
-    expect(verdictsSnapshot[0].rawAmount.startsWith("-")).toBe(true);
+    // Spec §6: reconstructed raw amount is the *absolute* value — no sign
+    // leak from flowType — so reviewers can independently judge direction.
+    expect(verdictsSnapshot[0].rawAmount.startsWith("-")).toBe(false);
+    expect(parseFloat(verdictsSnapshot[0].rawAmount)).toBeGreaterThan(0);
     expect(verdictsSnapshot[0].parsedFlowType).toBe("outflow");
 
     // GET list

@@ -464,6 +464,48 @@ function ReviewScreen({
   );
 }
 
+// ─── Report screen helpers ──────────────────────────────────────────────────
+
+function AccuracyCard({
+  label, acc, denom, testId,
+}: {
+  label: string; acc: number | null; denom: number; testId: string;
+}) {
+  const pctText = acc == null || denom <= 0 ? "—" : `${(acc * 100).toFixed(0)}%`;
+  const fracText = acc == null || denom <= 0
+    ? ""
+    : `${Math.round(acc * denom)} / ${denom}`;
+  return (
+    <div className="parser-accuracy-card" data-testid={testId}>
+      <div className="parser-accuracy-card-label">{label}</div>
+      <div className="parser-accuracy-card-pct">{pctText}</div>
+      {fracText && <div className="parser-accuracy-card-frac">{fracText}</div>}
+    </div>
+  );
+}
+
+function renderBreakdownRows(
+  label: string,
+  misses: Array<[string, number]>,
+  testIdPrefix: string,
+) {
+  if (misses.length === 0) {
+    return (
+      <tr key={`${label}-none`} data-testid={`${testIdPrefix}-none`}>
+        <td>{label}</td>
+        <td colSpan={2} style={{ color: "#94a3b8" }}>No errors flagged</td>
+      </tr>
+    );
+  }
+  return misses.map(([tag, count], i) => (
+    <tr key={`${label}-${tag}`} data-testid={`${testIdPrefix}-${tag}`}>
+      {i === 0 ? <td rowSpan={misses.length}>{label}</td> : null}
+      <td>{tag}</td>
+      <td>{count}</td>
+    </tr>
+  ));
+}
+
 // ─── Report screen ──────────────────────────────────────────────────────────
 
 function ReportScreen({ sample }: { sample: SampleRecord }) {
@@ -518,44 +560,40 @@ function ReportScreen({ sample }: { sample: SampleRecord }) {
           {PARSER_DISCLAIMER}
         </p>
 
-        <div className="acc-merchants-table-wrap">
-          <table className="acc-merchants-table">
-            <thead>
-              <tr>
-                <th>Field</th>
-                <th>Accuracy</th>
-                <th>Top error tags</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr data-testid="row-report-date">
-                <td>Date</td>
-                <td>{pctFrac(sample.dateAccuracy, denom)}</td>
-                <td>{dateMisses.length === 0 ? "—" : dateMisses.map(([k, n]) => `${k} (${n})`).join(", ")}</td>
-              </tr>
-              <tr data-testid="row-report-description">
-                <td>Description</td>
-                <td>{pctFrac(sample.descriptionAccuracy, denom)}</td>
-                <td>{descMisses.length === 0 ? "—" : descMisses.map(([k, n]) => `${k} (${n})`).join(", ")}</td>
-              </tr>
-              <tr data-testid="row-report-amount">
-                <td>Amount</td>
-                <td>{pctFrac(sample.amountAccuracy, denom)}</td>
-                <td>{amtMisses.length === 0 ? "—" : amtMisses.map(([k, n]) => `${k} (${n})`).join(", ")}</td>
-              </tr>
-              <tr data-testid="row-report-direction">
-                <td>Direction</td>
-                <td>{pctFrac(sample.directionAccuracy, denom)}</td>
-                <td>{dirMisses.length === 0 ? "—" : dirMisses.map(([k, n]) => `${k} (${n})`).join(", ")}</td>
-              </tr>
-            </tbody>
-          </table>
+        {/* Spec §5: four headline accuracy cards (XX% paired with raw fraction). */}
+        <div className="parser-accuracy-cards" data-testid="parser-accuracy-cards">
+          <AccuracyCard label="Date"        acc={sample.dateAccuracy}        denom={denom} testId="card-accuracy-date" />
+          <AccuracyCard label="Description" acc={sample.descriptionAccuracy} denom={denom} testId="card-accuracy-description" />
+          <AccuracyCard label="Amount"      acc={sample.amountAccuracy}      denom={denom} testId="card-accuracy-amount" />
+          <AccuracyCard label="Direction"   acc={sample.directionAccuracy}   denom={denom} testId="card-accuracy-direction" />
         </div>
 
         <div style={{ marginTop: 16 }}>
           <button type="button" onClick={exportJson} data-testid="btn-export-parser-json">
             Export JSON
           </button>
+        </div>
+      </div>
+
+      {/* Spec §5 middle block: per-field error breakdown across the sample. */}
+      <div className="acc-merchants glass-card" data-testid="parser-error-breakdown">
+        <h2 className="acc-merchants-title">Per-field error breakdown</h2>
+        <div className="acc-merchants-table-wrap">
+          <table className="acc-merchants-table">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Error type</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renderBreakdownRows("Date",        dateMisses, "row-breakdown-date")}
+              {renderBreakdownRows("Description", descMisses, "row-breakdown-description")}
+              {renderBreakdownRows("Amount",      amtMisses,  "row-breakdown-amount")}
+              {renderBreakdownRows("Direction",   dirMisses,  "row-breakdown-direction")}
+            </tbody>
+          </table>
         </div>
       </div>
 

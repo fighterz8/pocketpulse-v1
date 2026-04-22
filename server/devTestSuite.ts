@@ -209,22 +209,23 @@ const PARSER_DIR_SET    = new Set<string>(PARSER_DIRECTION_VERDICTS);
 
 /**
  * Reconstruct a "raw CSV row" from stored fields. Display-only (per spec §6
- * Option 2) — never persisted back to the transactions table. Sign comes from
- * flowType so users can compare the parser's direction call against what they
- * remember about the original statement.
+ * Option 2) — never persisted back to the transactions table.
+ *
+ * The "raw" amount is the *absolute* value: signing it from `flowType` would
+ * leak the parser's direction interpretation into the reference view and
+ * defeat the purpose of letting reviewers catch sign-flip bugs. The parsed
+ * column shows the signed amount + flowType pill separately.
  */
 function reconstructRawRow(t: {
   date: string;
   rawDescription: string;
   amount: string;
-  flowType: string;
 }): { rawDate: string; rawDescription: string; rawAmount: string } {
   const abs = Math.abs(parseFloat(String(t.amount)));
-  const signed = t.flowType === "outflow" ? -abs : abs;
   return {
     rawDate: t.date,
     rawDescription: t.rawDescription,
-    rawAmount: signed.toFixed(2),
+    rawAmount: abs.toFixed(2),
   };
 }
 
