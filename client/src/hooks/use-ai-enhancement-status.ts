@@ -82,7 +82,10 @@ export function useAiEnhancementStatus() {
   // the previous tick and only consult terminal state for THOSE IDs at
   // the moment the active set drains.
   const previouslyActiveIdsRef = useRef<Set<number>>(new Set());
-  const [lastJustCompleted, setLastJustCompleted] = useState(false);
+  // Stores the total row count when a batch completes so the UI can
+  // display "N transactions enhanced" instead of a generic message.
+  // False means no recent completion.
+  const [lastJustCompleted, setLastJustCompleted] = useState<number | false>(false);
   const [lastJustFailed, setLastJustFailed] = useState<string | null>(null);
 
   // Re-run whenever the active SET changes, not just when the boolean
@@ -121,7 +124,11 @@ export function useAiEnhancementStatus() {
       const t = setTimeout(() => setLastJustFailed(null), 4000);
       return () => clearTimeout(t);
     }
-    setLastJustCompleted(true);
+    const totalEnhanced = trackedTerminal.reduce(
+      (sum, u) => sum + (u.aiRowsDone ?? 0),
+      0,
+    );
+    setLastJustCompleted(totalEnhanced);
     const t = setTimeout(() => setLastJustCompleted(false), 2000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -92,7 +92,11 @@ export function BrandPulse({
     ariaLabel = `AI enhancement in progress: ${remaining} transactions remaining, ${percentLabel} complete`;
     interactive = true;
   } else if (visualState === "complete") {
-    subtextContent = "AI enhancement complete";
+    const n = lastJustCompleted as number;
+    subtextContent =
+      n > 0
+        ? `${n} transaction${n === 1 ? "" : "s"} enhanced`
+        : "AI enhancement complete";
     subtextTestid = "text-ai-pulse-status";
     badgeTestid = "ai-pulse-badge";
     role = "status";
