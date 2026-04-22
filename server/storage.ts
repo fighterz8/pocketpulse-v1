@@ -3,6 +3,7 @@ import { DatabaseError } from "pg";
 
 import {
   accounts,
+  classificationSamples,
   csvFormatSpecs,
   merchantClassifications,
   merchantClassificationsGlobal,
@@ -13,6 +14,8 @@ import {
   USER_PREFERENCE_DEFAULTS,
   userPreferences,
   users,
+  type ClassificationSampleRow,
+  type ClassificationVerdict,
   type CsvFormatSpec,
   type MerchantClassification,
   type MerchantClassificationSource,
@@ -1338,4 +1341,177 @@ export async function seedMerchantClassificationsForUser(userId: number): Promis
     }
   }
   return inserted;
+}
+
+// ---------------------------------------------------------------------------
+// Dev Test Suite — classification samples (sandboxed; never mutates txns)
+// ---------------------------------------------------------------------------
+
+export type ClassificationSampleListItem = {
+  id: number;
+  createdAt: Date;
+  completedAt: Date | null;
+  sampleSize: number;
+  categoryAccuracy: number | null;
+  classAccuracy: number | null;
+  recurrenceAccuracy: number | null;
+  confirmedCount: number;
+  correctedCount: number;
+  skippedCount: number;
+};
+
+function rowToListItem(r: ClassificationSampleRow): ClassificationSampleListItem {
+  return {
+    id: r.id,
+    createdAt: r.createdAt,
+    completedAt: r.completedAt,
+    sampleSize: r.sampleSize,
+    categoryAccuracy: r.categoryAccuracy != null ? parseFloat(String(r.categoryAccuracy)) : null,
+    classAccuracy:    r.classAccuracy    != null ? parseFloat(String(r.classAccuracy))    : null,
+    recurrenceAccuracy: r.recurrenceAccuracy != null ? parseFloat(String(r.recurrenceAccuracy)) : null,
+    confirmedCount: r.confirmedCount,
+    correctedCount: r.correctedCount,
+    skippedCount:   r.skippedCount,
+  };
+}
+
+/**
+ * Pick `n` random transactions from a user's data for classification sampling.
+ * Filters mirror the Dev Test Suite spec §4: only verifiable rows that came out
+ * of the active classifier subsystems (rule / cache / ai / user-rule).
+ *
+ * Excluded labelSources (`propagated`, `recurring-transfer`, `manual`) are
+ * system-derived or already user-confirmed and shouldn't be re-verified here.
+ */
+export async function pickClassificationSampleTransactions(
+  userId: number,
+  sampleSize: number,
+) {
+  return db
+    .select({
+      id: transactions.id,
+      date: transactions.date,
+      rawDescription: transactions.rawDescription,
+      amount: transactions.amount,
+      category: transactions.category,
+      transactionClass: transactions.transactionClass,
+      recurrenceType: transactions.recurrenceType,
+      labelSource: transactions.labelSource,
+      labelConfidence: transactions.labelConfidence,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.userCorrected, false),
+        eq(transactions.excludedFromAnalysis, false),
+        inArray(transactions.labelSource, ["rule", "cache", "ai", "user-rule"]),
+      ),
+    )
+    .orderBy(sql`random()`)
+    .limit(sampleSize);
+}
+
+export async function createClassificationSample(input: {
+  userId: number;
+  sampleSize: number;
+  verdicts: ClassificationVerdict[];
+}): Promise<ClassificationSampleRow> {
+  const [row] = await db
+    .insert(classificationSamples)
+    .values({
+      userId: input.userId,
+      sampleSize: input.sampleSize,
+      verdicts: input.verdicts,
+    })
+    .returning();
+  if (!row) throw new Error("createClassificationSample: insert returned no row");
+  return row;
+}
+
+export async function getClassificationSampleById(
+  id: number,
+  userId: number,
+): Promise<ClassificationSampleRow | null> {
+  const [row] = await db
+    .select()
+    .from(classificationSamples)
+    .where(and(eq(classificationSamples.id, id), eq(classificationSamples.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function listClassificationSamplesForUser(
+  userId: number,
+): Promise<ClassificationSampleListItem[]> {
+  const rows = await db
+    .select()
+    .from(classificationSamples)
+    .where(eq(classificationSamples.userId, userId))
+    .orderBy(desc(classificationSamples.createdAt))
+    .limit(50);
+  return rows.map(rowToListItem);
+}
+
+export async function completeClassificationSample(input: {
+  id: number;
+  userId: number;
+  verdicts: ClassificationVerdict[];
+  categoryAccuracy: number | null;
+  classAccuracy: number | null;
+  recurrenceAccuracy: number | null;
+  confirmedCount: number;
+  correctedCount: number;
+  skippedCount: number;
+}): Promise<ClassificationSampleRow | null> {
+  const [row] = await db
+    .update(classificationSamples)
+    .set({
+      verdicts: input.verdicts,
+      completedAt: new Date(),
+      categoryAccuracy:   input.categoryAccuracy   != null ? input.categoryAccuracy.toFixed(4)   : null,
+      classAccuracy:      input.classAccuracy      != null ? input.classAccuracy.toFixed(4)      : null,
+      recurrenceAccuracy: input.recurrenceAccuracy != null ? input.recurrenceAccuracy.toFixed(4) : null,
+      confirmedCount: input.confirmedCount,
+      correctedCount: input.correctedCount,
+      skippedCount:   input.skippedCount,
+    })
+    .where(and(eq(classificationSamples.id, input.id), eq(classificationSamples.userId, input.userId)))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Latest completed classification sample per user — used by the team
+ * side-by-side view. Returns at most one row per user_id in `userIds`.
+ */
+export async function getLatestCompletedClassificationByUsers(
+  userIds: number[],
+): Promise<Map<number, ClassificationSampleRow>> {
+  if (userIds.length === 0) return new Map();
+  const rows = await db
+    .select()
+    .from(classificationSamples)
+    .where(
+      and(
+        inArray(classificationSamples.userId, userIds),
+        sql`${classificationSamples.completedAt} IS NOT NULL`,
+      ),
+    )
+    .orderBy(desc(classificationSamples.completedAt));
+  const out = new Map<number, ClassificationSampleRow>();
+  for (const r of rows) {
+    if (!out.has(r.userId)) out.set(r.userId, r);
+  }
+  return out;
+}
+
+export async function getUsersByIds(
+  ids: number[],
+): Promise<Array<{ id: number; email: string; displayName: string }>> {
+  if (ids.length === 0) return [];
+  return db
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(inArray(users.id, ids));
 }

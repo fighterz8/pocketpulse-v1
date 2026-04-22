@@ -396,6 +396,62 @@ export const merchantClassificationsGlobal = pgTable(
   (t) => [uniqueIndex("merchant_classifications_global_key_idx").on(t.merchantKey)],
 );
 
+// ─── Dev Test Suite — classification sampler ─────────────────────────────────
+// Sandboxed verdict storage for the Dev Test Suite. Verdicts NEVER write back
+// to the transactions table. Tables drop cleanly with no inbound prod refs.
+
+/** Per-row verdict shape stored in `classification_samples.verdicts` (json). */
+export type ClassificationVerdict = {
+  transactionId: number;
+  // Snapshot of pipeline output AT SAMPLE CREATION TIME — persisted so later
+  // reclassifies don't retroactively invalidate the sample.
+  classifierCategory: string;
+  classifierClass: string;
+  classifierRecurrence: string;
+  classifierLabelSource: string;
+  classifierLabelConfidence: number;
+  // User's verdict.
+  verdict: "confirmed" | "corrected" | "skipped";
+  // Only populated when verdict === "corrected". null means "user left this
+  // dimension as-is"; a value means the user picked something else.
+  correctedCategory: string | null;
+  correctedClass: string | null;
+  correctedRecurrence: string | null;
+};
+
+export const CLASSIFICATION_VERDICT_VALUES = ["confirmed", "corrected", "skipped"] as const;
+export const CLASSIFICATION_CLASS_VALUES = ["income", "expense", "transfer", "refund"] as const;
+export const CLASSIFICATION_RECURRENCE_VALUES = ["recurring", "one-time"] as const;
+
+export const classificationSamples = pgTable(
+  "classification_samples",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { mode: "date", withTimezone: true }),
+    sampleSize: integer("sample_size").notNull(),
+    // Per-dimension accuracy; null until completed.
+    categoryAccuracy: numeric("category_accuracy", { precision: 5, scale: 4 }),
+    classAccuracy: numeric("class_accuracy", { precision: 5, scale: 4 }),
+    recurrenceAccuracy: numeric("recurrence_accuracy", { precision: 5, scale: 4 }),
+    confirmedCount: integer("confirmed_count").notNull().default(0),
+    correctedCount: integer("corrected_count").notNull().default(0),
+    skippedCount: integer("skipped_count").notNull().default(0),
+    verdicts: json("verdicts").$type<ClassificationVerdict[]>().notNull().default([]),
+  },
+  (t) => [
+    index("classification_samples_user_id_idx").on(t.userId),
+    index("classification_samples_completed_at_idx").on(t.completedAt),
+  ],
+);
+
+export type ClassificationSampleRow = typeof classificationSamples.$inferSelect;
+
 export type MerchantClassificationSource = "manual" | "ai" | "rule-seed";
 
 export type MerchantClassification = {

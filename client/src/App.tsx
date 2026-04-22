@@ -13,13 +13,16 @@ import { Ledger } from "./pages/Ledger";
 import { Leaks } from "./pages/Leaks";
 import { NotFoundPage } from "./pages/not-found";
 import { Upload } from "./pages/Upload";
+import { ClassificationSampler } from "./pages/dev/ClassificationSampler";
+import { TeamSummary } from "./pages/dev/TeamSummary";
+import { TestSuiteIndex } from "./pages/dev/TestSuiteIndex";
 import { createQueryClient } from "./lib/queryClient";
 import { cn } from "./lib/utils";
 import { DEV_MODE_ENABLED } from "@shared/devConfig";
 
 function AppAuthenticated() {
   const { logout, user } = useAuth();
-  const canAccessAccuracy = DEV_MODE_ENABLED && user?.isDev === true;
+  const canAccessDev = DEV_MODE_ENABLED && user?.isDev === true;
 
   return (
     <AppLayout
@@ -40,7 +43,16 @@ function AppAuthenticated() {
           <Leaks />
         </Route>
         <Route path="/accuracy">
-          {canAccessAccuracy ? <AccuracyReport /> : <NotFoundPage />}
+          {canAccessDev ? <AccuracyReport /> : <NotFoundPage />}
+        </Route>
+        <Route path="/dev/test-suite">
+          {canAccessDev ? <TestSuiteIndex /> : <NotFoundPage />}
+        </Route>
+        <Route path="/dev/test-suite/classification/:sampleId?">
+          {canAccessDev ? <ClassificationSampler /> : <NotFoundPage />}
+        </Route>
+        <Route path="/dev/test-suite/team">
+          {canAccessDev ? <TeamSummary /> : <NotFoundPage />}
         </Route>
         <Route>
           <NotFoundPage />

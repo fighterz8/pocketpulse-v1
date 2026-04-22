@@ -161,6 +161,23 @@ export function AppLayout({
           </Link>
         </li>
       )}
+      {showAccuracy && (
+        <li>
+          <Link
+            href="/dev/test-suite"
+            data-testid="nav-link-test-suite"
+            className={cn(
+              "app-nav-link app-nav-link--dev",
+              location.startsWith("/dev/test-suite") && "app-nav-link--active",
+            )}
+            onClick={closeSidebar}
+          >
+            <IconAccuracy />
+            Test Suite
+            <span className="acc-nav-badge">DEV</span>
+          </Link>
+        </li>
+      )}
     </>
   );
 

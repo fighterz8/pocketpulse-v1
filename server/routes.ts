@@ -47,6 +47,7 @@ import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
 import { detectRecurringCandidates, recurrenceKey } from "./recurrenceDetector.js";
 import { detectLeaks } from "./cashflow.js";
+import { createDevTestSuiteRouter } from "./devTestSuite.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { transactions as txnTable, users as usersTable } from "../shared/schema.js";
 
@@ -1333,6 +1334,11 @@ export function createApp(options?: CreateAppOptions) {
       next(e);
     }
   });
+
+  // ── Dev Test Suite (PR1: classification sampler + team view) ─────────────
+  // All routes inside the router are gated by requireDev — DEV_MODE_ENABLED +
+  // session auth + users.isDev. Failures return 404 (never reveal the feature).
+  app.use("/api/dev", createDevTestSuiteRouter());
 
   // ── Accuracy report (dev users only) ─────────────────────────────────────
   app.get("/api/accuracy-report", requireAuth, async (req, res, next) => {
