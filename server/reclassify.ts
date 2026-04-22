@@ -39,7 +39,10 @@ export async function reclassifyTransactions(
   if (eligibleTxns.length === 0) return result;
 
   // Run the shared classification pipeline on all eligible transactions.
-  // 90-second AI timeout (background task, not user-blocking).
+  // 600-second AI timeout: this is a background task and can take several
+  // minutes for users with hundreds of uncached merchants. The pipeline calls
+  // OpenAI in 25-merchant chunks at ~9s each; 90s would only cover ~10
+  // chunks, far too few for typical reclassify runs.
   // Always include user correction examples for few-shot AI accuracy.
   const outputs = await classifyPipeline(
     eligibleTxns.map((txn) => ({
@@ -48,7 +51,7 @@ export async function reclassifyTransactions(
     })),
     {
       userId,
-      aiTimeoutMs: 90_000,
+      aiTimeoutMs: 600_000,
       aiConfidenceThreshold: 0.5,
       cacheWriteMinConfidence: 0.7,
       includeUserExamplesInAi: true,
