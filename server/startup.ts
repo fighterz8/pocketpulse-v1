@@ -36,28 +36,33 @@ export async function seedMerchantClassifications(): Promise<void> {
   );
 }
 
-/** Stuck-upload cutoff. An `ai_status='processing'` row whose
- * `ai_started_at` is older than this is considered abandoned (the worker
- * was killed mid-flight) and gets marked `failed` instead of being
- * resumed. Newer in-flight uploads are flipped back to `pending` and the
- * worker is re-kicked.
+/** Stuck-upload cutoff. Any orphaned upload (processing OR pending with
+ * no live worker) older than this is considered abandoned and gets
+ * marked `failed` instead of being resumed. Newer ones are re-kicked.
+ *
+ * For `processing` rows we measure age from `ai_started_at`; for
+ * `pending` rows (which often have a null `ai_started_at`) we fall back
+ * to `uploaded_at` so we can still age them out.
  */
 const STUCK_UPLOAD_CUTOFF_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Restart-recovery sweep for the async AI worker.
  *
- * On a clean restart, any upload sitting in `ai_status='processing'` is
- * by definition orphaned — the in-process worker died with the previous
- * server instance. We split the orphans into two buckets:
+ * On a clean restart, any upload in `ai_status='processing'` OR
+ * `ai_status='pending'` is by definition orphaned — the in-process
+ * worker died with the previous server instance and there is no live
+ * holder for it. (See `findStuckProcessingUploads` for why `pending` is
+ * included.) We split the orphans into two buckets:
  *
- *   • Older than 1h (or no `ai_started_at`) → mark as `failed` with a
- *     "server restart" error. The user keeps their rule/cache labels;
- *     they can manually trigger a reclassify if they want AI to retry.
- *   • Newer (started recently, killed by a quick restart) → flip back
- *     to `pending` and re-kick the worker. The worker is idempotent
- *     and only acts on rows still flagged `aiAssisted=true AND
- *     labelSource != 'ai'`, so re-runs cannot double-write.
+ *   • Older than 1h → mark as `failed` with a "server restart" error.
+ *     The user keeps their rule/cache labels; they can manually trigger
+ *     a reclassify if they want AI to retry.
+ *   • Newer (killed by a quick restart) → flip back to `pending` (or
+ *     leave pending), clear `ai_started_at`/`ai_error`, and re-kick the
+ *     worker. The worker is idempotent and only acts on rows still
+ *     flagged `aiAssisted=true AND labelSource != 'ai'`, so re-runs
+ *     cannot double-write.
  *
  * Safe to call before any HTTP traffic. Errors are logged but never
  * thrown — startup must succeed even if recovery fails.
@@ -80,9 +85,12 @@ export async function recoverStuckAiUploads(): Promise<void> {
   let rekicked = 0;
 
   for (const u of stuck) {
-    const startedMs = u.aiStartedAt ? new Date(u.aiStartedAt).getTime() : null;
-    const isExpired =
-      startedMs == null || now - startedMs > STUCK_UPLOAD_CUTOFF_MS;
+    // For processing rows ai_started_at is the truth; for pending rows
+    // it's typically null (either set never-started, or cleared by a
+    // previous recovery), so fall back to uploaded_at.
+    const ageAnchor = u.aiStartedAt ?? u.uploadedAt ?? null;
+    const ageMs = ageAnchor ? new Date(ageAnchor).getTime() : null;
+    const isExpired = ageMs == null || now - ageMs > STUCK_UPLOAD_CUTOFF_MS;
 
     try {
       if (isExpired) {

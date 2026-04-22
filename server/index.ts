@@ -29,9 +29,10 @@ try {
   console.warn("[startup] merchant classification seed skipped:", err);
 }
 
-// Restart-recovery for the async AI worker: anything stuck in
-// ai_status='processing' is either re-kicked (recent) or marked failed
-// (older than 1h). Idempotent and self-contained — never throws.
+// Restart-recovery for the async AI worker: anything orphaned in
+// ai_status='processing' OR 'pending' (no live worker because the prior
+// process died) is either re-kicked (recent) or marked failed (older
+// than 1h). Idempotent and self-contained — never throws.
 try {
   await recoverStuckAiUploads();
 } catch (err) {

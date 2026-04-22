@@ -363,19 +363,34 @@ export async function listNeedsAiTransactionsForUpload(
 }
 
 /**
- * Return uploads currently flagged as `ai_status='processing'`. Used by
- * the startup sweep to find work that was interrupted by a server
- * restart.
+ * Return uploads whose async AI work is orphaned across a server
+ * restart. We include BOTH `processing` and `pending` rows because:
+ *
+ *   • `processing` — the worker was actively running batches when the
+ *     process died. Obvious candidate.
+ *   • `pending` — either (a) the upload route flipped to `pending` and
+ *     fired the worker but the process died before the worker could
+ *     transition to `processing`, or (b) a previous recovery sweep
+ *     already flipped a `processing` upload back to `pending` and re-
+ *     kicked, then the process died again before that re-kick reached
+ *     the status flip. In both cases the upload sits at `pending` with
+ *     no live worker — without this we'd leave it stuck forever, which
+ *     is exactly what users see as "X transactions left, never ticks".
+ *
+ * `uploaded_at` is included so the sweep can age out abandoned `pending`
+ * rows whose `ai_started_at` is still null.
  */
 export async function findStuckProcessingUploads() {
   return db
     .select({
       id: uploads.id,
       userId: uploads.userId,
+      aiStatus: uploads.aiStatus,
       aiStartedAt: uploads.aiStartedAt,
+      uploadedAt: uploads.uploadedAt,
     })
     .from(uploads)
-    .where(eq(uploads.aiStatus, "processing"));
+    .where(inArray(uploads.aiStatus, ["processing", "pending"]));
 }
 
 /**
