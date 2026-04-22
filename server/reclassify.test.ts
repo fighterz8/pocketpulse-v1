@@ -156,6 +156,104 @@ describe("reclassifyTransactions", () => {
     expect(mockPipeline).not.toHaveBeenCalled();
   });
 
+  // ── AI demotion guard (Task #63) ──────────────────────────────────────────
+  //
+  // When a row was classified as "ai" at upload time its provenance must not be
+  // silently overwritten by a lower-signal source ("cache" or "rule") on the
+  // next reclassify pass when no classification data actually changed.  Two
+  // real-world triggers:
+  //   - "ai" → "cache": the AI result was written to the merchant cache; the
+  //     next reclassify pass hits the cache for the same merchant.
+  //   - "ai" → "rule": AI times out during reclassify; structural rules return
+  //     the same classification.
+
+  describe("isAiDemotion guard", () => {
+    const aiTxn = () =>
+      makeTxn({
+        id: 10,
+        amount: "-42.00",
+        flowType: "outflow",
+        transactionClass: "expense",
+        category: "other",
+        recurrenceType: "one-time",
+        recurrenceSource: "none",
+        labelSource: "ai",
+        labelConfidence: "0.42",
+        aiAssisted: true,
+      });
+
+    const identicalOut = (src: "cache" | "rule"): PipelineOutput =>
+      makePipelineOut({
+        amount: -42,
+        flowType: "outflow",
+        transactionClass: "expense",
+        category: "other",
+        recurrenceType: "one-time",
+        recurrenceSource: "none",
+        labelSource: src,
+        labelConfidence: 0.42,
+        aiAssisted: false,
+      });
+
+    it("does NOT update when pipeline returns 'cache' with identical data (ai → cache no-op)", async () => {
+      mockList.mockResolvedValue([aiTxn()]);
+      mockPipeline.mockResolvedValue([identicalOut("cache")]);
+
+      const result = await reclassifyTransactions(1);
+
+      expect(result.updated).toBe(0);
+      expect(result.unchanged).toBe(1);
+      expect(mockBulkUpdate).not.toHaveBeenCalled();
+    });
+
+    it("does NOT update when pipeline returns 'rule' with identical data (ai → rule no-op)", async () => {
+      mockList.mockResolvedValue([aiTxn()]);
+      mockPipeline.mockResolvedValue([identicalOut("rule")]);
+
+      const result = await reclassifyTransactions(1);
+
+      expect(result.updated).toBe(0);
+      expect(result.unchanged).toBe(1);
+      expect(mockBulkUpdate).not.toHaveBeenCalled();
+    });
+
+    it("DOES update when pipeline returns 'cache' but category changed (data change overrides guard)", async () => {
+      mockList.mockResolvedValue([aiTxn()]);
+      mockPipeline.mockResolvedValue([
+        makePipelineOut({
+          amount: -42,
+          flowType: "outflow",
+          transactionClass: "expense",
+          category: "food",
+          recurrenceType: "one-time",
+          recurrenceSource: "none",
+          labelSource: "cache",
+          labelConfidence: 0.90,
+          aiAssisted: false,
+        }),
+      ]);
+
+      const result = await reclassifyTransactions(1);
+
+      expect(result.updated).toBe(1);
+      const updates = mockBulkUpdate.mock.calls[0]![1];
+      expect(updates[0]).toMatchObject({ id: 10, category: "food", labelSource: "cache" });
+    });
+
+    it("DOES update when pipeline returns 'ai' (upgrade persisted regardless of prior source)", async () => {
+      mockList.mockResolvedValue([makeTxn({ id: 11, labelSource: "rule" })]);
+      mockPipeline.mockResolvedValue([
+        makePipelineOut({ labelSource: "ai", aiAssisted: true }),
+      ]);
+
+      const result = await reclassifyTransactions(1);
+
+      expect(result.updated).toBe(1);
+      const updates = mockBulkUpdate.mock.calls[0]![1];
+      expect(updates[0]).toMatchObject({ id: 11, labelSource: "ai", aiAssisted: true });
+    });
+  });
+
   it("applies cache hit and persists labelSource='cache' without calling AI", async () => {
     mockList.mockResolvedValue([
       makeTxn({
