@@ -85,9 +85,24 @@ export function useAiEnhancementStatus() {
   const [lastJustCompleted, setLastJustCompleted] = useState(false);
   const [lastJustFailed, setLastJustFailed] = useState<string | null>(null);
 
+  // Re-run whenever the active SET changes, not just when the boolean
+  // toggles. This way an upload that starts while another is already
+  // running gets added to the tracked set and its terminal status is
+  // honoured when the whole batch finally drains.
+  const activeIdsKey = activeUploads
+    .map((u) => u.uploadId)
+    .sort((a, b) => a - b)
+    .join(",");
+
   useEffect(() => {
     if (anyActive) {
-      previouslyActiveIdsRef.current = new Set(activeUploads.map((u) => u.uploadId));
+      // Union with what we were already tracking so additions are kept
+      // (concurrent overlapping uploads), and so a row that briefly
+      // disappears from one tick's response (e.g. paginated cap) doesn't
+      // get dropped from the run we're observing.
+      const next = new Set(previouslyActiveIdsRef.current);
+      for (const u of activeUploads) next.add(u.uploadId);
+      previouslyActiveIdsRef.current = next;
       if (lastJustCompleted) setLastJustCompleted(false);
       if (lastJustFailed) setLastJustFailed(null);
       return;
@@ -110,7 +125,7 @@ export function useAiEnhancementStatus() {
     const t = setTimeout(() => setLastJustCompleted(false), 2000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anyActive]);
+  }, [anyActive, activeIdsKey]);
 
   return {
     anyActive,

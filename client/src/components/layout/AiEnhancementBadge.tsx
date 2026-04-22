@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useAiEnhancementStatus } from "../../hooks/use-ai-enhancement-status";
 
 function pct(p: number): string {
@@ -66,7 +67,10 @@ export function AiEnhancementBadge({ compact = false }: { compact?: boolean }) {
     ? `${remaining} left · ${pct(overallProgress)}`
     : `Enhancing ${remaining} transaction${remaining === 1 ? "" : "s"}… (${pct(overallProgress)})`;
 
-  const tooltipId = "ai-pulse-tooltip";
+  // useId() so multiple badge instances (sidebar + mobile header) never
+  // emit duplicate DOM ids — important for aria-describedby correctness
+  // and for any QA tooling that walks the accessibility tree.
+  const tooltipId = `ai-pulse-tooltip-${useId()}`;
 
   return (
     <div
