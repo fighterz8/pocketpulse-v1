@@ -222,6 +222,70 @@ describe("detectLeaks: isRecurring based on recurrenceType only", () => {
   });
 });
 
+// ─── (f) Manually-recurring merchants excluded from leaks ────────────────────
+
+describe("detectLeaks: manually-recurring merchants are excluded via recurringMerchantKeys", () => {
+  it("merchant manually flagged recurring (recurrenceSource='manual') does not appear in leaks when its key is in recurringMerchantKeys", () => {
+    // Simulate: user manually marks "FitLife Gym" as recurring via the UI.
+    // The recurring-candidates batch hasn't run yet, but routes.ts now
+    // pre-populates recurringMerchantKeys with keys from manual recurrence.
+    const txns = [1, 2, 3, 4].map((i) => ({
+      transactionClass: "expense",
+      category: "fitness",
+      merchant: "FitLife Gym",
+      amount: "-40.00",
+      date: `2026-0${i}-15`,
+      recurrenceType: "recurring" as const,
+      recurrenceSource: "manual",
+      excludedFromAnalysis: false,
+    }));
+    const leaks = detectLeaks(txns, {
+      rangeDays: 120,
+      recurringMerchantKeys: new Set(["fitlife gym"]),
+    });
+    expect(leaks.some((l) => l.merchantKey === "fitlife gym")).toBe(false);
+  });
+
+  it("same merchant without recurringMerchantKeys entry DOES appear as a leak (baseline)", () => {
+    const txns = [1, 2, 3, 4].map((i) => ({
+      transactionClass: "expense",
+      category: "fitness",
+      merchant: "FitLife Gym",
+      amount: "-40.00",
+      date: `2026-0${i}-15`,
+      recurrenceType: "recurring" as const,
+      recurrenceSource: "manual",
+      excludedFromAnalysis: false,
+    }));
+    const leaks = detectLeaks(txns, {
+      rangeDays: 120,
+      recurringMerchantKeys: new Set<string>(),
+    });
+    expect(leaks.some((l) => l.merchantKey === "fitlife gym")).toBe(true);
+  });
+
+  it("manual recurring merchant mixed with non-recurring merchants: only non-recurring ones leak", () => {
+    const manualRecurring = [1, 2, 3, 4].map((i) => ({
+      transactionClass: "expense",
+      category: "entertainment",
+      merchant: "StreamPlus",
+      amount: "-12.99",
+      date: `2026-0${i}-15`,
+      recurrenceType: "recurring" as const,
+      recurrenceSource: "manual",
+      excludedFromAnalysis: false,
+    }));
+    const nonRecurring = monthlyTxns("GameZone", "-12.99", "entertainment", 4);
+    const txns = [...manualRecurring, ...nonRecurring];
+    const leaks = detectLeaks(txns, {
+      rangeDays: 120,
+      recurringMerchantKeys: new Set(["streamplus"]),
+    });
+    expect(leaks.some((l) => l.merchantKey === "streamplus")).toBe(false);
+    expect(leaks.some((l) => l.merchantKey === "gamezone")).toBe(true);
+  });
+});
+
 // ─── (d) rangeDays parameter governs monthlyAmount ───────────────────────────
 
 describe("detectLeaks: rangeDays parameter", () => {

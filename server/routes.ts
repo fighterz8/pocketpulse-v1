@@ -1453,6 +1453,20 @@ export function createApp(options?: CreateAppOptions) {
         activeRecurringCandidates.map((c) => c.merchantKey),
       );
 
+      // Also exclude merchants the user has manually marked as recurring
+      // (recurrenceSource='manual').  These may not yet appear in the
+      // recurring-candidates pipeline output, so without this step a
+      // manually-recurring merchant could simultaneously show up in
+      // Recurring Expenses and in Leaks.
+      for (const tx of txns) {
+        if (
+          tx.recurrenceType === "recurring" &&
+          tx.recurrenceSource === "manual"
+        ) {
+          recurringMerchantKeys.add(recurrenceKey(tx.merchant));
+        }
+      }
+
       const leaks = detectLeaks(txns, { rangeDays, recurringMerchantKeys });
       res.json(leaks);
     } catch (e) {
