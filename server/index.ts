@@ -39,6 +39,12 @@ try {
   console.warn("[startup] AI worker recovery skipped:", err);
 }
 
+if (!process.env.BETA_ACCESS_CODE) {
+  console.warn(
+    "[startup] BETA_ACCESS_CODE is not set — the Coming Soon beta gate will reject every code. Set it in Replit Secrets to enable beta access.",
+  );
+}
+
 const app = createApp();
 const isProduction = process.env.NODE_ENV === "production";
 /**

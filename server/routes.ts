@@ -322,6 +322,32 @@ export function createApp(options?: CreateAppOptions) {
     }
   });
 
+  app.post("/api/beta/unlock", authLimiter, (req, res) => {
+    const expected = process.env.BETA_ACCESS_CODE;
+    if (!expected || expected.length === 0) {
+      console.warn(
+        "[beta] BETA_ACCESS_CODE is not set — all beta unlock attempts will be rejected. Add it in Replit Secrets to enable the gate.",
+      );
+      res.status(401).json({ error: "Invalid code" });
+      return;
+    }
+
+    const submitted = req.body?.code;
+    if (typeof submitted !== "string" || submitted.length === 0) {
+      res.status(401).json({ error: "Invalid code" });
+      return;
+    }
+
+    const a = Buffer.from(submitted.trim().toLowerCase(), "utf8");
+    const b = Buffer.from(expected.trim().toLowerCase(), "utf8");
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      res.status(401).json({ error: "Invalid code" });
+      return;
+    }
+
+    res.json({ ok: true });
+  });
+
   app.post("/api/waitlist", authLimiter, async (req, res, next) => {
     try {
       const { email } = req.body ?? {};

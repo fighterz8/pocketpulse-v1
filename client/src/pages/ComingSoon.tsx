@@ -1,10 +1,6 @@
 import { FormEvent, useState } from "react";
 import { apiFetch } from "../lib/api";
 
-const BETA_CODE =
-  (import.meta.env.VITE_BETA_CODE as string | undefined)?.trim().toLowerCase() ||
-  "pennysavers2025";
-
 function IconDoc() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -160,20 +156,39 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState(false);
   const [shaking, setShaking] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const [email, setEmail] = useState("");
   const [waitlistState, setWaitlistState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [waitlistError, setWaitlistError] = useState("");
 
-  function handleSubmit(e: FormEvent) {
+  function rejectCode() {
+    setError(true);
+    setShaking(true);
+    setTimeout(() => setShaking(false), 500);
+    setTimeout(() => setError(false), 2500);
+  }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (code.trim().toLowerCase() === BETA_CODE) {
-      onUnlock();
-    } else {
-      setError(true);
-      setShaking(true);
-      setTimeout(() => setShaking(false), 500);
-      setTimeout(() => setError(false), 2500);
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await apiFetch("/api/beta/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      const data = await res.json().catch(() => null) as { ok?: boolean } | null;
+      if (res.ok && data?.ok) {
+        onUnlock();
+      } else {
+        rejectCode();
+      }
+    } catch {
+      rejectCode();
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -364,8 +379,13 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
                   Invalid code — try again.
                 </p>
               )}
-              <button className="coming-soon-submit" type="submit" data-testid="cs-submit">
-                Unlock
+              <button
+                className="coming-soon-submit"
+                type="submit"
+                data-testid="cs-submit"
+                disabled={submitting}
+              >
+                {submitting ? "Checking…" : "Unlock"}
               </button>
               <button
                 type="button"
