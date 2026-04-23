@@ -4017,12 +4017,7 @@ html.dark .ai-pulse-tooltip-title    { color: #94a3b8; }
 html.dark .ai-pulse-tooltip-name     { color: #f1f5f9; }
 html.dark .ai-pulse-tooltip-progress { color: #94a3b8; }
 
-/* ===========================================================================
-   Coming Soon landing page
-   Dedicated layout — intentionally larger and more spacious than the auth
-   login card. Lives in its own class namespace so the marketing surface can
-   evolve independently from the in-app auth screen.
-   =========================================================================== */
+/* Coming Soon landing page. */
 
 .coming-soon-main {
   position: relative;

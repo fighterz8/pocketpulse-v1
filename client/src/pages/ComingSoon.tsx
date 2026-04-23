@@ -70,14 +70,6 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
               <stop offset="0%" stopColor="#0ea5e9" />
               <stop offset="100%" stopColor="#2563eb" />
             </linearGradient>
-            {/* Stroke-hugging cyan glow.
-                filterUnits="userSpaceOnUse" + an explicit oversized region
-                lets the glow extend well beyond the stroke without being
-                clipped to the SVG bounding box (combined with the parent
-                CSS `overflow: visible`). The blur is composited with a
-                cyan flood and merged behind the original stroke so the
-                halo follows the alpha shape of the polyline — never the
-                rectangular element bounds. */}
             <filter
               id="cs-logo-glow"
               x="-8"
