@@ -59,43 +59,33 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
           <span className="auth-brand-dot" aria-hidden="true" />
         </div>
 
-        <div aria-hidden="true" style={{
-          position: "relative",
-          margin: "0 auto 1.75rem",
-          width: "9rem",
-          height: "4rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          animation: "cs-pulse 2.8s ease-in-out infinite",
-        }}>
-          <div style={{
-            position: "absolute",
-            inset: "-12px 0",
-            borderRadius: "999px",
-            background: "radial-gradient(ellipse at center, rgb(14 165 233 / 0.18), transparent 72%)",
-            filter: "blur(8px)",
-          }} />
-          <svg
-            viewBox="0 0 32 14"
-            fill="none"
-            style={{ width: "100%", height: "100%", position: "relative", filter: "drop-shadow(0 0 8px rgb(14 165 233 / 0.55))" }}
-          >
-            <defs>
-              <linearGradient id="cs-logo-grad" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#0ea5e9" />
-                <stop offset="100%" stopColor="#2563eb" />
-              </linearGradient>
-            </defs>
-            <polyline
-              points="0,7 6,7 9,1 12,13 15,7 32,7"
-              stroke="url(#cs-logo-grad)"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 32 14"
+          fill="none"
+          style={{
+            display: "block",
+            width: "8rem",
+            height: "3.5rem",
+            margin: "0 auto 1.75rem",
+            animation: "cs-logo-pulse 2.8s ease-in-out infinite",
+            overflow: "visible",
+          }}
+        >
+          <defs>
+            <linearGradient id="cs-logo-grad" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stopColor="#0ea5e9" />
+              <stop offset="100%" stopColor="#2563eb" />
+            </linearGradient>
+          </defs>
+          <polyline
+            points="0,7 6,7 9,1 12,13 15,7 32,7"
+            stroke="url(#cs-logo-grad)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
 
         <h1 className="auth-title" style={{ textAlign: "center", marginBottom: "0.5rem" }} data-testid="cs-heading">
           Coming Soon
@@ -281,6 +271,10 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
         @keyframes cs-pulse {
           0%, 100% { transform: scale(1);    box-shadow: 0 0 22px rgb(14 165 233 / 0.38); }
           50%       { transform: scale(1.07); box-shadow: 0 0 32px rgb(14 165 233 / 0.55); }
+        }
+        @keyframes cs-logo-pulse {
+          0%, 100% { transform: scale(1); }
+          50%       { transform: scale(1.07); }
         }
         @keyframes cs-shake {
           0%, 100% { transform: translateX(0); }
