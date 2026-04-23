@@ -4163,19 +4163,10 @@ html.dark .ai-pulse-tooltip-progress { color: #94a3b8; }
   background: #0ea5e9;
 }
 
-.cs-decor--dots {
-  bottom: 22%;
-  left: 4%;
-  width: 7rem;
-  height: 7rem;
-  opacity: 0.18;
-}
-
 @media (max-width: 700px) {
   .cs-decor--mini,
   .cs-decor--bars,
   .cs-decor--donut,
-  .cs-decor--dots,
   .cs-ontrack-pill { display: none; }
 }
 

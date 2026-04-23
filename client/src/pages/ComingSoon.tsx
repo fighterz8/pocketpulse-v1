@@ -106,15 +106,6 @@ function CardDecorations() {
         On track
       </span>
 
-      <svg className="cs-decor cs-decor--dots" viewBox="0 0 100 100" aria-hidden="true">
-        <defs>
-          <pattern id="cs-dots" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
-            <circle cx="2" cy="2" r="1.2" fill="#475569" />
-          </pattern>
-        </defs>
-        <rect width="100" height="100" fill="url(#cs-dots)" />
-      </svg>
-
       <div className="cs-decor cs-decor--bars">
         <svg viewBox="0 0 220 120" preserveAspectRatio="none">
           <g>
