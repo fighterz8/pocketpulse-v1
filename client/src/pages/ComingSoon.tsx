@@ -66,11 +66,11 @@ const FEATURES: { title: string; description: string; icon: () => JSX.Element }[
   { title: "Spending Insights", description: "Understand patterns and save more", icon: IconBars },
 ];
 
-function Decorations() {
+function CardDecorations() {
   return (
     <div className="coming-soon-decor" aria-hidden="true">
       <svg className="cs-decor cs-decor--donut" viewBox="0 0 200 200">
-        <circle cx="100" cy="100" r="72" fill="none" stroke="#94a3b8" strokeWidth="22" opacity="0.18" />
+        <circle cx="100" cy="100" r="72" fill="none" stroke="#cbd5e1" strokeWidth="22" />
         <circle
           cx="100"
           cy="100"
@@ -81,7 +81,6 @@ function Decorations() {
           strokeDasharray="220 452"
           strokeLinecap="round"
           transform="rotate(-90 100 100)"
-          opacity="0.55"
         />
       </svg>
 
@@ -117,7 +116,7 @@ function Decorations() {
           On track
         </span>
         <svg viewBox="0 0 220 120" preserveAspectRatio="none">
-          <g opacity="0.65">
+          <g>
             <rect x="6" y="78" width="16" height="36" rx="2" fill="#bae6fd" />
             <rect x="32" y="68" width="16" height="46" rx="2" fill="#bae6fd" />
             <rect x="58" y="60" width="16" height="54" rx="2" fill="#7dd3fc" />
@@ -134,19 +133,9 @@ function Decorations() {
             fill="none"
             strokeLinecap="round"
             strokeLinejoin="round"
-            opacity="0.85"
           />
         </svg>
       </div>
-
-      <svg className="cs-decor cs-decor--dots" viewBox="0 0 100 100" aria-hidden="true">
-        <defs>
-          <pattern id="cs-dots" x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse">
-            <circle cx="2" cy="2" r="1.2" fill="#475569" />
-          </pattern>
-        </defs>
-        <rect width="100" height="100" fill="url(#cs-dots)" />
-      </svg>
     </div>
   );
 }
@@ -217,9 +206,8 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
 
   return (
     <main className="coming-soon-main">
-      <Decorations />
-
       <div className="coming-soon-card">
+        <CardDecorations />
         <svg
           className="coming-soon-logo"
           aria-hidden="true"
@@ -273,7 +261,6 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
         <h1 className="coming-soon-title" data-testid="cs-heading">
           Coming Soon
         </h1>
-        <span className="coming-soon-title-accent" aria-hidden="true" />
 
         <p className="coming-soon-tagline" data-testid="cs-tagline">
           Smart financial clarity for everyday decisions.
