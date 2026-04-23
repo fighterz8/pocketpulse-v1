@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { apiFetch } from "../lib/api";
 
 const BETA_CODE =
   (import.meta.env.VITE_BETA_CODE as string | undefined)?.trim().toLowerCase() ||
@@ -10,6 +11,10 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
   const [error, setError] = useState(false);
   const [shaking, setShaking] = useState(false);
 
+  const [email, setEmail] = useState("");
+  const [waitlistState, setWaitlistState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [waitlistError, setWaitlistError] = useState("");
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (code.trim().toLowerCase() === BETA_CODE) {
@@ -19,6 +24,29 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
       setShaking(true);
       setTimeout(() => setShaking(false), 500);
       setTimeout(() => setError(false), 2500);
+    }
+  }
+
+  async function handleWaitlistSubmit(e: FormEvent) {
+    e.preventDefault();
+    setWaitlistError("");
+    setWaitlistState("loading");
+    try {
+      const res = await apiFetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setWaitlistState("success");
+      } else {
+        setWaitlistError(data.error ?? "Something went wrong. Please try again.");
+        setWaitlistState("error");
+      }
+    } catch {
+      setWaitlistError("Something went wrong. Please try again.");
+      setWaitlistState("error");
     }
   }
 
@@ -97,6 +125,66 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
               border: "1px solid rgb(14 165 233 / 0.2)",
             }}>{label}</span>
           ))}
+        </div>
+
+        <div style={{ marginBottom: "1.25rem" }}>
+          {waitlistState === "success" ? (
+            <div data-testid="cs-waitlist-success" style={{
+              padding: "0.85rem 1rem",
+              borderRadius: "0.6rem",
+              background: "rgb(14 165 233 / 0.08)",
+              border: "1px solid rgb(14 165 233 / 0.2)",
+              fontSize: "0.85rem",
+              color: "#0369a1",
+              fontWeight: 500,
+            }}>
+              You're on the list! We'll notify you at launch.
+            </div>
+          ) : (
+            <form onSubmit={handleWaitlistSubmit} data-testid="cs-waitlist-form" style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+              <label style={{ textAlign: "left" }}>
+                <span style={{
+                  display: "block",
+                  fontSize: "0.72rem",
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#94a3b8",
+                  marginBottom: "0.35rem",
+                }}>
+                  Get notified at launch
+                </span>
+                <input
+                  className="auth-input"
+                  type="email"
+                  value={email}
+                  data-testid="cs-waitlist-email"
+                  onChange={(e) => { setEmail(e.target.value); setWaitlistError(""); if (waitlistState === "error") setWaitlistState("idle"); }}
+                  placeholder="your@email.com"
+                  autoComplete="email"
+                  required
+                />
+              </label>
+              {waitlistState === "error" && waitlistError && (
+                <p role="alert" data-testid="cs-waitlist-error" style={{
+                  margin: 0,
+                  fontSize: "0.8rem",
+                  color: "#dc2626",
+                  textAlign: "center",
+                }}>
+                  {waitlistError}
+                </p>
+              )}
+              <button
+                className="auth-submit"
+                type="submit"
+                data-testid="cs-waitlist-submit"
+                disabled={waitlistState === "loading"}
+              >
+                {waitlistState === "loading" ? "Saving…" : "Notify me"}
+              </button>
+            </form>
+          )}
         </div>
 
         <div style={{ borderTop: "1px solid rgb(15 23 42 / 0.08)", paddingTop: "1.25rem" }}>

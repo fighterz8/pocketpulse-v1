@@ -43,6 +43,13 @@
       "when": 1777400000000,
       "tag": "0010_allow_manual_recurrence_source",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777500000000,
+      "tag": "0011_waitlist",
+      "breakpoints": true
     }
   ]
 }

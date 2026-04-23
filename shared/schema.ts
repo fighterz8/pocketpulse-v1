@@ -488,6 +488,16 @@ export type MerchantClassification = {
   source: MerchantClassificationSource;
 };
 
+export const waitlist = pgTable("waitlist", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type WaitlistEntry = typeof waitlist.$inferSelect;
+
 /**
  * Matches `connect-pg-simple` expected shape (`table.sql` in that package).
  * Default store table name is `session`; keep this name for drop-in use later.

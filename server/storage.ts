@@ -14,6 +14,7 @@ import {
   USER_PREFERENCE_DEFAULTS,
   userPreferences,
   users,
+  waitlist,
   type ClassificationSampleRow,
   type ClassificationVerdict,
   type CsvFormatSpec,
@@ -1790,4 +1791,17 @@ export async function getUsersByIds(
     .select({ id: users.id, email: users.email, displayName: users.displayName })
     .from(users)
     .where(inArray(users.id, ids));
+}
+
+export class DuplicateWaitlistEmailError extends Error {}
+
+export async function addWaitlistEmail(email: string): Promise<void> {
+  try {
+    await db.insert(waitlist).values({ email });
+  } catch (err) {
+    if (err instanceof DatabaseError && err.code === "23505") {
+      throw new DuplicateWaitlistEmailError("Email already registered");
+    }
+    throw err;
+  }
 }

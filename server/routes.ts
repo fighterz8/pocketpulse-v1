@@ -24,7 +24,9 @@ import {
   createUser,
   deleteAllTransactionsForUser,
   deleteWorkspaceDataForUser,
+  addWaitlistEmail,
   DuplicateEmailError,
+  DuplicateWaitlistEmailError,
   getFormatSpec,
   getTransactionById,
   getUploadAiStatusForUser,
@@ -316,6 +318,29 @@ export function createApp(options?: CreateAppOptions) {
 
       res.json({ authenticated: true, user });
     } catch (e) {
+      next(e);
+    }
+  });
+
+  app.post("/api/waitlist", authLimiter, async (req, res, next) => {
+    try {
+      const { email } = req.body ?? {};
+      if (typeof email !== "string" || !email.trim()) {
+        res.status(400).json({ error: "A valid email is required." });
+        return;
+      }
+      const normalized = email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+        res.status(400).json({ error: "Please enter a valid email address." });
+        return;
+      }
+      await addWaitlistEmail(normalized);
+      res.status(201).json({ ok: true });
+    } catch (e) {
+      if (e instanceof DuplicateWaitlistEmailError) {
+        res.status(200).json({ ok: true });
+        return;
+      }
       next(e);
     }
   });
