@@ -186,6 +186,18 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
             </button>
           )}
         </div>
+
+        <button
+          type="button"
+          className="auth-beta-reset"
+          data-testid="button-beta-reset"
+          onClick={() => {
+            localStorage.removeItem("pp_beta_access");
+            window.location.reload();
+          }}
+        >
+          ← Back to coming soon
+        </button>
       </div>
     </main>
   );

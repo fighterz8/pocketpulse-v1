@@ -685,6 +685,24 @@ body {
   text-decoration: none;
 }
 
+.auth-beta-reset {
+  display: block;
+  width: 100%;
+  margin-top: 1.5rem;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.auth-beta-reset:hover {
+  color: #64748b;
+}
+
 /* ---- Upload page (Phase 2) ---- */
 
 .upload-dropzone {
