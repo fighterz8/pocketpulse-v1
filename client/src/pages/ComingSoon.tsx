@@ -289,13 +289,14 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
             </div>
           ) : (
             <form onSubmit={handleWaitlistSubmit} data-testid="cs-waitlist-form" className="coming-soon-form">
-              <div className="coming-soon-label cs-label-with-icon">
+              <label htmlFor="cs-waitlist-email-input" className="coming-soon-label cs-label-with-icon">
                 <span className="cs-label-icon"><IconMail /></span>
                 Get notified at launch
-              </div>
+              </label>
               <div className="cs-input-wrap">
                 <span className="cs-input-icon"><IconMail /></span>
                 <input
+                  id="cs-waitlist-email-input"
                   className="coming-soon-input cs-input--with-icon"
                   type="email"
                   value={email}
