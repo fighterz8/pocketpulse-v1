@@ -51,32 +51,56 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
   }
 
   return (
-    <main className="app-main auth-main auth-main--centered auth-main--editorial" style={{ minHeight: "100vh" }}>
-      <div className="auth-card auth-card--capture" style={{ maxWidth: "26rem", textAlign: "center" }}>
+    <main className="coming-soon-main">
+      <div className="coming-soon-card">
 
-        <div className="auth-brand-row" style={{ justifyContent: "center", marginBottom: "1.5rem" }}>
-          <span className="auth-brand" data-testid="cs-brand">PocketPulse</span>
-          <span className="auth-brand-dot" aria-hidden="true" />
+        <div className="coming-soon-eyebrow">
+          <span data-testid="cs-brand">PocketPulse</span>
+          <span className="coming-soon-eyebrow-dot" aria-hidden="true" />
         </div>
 
         <svg
+          className="coming-soon-logo"
           aria-hidden="true"
           viewBox="0 0 32 14"
           fill="none"
-          style={{
-            display: "block",
-            width: "8rem",
-            height: "3.5rem",
-            margin: "0 auto 1.75rem",
-            animation: "cs-logo-pulse 2.8s ease-in-out infinite",
-            overflow: "visible",
-          }}
         >
           <defs>
             <linearGradient id="cs-logo-grad" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
               <stop offset="0%" stopColor="#0ea5e9" />
               <stop offset="100%" stopColor="#2563eb" />
             </linearGradient>
+            {/* Stroke-hugging cyan glow.
+                filterUnits="userSpaceOnUse" + an explicit oversized region
+                lets the glow extend well beyond the stroke without being
+                clipped to the SVG bounding box (combined with the parent
+                CSS `overflow: visible`). The blur is composited with a
+                cyan flood and merged behind the original stroke so the
+                halo follows the alpha shape of the polyline — never the
+                rectangular element bounds. */}
+            <filter
+              id="cs-logo-glow"
+              x="-8"
+              y="-8"
+              width="48"
+              height="30"
+              filterUnits="userSpaceOnUse"
+            >
+              <feGaussianBlur in="SourceAlpha" stdDeviation="0.7" result="blur" />
+              <feFlood floodColor="#0ea5e9" floodOpacity="0.85">
+                <animate
+                  attributeName="flood-opacity"
+                  values="0.55;0.95;0.55"
+                  dur="2.8s"
+                  repeatCount="indefinite"
+                />
+              </feFlood>
+              <feComposite in2="blur" operator="in" result="glow" />
+              <feMerge>
+                <feMergeNode in="glow" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
           </defs>
           <polyline
             points="0,7 6,7 9,1 12,13 15,7 32,7"
@@ -84,68 +108,38 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
+            filter="url(#cs-logo-glow)"
           />
         </svg>
 
-        <h1 className="auth-title" style={{ textAlign: "center", marginBottom: "0.5rem" }} data-testid="cs-heading">
+        <h1 className="coming-soon-title" data-testid="cs-heading">
           Coming Soon
         </h1>
-        <p className="auth-subtitle" style={{ textAlign: "center", marginBottom: "1.5rem" }} data-testid="cs-tagline">
+        <p className="coming-soon-tagline" data-testid="cs-tagline">
           Smart financial clarity for everyone.
           <br />
           We're putting the finishing touches on PocketPulse.
         </p>
 
-        <div style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "0.5rem",
-          justifyContent: "center",
-          marginBottom: "1.75rem",
-        }}>
+        <div className="coming-soon-pills">
           {["CSV Import", "AI Classification", "Spending Insights"].map((label) => (
-            <span key={label} style={{
-              fontSize: "0.72rem",
-              fontWeight: 600,
-              letterSpacing: "0.04em",
-              padding: "0.25rem 0.7rem",
-              borderRadius: "999px",
-              background: "rgb(14 165 233 / 0.1)",
-              color: "#0369a1",
-              border: "1px solid rgb(14 165 233 / 0.2)",
-            }}>{label}</span>
+            <span key={label} className="coming-soon-pill">{label}</span>
           ))}
         </div>
 
-        <div style={{ marginBottom: "1.25rem" }}>
+        <div className="coming-soon-form-section">
           {waitlistState === "success" ? (
-            <div data-testid="cs-waitlist-success" style={{
-              padding: "0.85rem 1rem",
-              borderRadius: "0.6rem",
-              background: "rgb(14 165 233 / 0.08)",
-              border: "1px solid rgb(14 165 233 / 0.2)",
-              fontSize: "0.85rem",
-              color: "#0369a1",
-              fontWeight: 500,
-            }}>
+            <div data-testid="cs-waitlist-success" className="coming-soon-success">
               You're on the list! We'll notify you at launch.
             </div>
           ) : (
             <form onSubmit={handleWaitlistSubmit} data-testid="cs-waitlist-form" style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-              <label style={{ textAlign: "left" }}>
-                <span style={{
-                  display: "block",
-                  fontSize: "0.72rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "#94a3b8",
-                  marginBottom: "0.35rem",
-                }}>
+              <label>
+                <span className="coming-soon-label">
                   Get notified at launch
                 </span>
                 <input
-                  className="auth-input"
+                  className="coming-soon-input"
                   type="email"
                   value={email}
                   data-testid="cs-waitlist-email"
@@ -156,17 +150,12 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
                 />
               </label>
               {waitlistState === "error" && waitlistError && (
-                <p role="alert" data-testid="cs-waitlist-error" style={{
-                  margin: 0,
-                  fontSize: "0.8rem",
-                  color: "#dc2626",
-                  textAlign: "center",
-                }}>
+                <p role="alert" data-testid="cs-waitlist-error" className="coming-soon-error">
                   {waitlistError}
                 </p>
               )}
               <button
-                className="auth-submit"
+                className="coming-soon-submit"
                 type="submit"
                 data-testid="cs-waitlist-submit"
                 disabled={waitlistState === "loading"}
@@ -177,23 +166,13 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
           )}
         </div>
 
-        <div style={{ borderTop: "1px solid rgb(15 23 42 / 0.08)", paddingTop: "1.25rem" }}>
+        <div className="coming-soon-divider">
           {!showInput ? (
             <button
               type="button"
               data-testid="cs-beta-toggle"
               onClick={() => setShowInput(true)}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                font: "inherit",
-                fontSize: "0.78rem",
-                color: "#94a3b8",
-                textDecoration: "underline",
-                textUnderlineOffset: "3px",
-              }}
+              className="coming-soon-link-button"
             >
               Have a beta access code?
             </button>
@@ -208,20 +187,12 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
                 animation: shaking ? "cs-shake 0.45s ease" : undefined,
               }}
             >
-              <label style={{ textAlign: "left" }}>
-                <span style={{
-                  display: "block",
-                  fontSize: "0.72rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "#94a3b8",
-                  marginBottom: "0.35rem",
-                }}>
+              <label>
+                <span className="coming-soon-label">
                   Beta Access Code
                 </span>
                 <input
-                  className="auth-input"
+                  className="coming-soon-input"
                   type="text"
                   autoFocus
                   autoComplete="off"
@@ -234,30 +205,18 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
                 />
               </label>
               {error && (
-                <p role="alert" data-testid="cs-error" style={{
-                  margin: 0,
-                  fontSize: "0.8rem",
-                  color: "#dc2626",
-                  textAlign: "center",
-                }}>
+                <p role="alert" data-testid="cs-error" className="coming-soon-error">
                   Invalid code — try again.
                 </p>
               )}
-              <button className="auth-submit" type="submit" data-testid="cs-submit">
+              <button className="coming-soon-submit" type="submit" data-testid="cs-submit">
                 Unlock
               </button>
               <button
                 type="button"
                 onClick={() => { setShowInput(false); setCode(""); setError(false); }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  font: "inherit",
-                  fontSize: "0.78rem",
-                  color: "#94a3b8",
-                }}
+                className="coming-soon-link-button"
+                style={{ textDecoration: "none" }}
               >
                 Cancel
               </button>
@@ -266,24 +225,6 @@ export function ComingSoon({ onUnlock }: { onUnlock: () => void }) {
         </div>
 
       </div>
-
-      <style>{`
-        @keyframes cs-pulse {
-          0%, 100% { transform: scale(1);    box-shadow: 0 0 22px rgb(14 165 233 / 0.38); }
-          50%       { transform: scale(1.07); box-shadow: 0 0 32px rgb(14 165 233 / 0.55); }
-        }
-        @keyframes cs-logo-pulse {
-          0%, 100% { transform: scale(1); }
-          50%       { transform: scale(1.07); }
-        }
-        @keyframes cs-shake {
-          0%, 100% { transform: translateX(0); }
-          20%       { transform: translateX(-6px); }
-          40%       { transform: translateX(6px); }
-          60%       { transform: translateX(-4px); }
-          80%       { transform: translateX(4px); }
-        }
-      `}</style>
     </main>
   );
 }

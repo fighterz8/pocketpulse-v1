@@ -4016,3 +4016,248 @@ html.dark .ai-pulse-tooltip {
 html.dark .ai-pulse-tooltip-title    { color: #94a3b8; }
 html.dark .ai-pulse-tooltip-name     { color: #f1f5f9; }
 html.dark .ai-pulse-tooltip-progress { color: #94a3b8; }
+
+/* ===========================================================================
+   Coming Soon landing page
+   Dedicated layout — intentionally larger and more spacious than the auth
+   login card. Lives in its own class namespace so the marketing surface can
+   evolve independently from the in-app auth screen.
+   =========================================================================== */
+
+.coming-soon-main {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+  color-scheme: light;
+  background:
+    radial-gradient(circle at 16% 18%, rgb(125 211 252 / 0.34), transparent 28%),
+    radial-gradient(circle at 84% 20%, rgb(96 165 250 / 0.3), transparent 26%),
+    radial-gradient(circle at 76% 78%, rgb(56 189 248 / 0.22), transparent 24%),
+    linear-gradient(145deg, #dbeafe 0%, #e0f2fe 26%, #cbd5e1 70%, #94a3b8 100%);
+}
+
+.coming-soon-main::before,
+.coming-soon-main::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.coming-soon-main::before {
+  background-image:
+    linear-gradient(rgb(15 23 42 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(15 23 42 / 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(180deg, rgb(0 0 0 / 0.9), rgb(0 0 0 / 0.2));
+}
+
+.coming-soon-main::after {
+  inset: auto -10% -16% auto;
+  width: 38rem;
+  height: 38rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgb(255 255 255 / 0.34), transparent 68%);
+  filter: blur(20px);
+}
+
+.coming-soon-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 52rem;
+  padding: clamp(2rem, 5vw, 3.75rem) clamp(1.5rem, 5vw, 4rem);
+  border-radius: 2rem;
+  border: 1px solid rgb(255 255 255 / 0.55);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.6));
+  box-shadow:
+    0 2.5rem 6.5rem rgb(15 23 42 / 0.2),
+    inset 0 1px 0 rgb(255 255 255 / 0.65);
+  backdrop-filter: blur(24px);
+  text-align: center;
+}
+
+.coming-soon-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: clamp(0.75rem, 1vw, 0.9rem);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #0369a1;
+  margin: 0 0 clamp(1.5rem, 3vw, 2.25rem);
+}
+
+.coming-soon-eyebrow-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: #0ea5e9;
+  box-shadow: 0 0 1.25rem rgb(14 165 233 / 0.5);
+}
+
+.coming-soon-logo {
+  display: block;
+  width: clamp(11rem, 24vw, 17rem);
+  height: clamp(4.5rem, 10vw, 7rem);
+  margin: 0 auto clamp(1.5rem, 3vw, 2.25rem);
+  overflow: visible;
+  animation: cs-logo-pulse 2.8s ease-in-out infinite;
+}
+
+.coming-soon-title {
+  margin: 0 0 clamp(0.85rem, 1.5vw, 1.25rem);
+  font-size: clamp(2.75rem, 6vw, 4.25rem);
+  line-height: 1;
+  letter-spacing: -0.035em;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.coming-soon-tagline {
+  margin: 0 auto clamp(1.75rem, 3vw, 2.5rem);
+  max-width: 36rem;
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+  line-height: 1.55;
+  color: #475569;
+}
+
+.coming-soon-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin: 0 0 clamp(2rem, 3.5vw, 2.75rem);
+}
+
+.coming-soon-pill {
+  font-size: clamp(0.8rem, 1vw, 0.92rem);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  background: rgb(14 165 233 / 0.1);
+  color: #0369a1;
+  border: 1px solid rgb(14 165 233 / 0.22);
+}
+
+.coming-soon-form-section {
+  max-width: 28rem;
+  margin: 0 auto clamp(1.25rem, 2vw, 1.75rem);
+}
+
+.coming-soon-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+  text-align: left;
+}
+
+.coming-soon-input {
+  width: 100%;
+  padding: 1rem 1.1rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border-radius: 0.9rem;
+  border: 1px solid rgb(15 23 42 / 0.1);
+  background: rgb(255 255 255 / 0.85);
+  color: #0f172a;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.coming-soon-input:focus {
+  outline: none;
+  border-color: rgb(37 99 235 / 0.45);
+  box-shadow:
+    0 0 0 0.2rem rgb(59 130 246 / 0.15),
+    0 0.5rem 1rem -0.75rem rgb(37 99 235 / 0.3);
+}
+
+.coming-soon-submit {
+  margin-top: 0.65rem;
+  width: 100%;
+  padding: 1rem 1.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 0.9rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  color: #fff;
+  box-shadow: 0 0.875rem 2rem rgb(37 99 235 / 0.25);
+  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+
+.coming-soon-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 1rem 2.5rem rgb(37 99 235 / 0.32);
+}
+
+.coming-soon-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.coming-soon-success {
+  padding: 1rem 1.25rem;
+  border-radius: 0.9rem;
+  background: rgb(14 165 233 / 0.08);
+  border: 1px solid rgb(14 165 233 / 0.22);
+  font-size: 0.95rem;
+  color: #0369a1;
+  font-weight: 500;
+}
+
+.coming-soon-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #dc2626;
+  text-align: center;
+}
+
+.coming-soon-divider {
+  margin: clamp(1.25rem, 2.5vw, 1.75rem) auto 0;
+  max-width: 28rem;
+  border-top: 1px solid rgb(15 23 42 / 0.08);
+  padding-top: clamp(1.25rem, 2.5vw, 1.5rem);
+}
+
+.coming-soon-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@keyframes cs-logo-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.07); }
+}
+
+@keyframes cs-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-6px); }
+  40%      { transform: translateX(6px); }
+  60%      { transform: translateX(-4px); }
+  80%      { transform: translateX(4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coming-soon-logo { animation: none; }
+}
