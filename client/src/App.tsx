@@ -7,6 +7,7 @@ import { useInactivityLogout } from "./hooks/use-inactivity-logout";
 import { useTheme } from "./hooks/use-theme";
 import { AccountSetup } from "./pages/AccountSetup";
 import { Auth } from "./pages/Auth";
+import { ComingSoon } from "./pages/ComingSoon";
 import { Dashboard } from "./pages/Dashboard";
 import { Ledger } from "./pages/Ledger";
 import { Leaks } from "./pages/Leaks";
@@ -58,9 +59,19 @@ function AppAuthenticated() {
   );
 }
 
+const BETA_FLAG = "pp_beta_access";
+
 function AppGate() {
   const auth = useAuth();
   const [inactivityLogout, setInactivityLogout] = useState(false);
+  const [betaUnlocked, setBetaUnlocked] = useState(
+    () => localStorage.getItem(BETA_FLAG) === "1",
+  );
+
+  function handleUnlock() {
+    localStorage.setItem(BETA_FLAG, "1");
+    setBetaUnlocked(true);
+  }
 
   // Clear the inactivity flag once the user re-authenticates.
   useEffect(() => {
@@ -105,6 +116,9 @@ function AppGate() {
   }
 
   if (!auth.isAuthenticated) {
+    if (!betaUnlocked) {
+      return <ComingSoon onUnlock={handleUnlock} />;
+    }
     return <Auth inactivityLogout={inactivityLogout} />;
   }
 

@@ -85,3 +85,8 @@ integrations = ["github:1.0.0"]
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[userenv]
+
+[userenv.shared]
+VITE_BETA_CODE = "PENNYSAVERS2025"
