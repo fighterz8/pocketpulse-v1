@@ -306,6 +306,79 @@ export function createApp(options?: CreateAppOptions) {
   app.use(cookieParser());
   app.use(sessionMiddleware(store));
 
+  /**
+   * POST /api/admin/send-launch-email
+   *
+   * Sends the PocketPulse launch announcement to every address in the waitlist.
+   * Protected by the ADMIN_SECRET header — only the team triggers this on launch day.
+   * Registered before the CSRF middleware because it is a server-to-server call.
+   *
+   * Request body (optional):
+   *   { dryRun: true }  — lists subscribers without sending; useful for a pre-flight check.
+   *
+   * Returns: { sent: number, failed: number, dryRun: boolean }
+   */
+  app.post("/api/admin/send-launch-email", async (req, res, next) => {
+    try {
+      const secret = req.headers["x-admin-secret"];
+      const expected = process.env.ADMIN_SECRET;
+      if (!expected || secret !== expected) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+
+      const dryRun = Boolean(req.body?.dryRun);
+      const subscribers = await listAllWaitlistEmails();
+
+      if (dryRun) {
+        res.json({ dryRun: true, count: subscribers.length, emails: subscribers.map((s) => s.email) });
+        return;
+      }
+
+      if (subscribers.length === 0) {
+        res.json({ sent: 0, failed: 0, dryRun: false });
+        return;
+      }
+
+      const { client, fromEmail } = await getUncachableResendClient();
+      const html = buildLaunchEmailHtml();
+      const text = buildLaunchEmailText();
+
+      const BATCH_SIZE = 50;
+      const BATCH_DELAY_MS = 1000;
+      let sent = 0;
+      let failed = 0;
+
+      for (let i = 0; i < subscribers.length; i += BATCH_SIZE) {
+        const batch = subscribers.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map(async ({ email }) => {
+            try {
+              await client.emails.send({
+                from: fromEmail || "PocketPulse <noreply@pocketpulse.replit.app>",
+                to: email,
+                subject: "PocketPulse is live — your finances just got a whole lot clearer 🎉",
+                html,
+                text,
+              });
+              sent++;
+            } catch (err) {
+              console.error(`[launch-email] Failed to send to ${email}:`, err);
+              failed++;
+            }
+          }),
+        );
+        if (i + BATCH_SIZE < subscribers.length) {
+          await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
+        }
+      }
+
+      res.json({ sent, failed, dryRun: false });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   app.use(doubleCsrfProtection);
 
   app.get("/api/csrf-token", (req, res) => {
@@ -394,82 +467,6 @@ export function createApp(options?: CreateAppOptions) {
         res.status(200).json({ ok: true });
         return;
       }
-      next(e);
-    }
-  });
-
-  /**
-   * POST /api/admin/send-launch-email
-   *
-   * Sends the PocketPulse launch announcement to every address in the waitlist.
-   * Protected by the ADMIN_SECRET header — only the team triggers this on launch day.
-   *
-   * Emails are dispatched in batches of 50 with a short delay between batches to
-   * respect Resend's rate limits. Each recipient gets an individual "to" address so
-   * no subscriber sees another's email address.
-   *
-   * Request body (optional):
-   *   { dryRun: true }  — lists subscribers without sending; useful for a pre-flight check.
-   *
-   * Returns: { sent: number, failed: number, dryRun: boolean }
-   */
-  app.post("/api/admin/send-launch-email", async (req, res, next) => {
-    try {
-      const secret = req.headers["x-admin-secret"];
-      const expected = process.env.ADMIN_SECRET;
-      if (!expected || secret !== expected) {
-        res.status(403).json({ error: "Forbidden" });
-        return;
-      }
-
-      const dryRun = Boolean(req.body?.dryRun);
-      const subscribers = await listAllWaitlistEmails();
-
-      if (dryRun) {
-        res.json({ dryRun: true, count: subscribers.length, emails: subscribers.map((s) => s.email) });
-        return;
-      }
-
-      if (subscribers.length === 0) {
-        res.json({ sent: 0, failed: 0, dryRun: false });
-        return;
-      }
-
-      const { client, fromEmail } = await getUncachableResendClient();
-      const html = buildLaunchEmailHtml();
-      const text = buildLaunchEmailText();
-
-      const BATCH_SIZE = 50;
-      const BATCH_DELAY_MS = 1000;
-      let sent = 0;
-      let failed = 0;
-
-      for (let i = 0; i < subscribers.length; i += BATCH_SIZE) {
-        const batch = subscribers.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(async ({ email }) => {
-            try {
-              await client.emails.send({
-                from: fromEmail || "PocketPulse <noreply@pocketpulse.replit.app>",
-                to: email,
-                subject: "PocketPulse is live — your finances just got a whole lot clearer 🎉",
-                html,
-                text,
-              });
-              sent++;
-            } catch (err) {
-              console.error(`[launch-email] Failed to send to ${email}:`, err);
-              failed++;
-            }
-          }),
-        );
-        if (i + BATCH_SIZE < subscribers.length) {
-          await new Promise((r) => setTimeout(r, BATCH_DELAY_MS));
-        }
-      }
-
-      res.json({ sent, failed, dryRun: false });
-    } catch (e) {
       next(e);
     }
   });
