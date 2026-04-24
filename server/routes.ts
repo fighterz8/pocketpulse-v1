@@ -61,8 +61,11 @@ import { transactions as txnTable, users as usersTable } from "../shared/schema.
 declare module "express-session" {
   interface SessionData {
     userId?: number;
+    lastActivity?: number;
   }
 }
+
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const PgSession = connectPgSimple(session);
 
@@ -97,6 +100,7 @@ function sessionMiddleware(store: session.Store) {
     secret: getSessionSecret(),
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -129,6 +133,16 @@ const requireAuth: RequestHandler = (req, res, next) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
+  const now = Date.now();
+  const lastActivity = req.session.lastActivity;
+  if (lastActivity != null && now - lastActivity > IDLE_TIMEOUT_MS) {
+    req.session.destroy(() => {
+      res.clearCookie("pocketpulse.sid", sessionCookieOptions);
+      res.status(401).json({ error: "Session expired due to inactivity" });
+    });
+    return;
+  }
+  req.session.lastActivity = now;
   next();
 };
 
@@ -308,6 +322,15 @@ export function createApp(options?: CreateAppOptions) {
         return;
       }
 
+      const now = Date.now();
+      const lastActivity = req.session.lastActivity;
+      if (lastActivity != null && now - lastActivity > IDLE_TIMEOUT_MS) {
+        await destroySession(req);
+        res.clearCookie("pocketpulse.sid", sessionCookieOptions);
+        res.json({ authenticated: false });
+        return;
+      }
+
       const user = await getUserById(userId);
       if (!user) {
         await destroySession(req);
@@ -316,6 +339,7 @@ export function createApp(options?: CreateAppOptions) {
         return;
       }
 
+      req.session.lastActivity = now;
       res.json({ authenticated: true, user });
     } catch (e) {
       next(e);
@@ -411,6 +435,7 @@ export function createApp(options?: CreateAppOptions) {
 
       await regenerateSession(req);
       req.session.userId = user.id;
+      req.session.lastActivity = Date.now();
       await saveSession(req);
       // Return accounts (empty for new users) so the client can pre-populate
       // its cache and skip a sequential fetch after the session is established.
@@ -450,6 +475,7 @@ export function createApp(options?: CreateAppOptions) {
       await ensureUserPreferences(record.id);
       await regenerateSession(req);
       req.session.userId = record.id;
+      req.session.lastActivity = Date.now();
       await saveSession(req);
       // Return accounts alongside user so the client can pre-populate its cache
       // and skip a sequential fetch after the session is established.
