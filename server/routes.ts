@@ -355,7 +355,7 @@ export function createApp(options?: CreateAppOptions) {
           batch.map(async ({ email }) => {
             try {
               await client.emails.send({
-                from: fromEmail || "PocketPulse <noreply@pocketpulse.replit.app>",
+                from: "PocketPulse <onboarding@resend.dev>",
                 to: email,
                 subject: "PocketPulse is live — your finances just got a whole lot clearer 🎉",
                 html,
