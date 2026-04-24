@@ -12,7 +12,7 @@ export const {
   cookieName: "pocketpulse.csrf",
   cookieOptions: {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
     path: "/",
   },

@@ -100,7 +100,7 @@ function sessionMiddleware(store: session.Store) {
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   });
@@ -135,7 +135,7 @@ const requireAuth: RequestHandler = (req, res, next) => {
 const sessionCookieOptions = {
   path: "/",
   httpOnly: true,
-  sameSite: "lax" as const,
+  sameSite: "strict" as const,
   secure: process.env.NODE_ENV === "production",
 };
 
