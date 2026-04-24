@@ -21,14 +21,21 @@ function IconDoc() {
   );
 }
 
-function IconSparkle() {
+function IconTag() {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3z"
+        d="M3 7a2 2 0 0 1 2-2h7.172a2 2 0 0 1 1.414.586l5.828 5.828a2 2 0 0 1 0 2.828l-4.172 4.172a2 2 0 0 1-2.828 0L6.586 13.414A2 2 0 0 1 6 12V7H3z"
         fill="currentColor"
+        opacity="0.15"
       />
-      <path d="M18.5 14l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" fill="currentColor" opacity="0.7" />
+      <path
+        d="M3 7a2 2 0 0 1 2-2h7.172a2 2 0 0 1 1.414.586l5.828 5.828a2 2 0 0 1 0 2.828l-4.172 4.172a2 2 0 0 1-2.828 0L6.586 13.414A2 2 0 0 1 6 12V7"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <circle cx="9" cy="9" r="1.25" fill="currentColor" />
     </svg>
   );
 }
@@ -62,7 +69,7 @@ function IconArrowRight() {
 
 const FEATURES: { title: string; description: string; icon: () => JSX.Element }[] = [
   { title: "CSV Import", description: "Bring in your data in seconds", icon: IconDoc },
-  { title: "AI Classification", description: "Transactions categorized automatically", icon: IconSparkle },
+  { title: "Auto-Categorization", description: "Accurate categories from the moment you import", icon: IconTag },
   { title: "Spending Insights", description: "Understand patterns and save more", icon: IconBars },
 ];
 
