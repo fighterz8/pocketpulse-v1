@@ -587,17 +587,34 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
         const mod = await import("./routes.js");
         const prodApp = mod.createApp({ sessionStore: new session.MemoryStore() });
 
-        const csrfRes = await request(prodApp).get("/api/csrf-token");
+        // X-Forwarded-Proto: https makes req.secure true via trust-proxy=1, so
+        // express-session will include the Secure attribute on the session cookie.
+        const csrfRes = await request(prodApp)
+          .get("/api/csrf-token")
+          .set("X-Forwarded-Proto", "https");
         const csrfCookie = findCookie(csrfRes.headers["set-cookie"], "pocketpulse.csrf");
         expect(csrfCookie, "CSRF cookie must be set in production").toBeDefined();
         expect(csrfCookie!.toLowerCase()).toContain("secure");
 
-        const agent = request.agent(prodApp);
+        // Build a proper Cookie header: extract only the name=value pairs from each
+        // Set-Cookie entry (strip Path, HttpOnly, Secure, SameSite attributes) so
+        // that cookie-parser on the server receives a well-formed Cookie header.
+        const rawSetCookies = ([] as string[]).concat(
+          (csrfRes.headers["set-cookie"] as string | string[] | undefined) ?? [],
+        );
+        const cookieHeader = rawSetCookies
+          .map((c) => c.split(";")[0].trim())
+          .join("; ");
+
         const csrfToken = csrfRes.body.token as string;
-        const regRes = await agent
+
+        // Use a plain request (no agent) for the register call so there is no
+        // tough-cookie jar that would silently drop Secure cookies over plain HTTP.
+        const regRes = await request(prodApp)
           .post("/api/auth/register")
+          .set("X-Forwarded-Proto", "https")
           .set("X-CSRF-Token", csrfToken)
-          .set("Cookie", csrfRes.headers["set-cookie"] as string[])
+          .set("Cookie", cookieHeader)
           .send({
             email: `cookie-prod-${crypto.randomUUID()}@example.com`,
             password: "cookie-test-pw",
