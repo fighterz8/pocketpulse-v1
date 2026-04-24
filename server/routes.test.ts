@@ -387,6 +387,118 @@ describe.skipIf(!runRouteIntegrationTests)("API routes", () => {
     expect(res.status).toBe(201);
   });
 
+  describe("idle timeout (requireAuth)", () => {
+    it("a request within the 30-minute window succeeds and updates lastActivity", async () => {
+      const baseTime = Date.now();
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(baseTime);
+      try {
+        const app = testApp();
+        const agent = request.agent(app);
+        const csrf = await withCsrf(agent);
+        const email = `idle-ok-${crypto.randomUUID()}@example.com`;
+        await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
+          email,
+          password: "test-pw-99",
+          displayName: "Idle Test",
+        });
+
+        // First protected request at t=0 — sets lastActivity to baseTime
+        const first = await agent.get("/api/accounts");
+        expect(first.status).toBe(200);
+
+        // Second request at t=+29m — within the window, succeeds, and updates lastActivity to +29m
+        nowSpy.mockReturnValue(baseTime + 29 * 60 * 1000);
+        const second = await agent.get("/api/accounts");
+        expect(second.status).toBe(200);
+
+        // Third request at t=+58m — this is >30m after baseTime but <30m after the second request
+        // updated lastActivity to +29m. Should succeed only if lastActivity was refreshed.
+        nowSpy.mockReturnValue(baseTime + 58 * 60 * 1000);
+        const third = await agent.get("/api/accounts");
+        expect(third.status).toBe(200);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it("a request more than 30 minutes after lastActivity returns 401 with session-expired message", async () => {
+      const baseTime = Date.now();
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(baseTime);
+      try {
+        const app = testApp();
+        const agent = request.agent(app);
+        const csrf = await withCsrf(agent);
+        const email = `idle-expired-${crypto.randomUUID()}@example.com`;
+        await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
+          email,
+          password: "test-pw-99",
+          displayName: "Idle Expired",
+        });
+
+        // First protected request — sets lastActivity to baseTime
+        const first = await agent.get("/api/accounts");
+        expect(first.status).toBe(200);
+
+        // Advance clock to 31 minutes later (past the idle window)
+        nowSpy.mockReturnValue(baseTime + 31 * 60 * 1000);
+        const expired = await agent.get("/api/accounts");
+        expect(expired.status).toBe(401);
+        expect(expired.body).toEqual({ error: "Session expired due to inactivity" });
+
+        // After session destruction, any subsequent request should return the generic 401
+        // (session is gone, so the user is now fully signed out — not just "expired")
+        const subsequent = await agent.get("/api/accounts");
+        expect(subsequent.status).toBe(401);
+        expect(subsequent.body).toEqual({ error: "Unauthorized" });
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it("rolling: true advances the session cookie Expires date on each authenticated request", async () => {
+      const baseTime = Date.now();
+      const nowSpy = vi.spyOn(Date, "now").mockReturnValue(baseTime);
+      try {
+        const app = testApp();
+        const agent = request.agent(app);
+        const csrf = await withCsrf(agent);
+        const email = `idle-rolling-${crypto.randomUUID()}@example.com`;
+        await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
+          email,
+          password: "test-pw-99",
+          displayName: "Rolling Test",
+        });
+
+        function extractSidExpiry(res: { headers: Record<string, unknown> }): Date | undefined {
+          const raw = res.headers["set-cookie"];
+          const cookies: string[] = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+          const sid = cookies.find((c) => c.split(";")[0].trim().startsWith("pocketpulse.sid="));
+          if (!sid) return undefined;
+          const expiresMatch = sid.match(/expires=([^;]+)/i);
+          return expiresMatch ? new Date(expiresMatch[1]) : undefined;
+        }
+
+        // First authenticated request — cookie Expires should be set to ~7 days from baseTime
+        const first = await agent.get("/api/accounts");
+        expect(first.status).toBe(200);
+        const firstExpiry = extractSidExpiry(first);
+        expect(firstExpiry, "rolling: first request must set pocketpulse.sid with Expires").toBeDefined();
+
+        // Second request one minute later — rolling should push Expires forward by one minute
+        nowSpy.mockReturnValue(baseTime + 60 * 1000);
+        const second = await agent.get("/api/accounts");
+        expect(second.status).toBe(200);
+        const secondExpiry = extractSidExpiry(second);
+        expect(secondExpiry, "rolling: second request must re-send pocketpulse.sid with Expires").toBeDefined();
+
+        // Expires on the second response must be later than on the first
+        expect(secondExpiry!.getTime()).toBeGreaterThan(firstExpiry!.getTime());
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+  });
+
   describe("cookie security attributes", () => {
     function findCookie(header: unknown, name: string): string | undefined {
       const cookies = Array.isArray(header) ? header : typeof header === "string" ? [header] : [];
