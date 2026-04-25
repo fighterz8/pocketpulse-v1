@@ -1,9 +1,4 @@
-/**
- * PocketPulse launch email — HTML template sent to all waitlist subscribers
- * on May 23, 2025.
- */
-export function buildLaunchEmailHtml(): string {
-  return `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -76,7 +71,7 @@ export function buildLaunchEmailHtml(): string {
                           <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.18);border-radius:16px;">
                             <tr>
                               <td width="58" align="center" style="padding:14px 0 14px 18px;">
-                                <div style="width:38px;height:38px;border-radius:50%;background:rgba(96,165,250,0.14);font-size:19px;line-height:38px;color:#60a5fa;">&#9637;</div>
+                                <div style="width:38px;height:38px;border-radius:50%;background:rgba(96,165,250,0.14);font-size:19px;line-height:38px;color:#60a5fa;">▥</div>
                               </td>
                               <td style="padding:14px 18px 14px 14px;font-size:17px;font-weight:800;color:#f8fafc;text-align:left;">
                                 Spending insights
@@ -94,7 +89,7 @@ export function buildLaunchEmailHtml(): string {
                           <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.18);border-radius:16px;">
                             <tr>
                               <td width="58" align="center" style="padding:14px 0 14px 18px;">
-                                <div style="width:38px;height:38px;border-radius:50%;background:rgba(96,165,250,0.14);font-size:19px;line-height:38px;color:#60a5fa;">&#9671;</div>
+                                <div style="width:38px;height:38px;border-radius:50%;background:rgba(96,165,250,0.14);font-size:19px;line-height:38px;color:#60a5fa;">◇</div>
                               </td>
                               <td style="padding:14px 18px 14px 14px;font-size:17px;font-weight:800;color:#f8fafc;text-align:left;">
                                 Auto-categorization
@@ -112,7 +107,7 @@ export function buildLaunchEmailHtml(): string {
                           <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.18);border-radius:16px;">
                             <tr>
                               <td width="58" align="center" style="padding:14px 0 14px 18px;">
-                                <div style="width:38px;height:38px;border-radius:50%;background:rgba(96,165,250,0.14);font-size:19px;line-height:38px;color:#60a5fa;">&#8635;</div>
+                                <div style="width:38px;height:38px;border-radius:50%;background:rgba(96,165,250,0.14);font-size:19px;line-height:38px;color:#60a5fa;">↻</div>
                               </td>
                               <td style="padding:14px 18px 14px 14px;font-size:17px;font-weight:800;color:#f8fafc;text-align:left;">
                                 Recurring charges
@@ -133,7 +128,7 @@ export function buildLaunchEmailHtml(): string {
                     </table>
 
                     <p style="margin:24px 0 0;font-size:13px;line-height:1.6;color:#94a3b8;">
-                      You're receiving this because you joined the PocketPulse waitlist.
+                      You’re receiving this because you joined the PocketPulse waitlist.
                     </p>
 
                   </td>
@@ -146,23 +141,4 @@ export function buildLaunchEmailHtml(): string {
     </tr>
   </table>
 </body>
-</html>`;
-}
-
-export function buildLaunchEmailText(): string {
-  return `PocketPulse is live.
-
-Upload your bank CSVs, review categorized transactions, and quickly see where your money is going — without connecting a live bank account.
-
-Start Using PocketPulse: https://pocket-pulse.com
-
-No bank login required — start with a CSV export.
-
-What's included:
-• Spending insights
-• Auto-categorization
-• Recurring charges
-
-—
-You're receiving this because you joined the PocketPulse waitlist.`;
-}
+</html>
