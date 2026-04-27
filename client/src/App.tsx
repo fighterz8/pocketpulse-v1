@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch, useLocation } from "wouter";
 import { AppLayout } from "./components/layout/AppLayout";
-import { useAuth } from "./hooks/use-auth";
+import { useAuth, type AuthAccount } from "./hooks/use-auth";
 import { useInactivityLogout } from "./hooks/use-inactivity-logout";
 import { useTheme } from "./hooks/use-theme";
 import { AccountSetup } from "./pages/AccountSetup";
@@ -80,30 +80,39 @@ export function AppGate() {
   const [step2Pending, setStep2Pending] = useState(
     () => sessionStorage.getItem(ONBOARDING_STEP2_FLAG) === "1",
   );
+  // The exact account just created in Step 1, so Step 2 doesn't have to
+  // guess via `accounts[0]` — keeps the contract sturdy if a user with
+  // multiple accounts ever ends up in Step 2 down the road.
+  const [step2Account, setStep2Account] = useState<AuthAccount | null>(null);
 
   function handleUnlock() {
     localStorage.setItem(BETA_FLAG, "1");
     setBetaUnlocked(true);
   }
 
-  function handleStep1Created() {
+  function handleStep1Created(account: AuthAccount) {
     sessionStorage.setItem(ONBOARDING_STEP2_FLAG, "1");
+    setStep2Account(account);
     setStep2Pending(true);
   }
-  function handleStep2Done() {
+  function exitOnboarding() {
     sessionStorage.removeItem(ONBOARDING_STEP2_FLAG);
     setStep2Pending(false);
+    setStep2Account(null);
     // Send the user to the dashboard regardless of whatever URL the
     // onboarding screens were rendered at, so the success notice is
     // guaranteed to surface and there's no surprise deep-link landing.
     setLocation("/");
   }
+  // Step 2 finished naturally (continue OR skip) — either way clear flags
+  // and land on the dashboard. Aliased so handler names at the call site
+  // read clearly (onDone vs onSkip) even though they share an exit path.
+  const handleStep2Done = exitOnboarding;
+  const handleStep2Skip = exitOnboarding;
   function handleSkipOnboarding() {
     sessionStorage.setItem(ONBOARDING_SKIP_FLAG, "1");
-    sessionStorage.removeItem(ONBOARDING_STEP2_FLAG);
     setOnboardingSkipped(true);
-    setStep2Pending(false);
-    setLocation("/");
+    exitOnboarding();
   }
 
   // Reset all per-session onboarding state on logout so a fresh login
@@ -118,6 +127,7 @@ export function AppGate() {
         sessionStorage.removeItem(ONBOARDING_STEP2_FLAG);
         setStep2Pending(false);
       }
+      setStep2Account(null);
     }
   }, [auth.isAuthenticated]);
 
@@ -205,11 +215,16 @@ export function AppGate() {
       );
     }
     if (auth.accounts.length >= 1 && step2Pending) {
+      // Prefer the explicit Step-1 account; fall back to the first
+      // account in the cache for resumed sessions where the user
+      // refreshed mid-onboarding (we lose in-memory state but the
+      // sessionStorage flag still routes them back here).
+      const account = step2Account ?? auth.accounts[0]!;
       return (
         <OnboardingUpload
-          account={auth.accounts[0]!}
+          account={account}
           onDone={handleStep2Done}
-          onSkip={handleStep2Done}
+          onSkip={handleStep2Skip}
         />
       );
     }

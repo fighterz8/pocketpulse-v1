@@ -76,18 +76,17 @@ describe("AccountSetup", () => {
     );
   });
 
-  it("submits the form and calls onCreated after createAccount succeeds", async () => {
-    mockCreateAccount.mutateAsync.mockResolvedValueOnce({
-      account: {
-        id: 1,
-        userId: 1,
-        label: "Chase",
-        lastFour: null,
-        accountType: null,
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z",
-      },
-    });
+  it("submits the form and calls onCreated with the created account on success", async () => {
+    const created = {
+      id: 7,
+      userId: 1,
+      label: "Chase",
+      lastFour: null,
+      accountType: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockCreateAccount.mutateAsync.mockResolvedValueOnce({ account: created });
     const { onCreated, onSkip } = setup();
 
     fireEvent.change(screen.getByTestId("input-account-label"), {
@@ -100,6 +99,7 @@ describe("AccountSetup", () => {
         expect.objectContaining({ label: "Chase" }),
       );
       expect(onCreated).toHaveBeenCalledTimes(1);
+      expect(onCreated).toHaveBeenCalledWith(created);
     });
     expect(onSkip).not.toHaveBeenCalled();
   });

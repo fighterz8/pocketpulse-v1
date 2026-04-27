@@ -57,12 +57,12 @@ vi.mock("./pages/AccountSetup", () => ({
     onCreated,
     onSkip,
   }: {
-    onCreated: () => void;
+    onCreated: (account: AuthAccount) => void;
     onSkip: () => void;
   }) => (
     <div data-testid="stub-account-setup">
       ACCOUNT_SETUP
-      <button data-testid="stub-create" onClick={onCreated}>
+      <button data-testid="stub-create" onClick={() => onCreated(account)}>
         create
       </button>
       <button data-testid="stub-skip-1" onClick={onSkip}>

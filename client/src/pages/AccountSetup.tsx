@@ -1,9 +1,13 @@
 import { FormEvent, useState } from "react";
-import { useAuth } from "../hooks/use-auth";
+import { useAuth, type AuthAccount } from "../hooks/use-auth";
 
 export type AccountSetupProps = {
-  /** Called after the bank account is created. Parent handles routing. */
-  onCreated: () => void;
+  /**
+   * Called after the bank account is created. Receives the account
+   * object so the parent can pass exactly that account into Step 2
+   * (rather than guessing via `accounts[0]`).
+   */
+  onCreated: (account: AuthAccount) => void;
   /** Called when the user clicks "Skip for now". */
   onSkip: () => void;
 };
@@ -32,14 +36,14 @@ export function AccountSetup({ onCreated, onSkip }: AccountSetupProps) {
       return;
     }
     try {
-      await createAccount.mutateAsync({
+      const result = await createAccount.mutateAsync({
         label: trimmed,
         ...(lastFour !== "" ? { lastFour } : {}),
         ...(accountType.trim() !== ""
           ? { accountType: accountType.trim() }
           : {}),
       });
-      onCreated();
+      onCreated(result.account);
     } catch {
       /* shown via mutationError */
     }
