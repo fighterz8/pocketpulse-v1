@@ -215,7 +215,10 @@ export function AppGate() {
             onCreated={handleStep1Created}
             onSkip={handleSkipOnboarding}
           />
-          <WelcomeOverlay enabled />
+          <WelcomeOverlay
+            enabled
+            restoreFocusSelector="[data-testid='input-account-label']"
+          />
         </>
       );
     }

@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
@@ -17,6 +16,12 @@ export type WelcomeOverlayProps = {
   enabled: boolean;
   /** Called after the user dismisses the overlay (and the flag is written). */
   onDismiss?: () => void;
+  /**
+   * CSS selector for the element to focus after the overlay is dismissed.
+   * Used to return keyboard focus to the underlying form (Step 1's first
+   * input) so the user can immediately start typing.
+   */
+  restoreFocusSelector?: string;
 };
 
 /**
@@ -33,6 +38,7 @@ export type WelcomeOverlayProps = {
 export function WelcomeOverlay({
   enabled,
   onDismiss,
+  restoreFocusSelector,
 }: WelcomeOverlayProps) {
   const [open, setOpen] = useState<boolean>(() => {
     if (!enabled) return false;
@@ -54,7 +60,17 @@ export function WelcomeOverlay({
     }
     setOpen(false);
     onDismiss?.();
-  }, [onDismiss]);
+    // Return focus to the underlying form so the user can immediately
+    // start typing. Wait one tick for the overlay (and its inert siblings)
+    // to actually unmount before re-focusing.
+    if (restoreFocusSelector) {
+      const sel = restoreFocusSelector;
+      requestAnimationFrame(() => {
+        const target = document.querySelector<HTMLElement>(sel);
+        target?.focus();
+      });
+    }
+  }, [onDismiss, restoreFocusSelector]);
 
   // Esc-to-close + focus trap (Tab / Shift+Tab cycles within card; Tab from
   // outside the card is redirected back inside).
@@ -167,11 +183,6 @@ export function WelcomeOverlay({
     if (e.target === e.currentTarget) dismiss();
   }
 
-  // Swallow keydown bubbling out of the card (Esc is handled at document level).
-  function handleCardKeyDown(_e: ReactKeyboardEvent<HTMLDivElement>) {
-    /* no-op — useful hook for future shortcuts */
-  }
-
   return (
     <div
       ref={backdropRef}
@@ -187,7 +198,6 @@ export function WelcomeOverlay({
         aria-modal="true"
         aria-labelledby="welcome-overlay-title"
         aria-describedby="welcome-overlay-body"
-        onKeyDown={handleCardKeyDown}
         data-testid="welcome-overlay"
       >
         <div className="welcome-overlay-eyebrow" aria-hidden="true">

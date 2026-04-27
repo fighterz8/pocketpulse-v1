@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WELCOME_SEEN_FLAG, WelcomeOverlay } from "./welcome-overlay";
 
@@ -70,6 +70,60 @@ describe("WelcomeOverlay", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("welcome-overlay")).not.toBeInTheDocument();
     expect(window.localStorage.getItem(WELCOME_SEEN_FLAG)).toBe("1");
+  });
+
+  it("restores focus to the underlying form input after CTA dismiss", async () => {
+    render(
+      <>
+        <input data-testid="input-account-label" />
+        <WelcomeOverlay
+          enabled
+          restoreFocusSelector="[data-testid='input-account-label']"
+        />
+      </>,
+    );
+    fireEvent.click(screen.getByTestId("welcome-overlay-dismiss"));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByTestId("input-account-label"),
+      );
+    });
+  });
+
+  it("restores focus to the underlying form input after backdrop dismiss", async () => {
+    render(
+      <>
+        <input data-testid="input-account-label" />
+        <WelcomeOverlay
+          enabled
+          restoreFocusSelector="[data-testid='input-account-label']"
+        />
+      </>,
+    );
+    fireEvent.click(screen.getByTestId("welcome-overlay-backdrop"));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByTestId("input-account-label"),
+      );
+    });
+  });
+
+  it("restores focus to the underlying form input after Escape dismiss", async () => {
+    render(
+      <>
+        <input data-testid="input-account-label" />
+        <WelcomeOverlay
+          enabled
+          restoreFocusSelector="[data-testid='input-account-label']"
+        />
+      </>,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        screen.getByTestId("input-account-label"),
+      );
+    });
   });
 
   it("traps Tab when focus has escaped the dialog", () => {
