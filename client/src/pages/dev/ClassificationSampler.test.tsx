@@ -232,6 +232,48 @@ describe("ReportScreen — legibility panel (Task #118)", () => {
     expect(screen.getByTestId("row-flagged-99")).toHaveTextContent("(unavailable)");
   });
 
+  it("treats verdicts with the legibility keys truly absent (legacy data) as 'Unanswered'", () => {
+    // Build a verdict that omits both new keys entirely (mirrors data persisted
+    // before Task #118 shipped). Cast through `unknown` to bypass the type
+    // requiring the new optional keys be present.
+    const legacy = {
+      transactionId: 7,
+      classifierCategory: "dining",
+      classifierClass: "expense",
+      classifierRecurrence: "one-time",
+      classifierLabelSource: "rule",
+      classifierLabelConfidence: 0.9,
+      verdict: "confirmed",
+      correctedCategory: null,
+      correctedClass: null,
+      correctedRecurrence: null,
+    } as unknown as ClassificationVerdict;
+    expect(legacy).not.toHaveProperty("merchantLegibility");
+    expect(legacy).not.toHaveProperty("containsCardNumber");
+
+    const sample = makeCompletedSample([legacy]);
+    render(<ReportScreen sample={sample} transactions={null} />);
+    expect(screen.getByTestId("leg-unanswered")).toHaveTextContent("1");
+    expect(screen.getByTestId("card-unanswered")).toHaveTextContent("1");
+    // Legacy verdict should NOT appear in the flagged-rows table.
+    expect(screen.getByTestId("text-flagged-empty")).toBeInTheDocument();
+  });
+
+  it("caps the flagged-rows table at 20 rows and surfaces the total via summary text", () => {
+    // 25 illegible verdicts → table renders only the first 20 with a
+    // "showing 20 of 25" summary so reviewers know more rows exist.
+    const verdicts = Array.from({ length: 25 }, (_, i) =>
+      makeVerdict(500 + i, { merchantLegibility: "illegible" }),
+    );
+    render(<ReportScreen sample={makeCompletedSample(verdicts)} transactions={null} />);
+
+    expect(screen.getByTestId("text-flagged-summary")).toHaveTextContent("showing 20 of 25");
+    expect(screen.getByTestId("row-flagged-500")).toBeInTheDocument();
+    expect(screen.getByTestId("row-flagged-519")).toBeInTheDocument();
+    expect(screen.queryByTestId("row-flagged-520")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("row-flagged-524")).not.toBeInTheDocument();
+  });
+
   it("renders the empty-state when no rows are flagged", () => {
     const sample = makeCompletedSample([
       makeVerdict(1, { merchantLegibility: "clear", containsCardNumber: false }),
