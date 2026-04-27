@@ -17,12 +17,14 @@ import { ensureUserPreferences, pool } from "./db.js";
 import { AUTO_ESSENTIAL_CATEGORIES, REVIEW_STATUSES, V1_CATEGORIES } from "../shared/schema.js";
 import { DEV_MODE_ENABLED } from "../shared/devConfig.js";
 import {
+  consumePasswordResetTokenAndUpdatePassword,
   countNeedsAiForUpload,
   createAccountForUser,
   createTransactionBatch,
   createUpload,
   createUser,
   deleteAllTransactionsForUser,
+  deleteExpiredPasswordResetTokens,
   deleteWorkspaceDataForUser,
   addWaitlistEmail,
   listAllWaitlistEmails,
@@ -33,6 +35,7 @@ import {
   getUploadAiStatusForUser,
   getUserByEmailForAuth,
   getUserById,
+  issuePasswordResetToken,
   listAccountsForUser,
   listActiveAiUploadsForUser,
   listAllTransactionsForExport,
@@ -49,6 +52,7 @@ import {
   upsertRecurringReview,
   type UpdateTransactionInput,
 } from "./storage.js";
+import { normalizeEmail } from "./auth.js";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
@@ -59,6 +63,10 @@ import { reclassifyTransactions } from "./reclassify.js";
 import { runUploadAiWorker } from "./aiWorker.js";
 import { getUncachableResendClient } from "./resend.js";
 import { buildLaunchEmailHtml, buildLaunchEmailText } from "./launchEmail.js";
+import {
+  buildPasswordResetEmailHtml,
+  buildPasswordResetEmailText,
+} from "./passwordResetEmail.js";
 import { transactions as txnTable, users as usersTable } from "../shared/schema.js";
 
 declare module "express-session" {
@@ -300,6 +308,18 @@ export function createApp(options?: CreateAppOptions) {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many authentication attempts, please try again later" },
+  });
+
+  // Tighter limiter for password reset flows. The forgot-password endpoint
+  // sends real email and the reset endpoint mutates a credential, so we cap
+  // both at 5 attempts per IP per 15 min — well above legitimate use, low
+  // enough to make spraying tokens or harvesting account existence noisy.
+  const passwordResetLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many password reset attempts, please try again later" },
   });
   app.use(globalLimiter);
   app.use(express.json());
@@ -576,6 +596,162 @@ export function createApp(options?: CreateAppOptions) {
       res.status(204).end();
     });
   });
+
+  /**
+   * POST /api/auth/forgot-password
+   *
+   * Anti-enumeration password reset trigger. Always returns the same 200
+   * "ok" envelope regardless of whether the email belongs to a registered
+   * user, so an attacker cannot use this endpoint to discover which
+   * addresses have accounts. When the email *does* match, we generate a
+   * 32-byte token, store only its SHA-256 hash, and email the raw token
+   * back to the user inside a short-lived (30 min) reset URL.
+   *
+   * Rate-limited at 5 / 15 min per IP and CSRF-protected (the unauth'd
+   * Forgot screen still fetches a CSRF token before submitting, matching
+   * the login/register pattern) so this can't be hit by a cross-site form.
+   */
+  app.post(
+    "/api/auth/forgot-password",
+    passwordResetLimiter,
+    async (req, res, next) => {
+      try {
+        const { email } = req.body ?? {};
+        const genericOk = { ok: true } as const;
+
+        if (typeof email !== "string" || !email.trim()) {
+          // Match the success shape so the response is indistinguishable
+          // from a "no such user" outcome — same anti-enumeration promise.
+          res.json(genericOk);
+          return;
+        }
+
+        // Opportunistic cleanup so the table doesn't grow unbounded.
+        // Failure here must not block the user, so swallow and log only.
+        deleteExpiredPasswordResetTokens().catch((err) => {
+          console.error("[forgot-password] cleanup failed:", err);
+        });
+
+        const normalized = normalizeEmail(email);
+        const user = await getUserByEmailForAuth(normalized);
+
+        if (!user) {
+          res.json(genericOk);
+          return;
+        }
+
+        // 32 random bytes → 64-char hex token. SHA-256 of the raw bytes is
+        // what we persist; the raw token only ever exists in the email URL.
+        const rawToken = crypto.randomBytes(32).toString("hex");
+        const tokenHash = crypto
+          .createHash("sha256")
+          .update(rawToken)
+          .digest("hex");
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+        // Atomically invalidates any older unused tokens for this user
+        // before issuing the new one, so previous emailed links stop
+        // working as soon as a fresh reset is requested.
+        await issuePasswordResetToken(user.id, tokenHash, expiresAt);
+
+        // Reset URLs MUST come from a trusted, configured origin — never
+        // from the request's Host header, which is attacker-controllable
+        // and can be used to redirect reset tokens to a malicious domain.
+        // We require PUBLIC_APP_URL in deployed environments and fall
+        // back to the canonical production origin if it is unset.
+        const origin = (
+          process.env.PUBLIC_APP_URL ?? "https://pocket-pulse.com"
+        ).replace(/\/$/, "");
+        const resetUrl = `${origin}/reset-password?token=${rawToken}`;
+
+        try {
+          const { client } = await getUncachableResendClient();
+          await client.emails.send({
+            from: "PocketPulse <noreply@pocket-pulse.com>",
+            to: normalized,
+            subject: "Reset your PocketPulse password",
+            html: buildPasswordResetEmailHtml(resetUrl),
+            text: buildPasswordResetEmailText(resetUrl),
+          });
+        } catch (err) {
+          // Email failure is logged but not surfaced — we still return the
+          // generic OK so the response shape is identical to the no-user
+          // path. The user can simply request another email.
+          console.error("[forgot-password] email send failed:", err);
+        }
+
+        res.json(genericOk);
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
+
+  /**
+   * POST /api/auth/reset-password
+   *
+   * Consumes a one-time reset token and rotates the user's bcrypt hash.
+   * Token is hashed (SHA-256) before lookup so this endpoint never needs
+   * to see the raw value sitting in the database, and the lookup itself
+   * enforces both expiry and single-use at the SQL layer. On success the
+   * row is marked used so the same URL cannot be replayed.
+   *
+   * We deliberately do NOT auto-sign-in afterward: the user is bounced
+   * to the login screen with the new password so they confirm it works
+   * before we issue a session cookie.
+   */
+  app.post(
+    "/api/auth/reset-password",
+    passwordResetLimiter,
+    async (req, res, next) => {
+      try {
+        const { token, newPassword } = req.body ?? {};
+
+        if (typeof token !== "string" || token.length === 0) {
+          res.status(400).json({ error: "Reset token is required" });
+          return;
+        }
+        if (typeof newPassword !== "string") {
+          res.status(400).json({ error: "New password is required" });
+          return;
+        }
+        if (newPassword.length < 8) {
+          res
+            .status(400)
+            .json({ error: "Password must be at least 8 characters" });
+          return;
+        }
+
+        const tokenHash = crypto
+          .createHash("sha256")
+          .update(token)
+          .digest("hex");
+
+        const passwordHash = await hashPassword(newPassword);
+
+        // Atomic single-transaction consume + password rotate. The
+        // storage layer uses a conditional UPDATE ... RETURNING that
+        // matches only unused, unexpired rows, eliminating the
+        // check-then-set race that a separate find + mark would have.
+        // If the password update inside the same transaction fails,
+        // the consume is rolled back so the user can retry the link.
+        const result = await consumePasswordResetTokenAndUpdatePassword(
+          tokenHash,
+          passwordHash,
+        );
+        if (!result) {
+          res.status(400).json({
+            error: "This reset link has expired or already been used",
+          });
+          return;
+        }
+
+        res.json({ ok: true });
+      } catch (e) {
+        next(e);
+      }
+    },
+  );
 
   app.get("/api/accounts", requireAuth, async (req, res, next) => {
     try {

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { DatabaseError } from "pg";
 
 import {
@@ -8,6 +8,7 @@ import {
   merchantClassifications,
   merchantClassificationsGlobal,
   merchantRules,
+  passwordResetTokens,
   recurringReviews,
   transactions,
   uploads,
@@ -20,6 +21,7 @@ import {
   type CsvFormatSpec,
   type MerchantClassification,
   type MerchantClassificationSource,
+  type PasswordResetToken,
 } from "../shared/schema.js";
 
 import { normalizeEmail } from "./auth.js";
@@ -142,6 +144,109 @@ export async function getUserById(id: number): Promise<PublicUser | null> {
     .where(eq(users.id, id))
     .limit(1);
   return row ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Password reset tokens
+//
+// Issued by POST /api/auth/forgot-password and consumed by
+// POST /api/auth/reset-password. We only ever persist the SHA-256 hash of
+// the token bytes — the raw token never touches the database, so a database
+// leak alone cannot be turned into a working reset link. `findValid…`
+// applies the freshness + single-use checks at the SQL level so callers
+// cannot accidentally accept a stale or already-consumed token.
+// ---------------------------------------------------------------------------
+
+/**
+ * Issue a fresh password reset token. Done in a transaction that first
+ * marks every previously-issued, still-unused token for the same user as
+ * "used" — so older email links cannot be redeemed once a newer reset has
+ * been requested. This shrinks the live-token surface to at most one per
+ * user and matches the user's mental model of "the latest email is the
+ * one that works".
+ */
+export async function issuePasswordResetToken(
+  userId: number,
+  tokenHash: string,
+  expiresAt: Date,
+): Promise<PasswordResetToken> {
+  return db.transaction(async (tx) => {
+    await tx
+      .update(passwordResetTokens)
+      .set({ usedAt: new Date() })
+      .where(
+        and(
+          eq(passwordResetTokens.userId, userId),
+          isNull(passwordResetTokens.usedAt),
+        ),
+      );
+    const [row] = await tx
+      .insert(passwordResetTokens)
+      .values({ userId, tokenHash, expiresAt })
+      .returning();
+    if (!row) {
+      throw new Error("issuePasswordResetToken: insert did not return a row");
+    }
+    return row;
+  });
+}
+
+/**
+ * Atomically consume a password reset token and rotate the user's
+ * password, in a single DB transaction.
+ *
+ * The consume step is a conditional UPDATE ... RETURNING that only
+ * matches rows where `used_at IS NULL` and `expires_at > now()`. This
+ * makes the check-then-set race-free — two concurrent reset attempts
+ * with the same token can never both succeed because at most one row
+ * meets the predicate at the moment the UPDATE runs.
+ *
+ * Both the token mark-used and the password rotate live in the same
+ * transaction: if the password update throws, the consume is rolled
+ * back so the user can simply click the same email link again.
+ *
+ * Returns the affected userId on success, or null if the token was
+ * unknown / expired / already used.
+ */
+export async function consumePasswordResetTokenAndUpdatePassword(
+  tokenHash: string,
+  passwordHash: string,
+): Promise<{ userId: number } | null> {
+  return db.transaction(async (tx) => {
+    const now = new Date();
+    const [consumed] = await tx
+      .update(passwordResetTokens)
+      .set({ usedAt: now })
+      .where(
+        and(
+          eq(passwordResetTokens.tokenHash, tokenHash),
+          isNull(passwordResetTokens.usedAt),
+          gte(passwordResetTokens.expiresAt, now),
+        ),
+      )
+      .returning({ id: passwordResetTokens.id, userId: passwordResetTokens.userId });
+
+    if (!consumed) return null;
+
+    await tx
+      .update(users)
+      .set({ password: passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, consumed.userId));
+
+    return { userId: consumed.userId };
+  });
+}
+
+/**
+ * Maintenance helper — drops every reset-token row whose `expiresAt` is in
+ * the past. Safe to call opportunistically (e.g. at the start of a forgot-
+ * password request) so the table does not grow unbounded; not currently
+ * scheduled separately.
+ */
+export async function deleteExpiredPasswordResetTokens(): Promise<void> {
+  await db
+    .delete(passwordResetTokens)
+    .where(lte(passwordResetTokens.expiresAt, new Date()));
 }
 
 export async function listAccountsForUser(userId: number) {

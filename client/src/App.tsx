@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import { AppLayout } from "./components/layout/AppLayout";
 import { useAuth } from "./hooks/use-auth";
 import { useInactivityLogout } from "./hooks/use-inactivity-logout";
@@ -12,6 +12,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Ledger } from "./pages/Ledger";
 import { Leaks } from "./pages/Leaks";
 import { NotFoundPage } from "./pages/not-found";
+import { ResetPassword } from "./pages/ResetPassword";
 import { Upload } from "./pages/Upload";
 import { ClassificationSampler } from "./pages/dev/ClassificationSampler";
 import { TeamSummary } from "./pages/dev/TeamSummary";
@@ -63,6 +64,7 @@ const BETA_FLAG = "pp_beta_access";
 
 function AppGate() {
   const auth = useAuth();
+  const [location] = useLocation();
   const [inactivityLogout, setInactivityLogout] = useState(false);
   const [betaUnlocked, setBetaUnlocked] = useState(
     () => localStorage.getItem(BETA_FLAG) === "1",
@@ -89,6 +91,14 @@ function AppGate() {
       );
     },
   });
+
+  // /reset-password is reached from an emailed link by definition-not-signed-in
+  // users (often on a fresh device), so it must render before the auth/beta
+  // gates. Placed after every hook call so the rules of hooks are preserved
+  // when the user navigates between this and the regular gated routes.
+  if (location === "/reset-password") {
+    return <ResetPassword />;
+  }
 
   if (auth.isLoading) {
     return (

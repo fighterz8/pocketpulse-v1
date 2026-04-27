@@ -50,6 +50,13 @@
       "when": 1777500000000,
       "tag": "0011_waitlist",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777600000000,
+      "tag": "0012_password_reset_tokens",
+      "breakpoints": true
     }
   ]
 }

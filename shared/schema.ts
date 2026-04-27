@@ -499,6 +499,36 @@ export const waitlist = pgTable("waitlist", {
 export type WaitlistEntry = typeof waitlist.$inferSelect;
 
 /**
+ * One-time password reset tokens. We store only the SHA-256 hash of the
+ * 32-byte token bytes in `tokenHash` so a database leak does not yield
+ * usable reset links. `expiresAt` enforces a short window (30 min) and
+ * `usedAt` flips on first successful consumption so a leaked URL cannot
+ * be replayed. Rows are kept after use for audit; a periodic cleanup
+ * removes anything past expiry.
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("password_reset_tokens_token_hash_unique").on(t.tokenHash),
+    index("password_reset_tokens_user_id_idx").on(t.userId),
+  ],
+);
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+
+/**
  * Matches `connect-pg-simple` expected shape (`table.sql` in that package).
  * Default store table name is `session`; keep this name for drop-in use later.
  */
