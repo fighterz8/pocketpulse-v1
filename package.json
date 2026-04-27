@@ -22,7 +22,7 @@
     "cookie-parser": "^1.4.7",
     "csrf-csrf": "^3.2.2",
     "csv-parse": "^6.2.1",
-    "drizzle-orm": "^0.41.0",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.2",
     "express-session": "^1.18.2",
