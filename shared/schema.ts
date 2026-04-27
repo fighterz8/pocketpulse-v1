@@ -439,11 +439,22 @@ export type ClassificationVerdict = {
   correctedCategory: string | null;
   correctedClass: string | null;
   correctedRecurrence: string | null;
+  // ── Legibility / sensitive-data flags (Task #118) ─────────────────────
+  // Optional, per-row signals from the human reviewer answering the
+  // question: "Can you tell what this item is — and is there a debit
+  // card number in it?". `null`/`undefined` means the reviewer did not
+  // answer; we keep that distinct from "clear" / "no" so the report can
+  // show an honest "unanswered" bucket. Old verdicts persisted before
+  // this field existed will deserialise as `undefined` and are treated
+  // the same as `null` everywhere.
+  merchantLegibility?: "clear" | "partial" | "illegible" | null;
+  containsCardNumber?: boolean | null;
 };
 
 export const CLASSIFICATION_VERDICT_VALUES = ["confirmed", "corrected", "skipped"] as const;
 export const CLASSIFICATION_CLASS_VALUES = ["income", "expense", "transfer", "refund"] as const;
 export const CLASSIFICATION_RECURRENCE_VALUES = ["recurring", "one-time"] as const;
+export const CLASSIFICATION_LEGIBILITY_VALUES = ["clear", "partial", "illegible"] as const;
 
 export const classificationSamples = pgTable(
   "classification_samples",

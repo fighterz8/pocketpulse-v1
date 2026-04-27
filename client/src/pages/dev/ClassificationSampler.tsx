@@ -3,6 +3,7 @@ import { Link, useLocation, useRoute } from "wouter";
 import { apiFetch } from "../../lib/api";
 import {
   CLASSIFICATION_CLASS_VALUES,
+  CLASSIFICATION_LEGIBILITY_VALUES,
   CLASSIFICATION_RECURRENCE_VALUES,
   V1_CATEGORIES,
   type ClassificationVerdict,
@@ -10,7 +11,7 @@ import {
 
 // ─── Types matching server JSON shapes ──────────────────────────────────────
 
-type SampleTransaction = {
+export type SampleTransaction = {
   id: number;
   date: string;
   rawDescription: string;
@@ -29,7 +30,7 @@ type CreateResponse = {
   transactions: SampleTransaction[];
 };
 
-type SampleRecord = {
+export type SampleRecord = {
   id: number;
   createdAt: string;
   completedAt: string | null;
@@ -51,6 +52,11 @@ type RowState = {
   category: string;
   transactionClass: string;
   recurrenceType: string;
+  // Per-row legibility test parameters (Task #118). Both default to null
+  // ("unanswered") and persist alongside the verdict regardless of which
+  // verdict the reviewer chose.
+  merchantLegibility: "clear" | "partial" | "illegible" | null;
+  containsCardNumber: boolean | null;
 };
 
 const MIN_REQUIRED_RATIO = 40 / 50; // ≥ 40 of 50 must have a verdict before submit (spec §4)
@@ -72,6 +78,12 @@ function fractionLine(num: number, denom: number): string {
 
 function buildVerdict(rs: RowState): ClassificationVerdict | null {
   if (!rs.verdict) return null;
+  // Legibility flags travel with every verdict regardless of confirmed/
+  // corrected/skipped — null means the reviewer didn't answer (Task #118).
+  const legibilityFields = {
+    merchantLegibility: rs.merchantLegibility,
+    containsCardNumber: rs.containsCardNumber,
+  };
   if (rs.verdict !== "corrected") {
     return {
       transactionId: rs.txn.id,
@@ -84,6 +96,7 @@ function buildVerdict(rs: RowState): ClassificationVerdict | null {
       correctedCategory: null,
       correctedClass: null,
       correctedRecurrence: null,
+      ...legibilityFields,
     };
   }
   return {
@@ -97,12 +110,13 @@ function buildVerdict(rs: RowState): ClassificationVerdict | null {
     correctedCategory:   rs.category         !== rs.txn.category         ? rs.category         : null,
     correctedClass:      rs.transactionClass !== rs.txn.transactionClass ? rs.transactionClass : null,
     correctedRecurrence: rs.recurrenceType   !== rs.txn.recurrenceType   ? rs.recurrenceType   : null,
+    ...legibilityFields,
   };
 }
 
 // ─── Review screen ──────────────────────────────────────────────────────────
 
-function ReviewScreen({
+export function ReviewScreen({
   sampleId,
   transactions,
   onSubmitted,
@@ -118,6 +132,8 @@ function ReviewScreen({
       category: t.category,
       transactionClass: t.transactionClass,
       recurrenceType: t.recurrenceType,
+      merchantLegibility: null,
+      containsCardNumber: null,
     })),
   );
   const [submitting, setSubmitting] = useState(false);
@@ -208,6 +224,7 @@ function ReviewScreen({
                 <th>Class</th>
                 <th>Recurrence</th>
                 <th>Source / conf.</th>
+                <th>Legibility</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -283,6 +300,89 @@ function ReviewScreen({
                       <br />
                       {pct(r.txn.labelConfidence, 0)}
                     </td>
+                    <td data-testid={`cell-legibility-${r.txn.id}`}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div
+                          role="group"
+                          aria-label="Can you tell what this item is?"
+                          style={{ display: "inline-flex", gap: 2 }}
+                        >
+                          {CLASSIFICATION_LEGIBILITY_VALUES.map((v) => {
+                            const active = r.merchantLegibility === v;
+                            const label =
+                              v === "clear" ? "Clear" :
+                              v === "partial" ? "Partial" :
+                              "Illegible";
+                            return (
+                              <button
+                                key={v}
+                                type="button"
+                                onClick={() =>
+                                  update(i, { merchantLegibility: active ? null : v })
+                                }
+                                aria-pressed={active}
+                                title={
+                                  v === "clear"
+                                    ? "Description is fully readable"
+                                    : v === "partial"
+                                    ? "Partly garbled / merchant guessable"
+                                    : "Unreadable / sensitive data leak"
+                                }
+                                style={{
+                                  fontSize: 11,
+                                  padding: "2px 6px",
+                                  fontWeight: active ? 700 : 400,
+                                }}
+                                data-testid={`btn-legibility-${v}-${r.txn.id}`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div
+                          role="group"
+                          aria-label="Does the description contain a debit card number?"
+                          style={{ display: "inline-flex", gap: 2, alignItems: "center" }}
+                        >
+                          <span style={{ fontSize: 11, opacity: 0.7 }}>Card #?</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              update(i, {
+                                containsCardNumber: r.containsCardNumber === true ? null : true,
+                              })
+                            }
+                            aria-pressed={r.containsCardNumber === true}
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 6px",
+                              fontWeight: r.containsCardNumber === true ? 700 : 400,
+                            }}
+                            data-testid={`btn-card-yes-${r.txn.id}`}
+                          >
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              update(i, {
+                                containsCardNumber: r.containsCardNumber === false ? null : false,
+                              })
+                            }
+                            aria-pressed={r.containsCardNumber === false}
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 6px",
+                              fontWeight: r.containsCardNumber === false ? 700 : 400,
+                            }}
+                            data-testid={`btn-card-no-${r.txn.id}`}
+                          >
+                            No
+                          </button>
+                        </div>
+                      </div>
+                    </td>
                     <td>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <button
@@ -341,10 +441,43 @@ function ReviewScreen({
 
 // ─── Report screen ──────────────────────────────────────────────────────────
 
-function ReportScreen({ sample }: { sample: SampleRecord }) {
+export function ReportScreen({
+  sample,
+  transactions,
+}: {
+  sample: SampleRecord;
+  transactions: SampleTransaction[] | null;
+}) {
   const verdicts = sample.verdicts;
   const nonSkipped = verdicts.filter((v) => v.verdict !== "skipped");
   const nonSkippedCount = nonSkipped.length;
+
+  // ── Legibility / sensitive-data tally (Task #118) ────────────────────────
+  // Computed across ALL verdicts (not just non-skipped) — a row that the
+  // reviewer skipped because the description was unreadable still carries
+  // useful legibility signal. "Unanswered" is its own bucket so we don't
+  // pretend a missing answer is a "clear" answer.
+  const legCounts = {
+    clear:      verdicts.filter((v) => v.merchantLegibility === "clear").length,
+    partial:    verdicts.filter((v) => v.merchantLegibility === "partial").length,
+    illegible:  verdicts.filter((v) => v.merchantLegibility === "illegible").length,
+    unanswered: verdicts.filter((v) => v.merchantLegibility == null).length,
+  };
+  const cardCounts = {
+    yes:        verdicts.filter((v) => v.containsCardNumber === true).length,
+    no:         verdicts.filter((v) => v.containsCardNumber === false).length,
+    unanswered: verdicts.filter((v) => v.containsCardNumber == null).length,
+  };
+  // Map txn id → raw description so the flagged-rows table can show what the
+  // reviewer was actually looking at; falls back to "(unavailable)" for old
+  // samples loaded without their hydrated transactions.
+  const descById = new Map<number, string>();
+  for (const t of transactions ?? []) descById.set(t.id, t.rawDescription);
+  const flaggedAll = verdicts.filter(
+    (v) => v.merchantLegibility === "illegible" || v.containsCardNumber === true,
+  );
+  const FLAGGED_LIMIT = 20;
+  const flaggedRows = flaggedAll.slice(0, FLAGGED_LIMIT);
 
   const dim = (field: "correctedCategory" | "correctedClass" | "correctedRecurrence") => {
     const correct = nonSkipped.filter((v) => v[field] == null).length;
@@ -403,6 +536,75 @@ function ReportScreen({ sample }: { sample: SampleRecord }) {
           <div className="acc-metric-value">{nonSkippedCount > 0 ? pct(rec.correct / rec.total) : "—"}</div>
           <div className="acc-metric-raw">{fractionLine(rec.correct, rec.total)}</div>
         </div>
+      </div>
+
+      {/* ── Legibility / sensitive-data panel (Task #118) ─────────────────── */}
+      <div className="acc-merchants glass-card" data-testid="legibility-panel">
+        <h2 className="acc-merchants-title">Description legibility &amp; sensitive data</h2>
+        <p className="acc-merchants-intro">
+          Per-row signals from the reviewer answering &ldquo;Can you tell what this
+          item is &mdash; and is there a debit card number in it?&rdquo;. Both
+          questions are optional, so &ldquo;Unanswered&rdquo; is reported separately
+          from a real &ldquo;Clear&rdquo; or &ldquo;No&rdquo; answer.
+        </p>
+        <div className="acc-metrics-grid">
+          <div className="acc-metric-card glass-card" data-testid="metric-legibility">
+            <div className="acc-metric-header"><span className="acc-metric-title">Legibility</span></div>
+            <div className="acc-metric-raw" style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 2 }}>
+              <span>Clear</span>      <span data-testid="leg-clear"><strong>{legCounts.clear}</strong></span>
+              <span>Partial</span>    <span data-testid="leg-partial"><strong>{legCounts.partial}</strong></span>
+              <span>Illegible</span>  <span data-testid="leg-illegible"><strong>{legCounts.illegible}</strong></span>
+              <span>Unanswered</span> <span data-testid="leg-unanswered"><strong>{legCounts.unanswered}</strong></span>
+            </div>
+          </div>
+          <div className="acc-metric-card glass-card" data-testid="metric-card-number">
+            <div className="acc-metric-header"><span className="acc-metric-title">Card # in description</span></div>
+            <div className="acc-metric-raw" style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 2 }}>
+              <span>Yes</span>        <span data-testid="card-yes"><strong>{cardCounts.yes}</strong></span>
+              <span>No</span>         <span data-testid="card-no"><strong>{cardCounts.no}</strong></span>
+              <span>Unanswered</span> <span data-testid="card-unanswered"><strong>{cardCounts.unanswered}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        {flaggedAll.length === 0 ? (
+          <p className="acc-empty-text" data-testid="text-flagged-empty" style={{ marginTop: 12 }}>
+            No rows flagged as illegible or containing a card number.
+          </p>
+        ) : (
+          <>
+            <h3 className="acc-merchants-title" style={{ marginTop: 16, fontSize: 14 }}>
+              Flagged rows{" "}
+              <span className="acc-metric-raw" data-testid="text-flagged-summary">
+                {flaggedRows.length === flaggedAll.length
+                  ? `(${flaggedAll.length})`
+                  : `(showing ${flaggedRows.length} of ${flaggedAll.length})`}
+              </span>
+            </h3>
+            <div className="acc-merchants-table-wrap">
+              <table className="acc-merchants-table">
+                <thead>
+                  <tr><th>Txn ID</th><th>Description</th><th>Reason</th></tr>
+                </thead>
+                <tbody>
+                  {flaggedRows.map((v) => {
+                    const reasons = [
+                      v.merchantLegibility === "illegible" ? "illegible" : null,
+                      v.containsCardNumber === true ? "card #" : null,
+                    ].filter(Boolean).join(", ");
+                    return (
+                      <tr key={v.transactionId} data-testid={`row-flagged-${v.transactionId}`}>
+                        <td className="acc-merchant-count">{v.transactionId}</td>
+                        <td><code>{descById.get(v.transactionId) ?? "(unavailable)"}</code></td>
+                        <td>{reasons}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="acc-merchants glass-card">
@@ -606,22 +808,14 @@ export function ClassificationSampler() {
     );
   }
 
-  // Completed sample → report
-  if (sample?.completedAt) {
-    return (
-      <div className="acc-page">
-        {header}
-        <ReportScreen sample={sample} />
-      </div>
-    );
-  }
-
-  // In-progress sample. Three sources for the transaction list, in order of
-  // preference:
+  // Three sources for the transaction list, in order of preference:
   //   1. createState — just created in this session (richest data)
   //   2. loadedTxns — server re-hydrated Ledger context for an existing sample
   //   3. fallback synthesized from verdict snapshots (only date/desc/amount
   //      missing; should be unreachable now that the GET endpoint hydrates)
+  // Computed once and shared between the in-progress review screen (which
+  // needs them to render rows) and the completed report screen (which needs
+  // raw descriptions to label flagged rows in the legibility panel).
   const txns: SampleTransaction[] | null = createState
     ? createState.transactions
     : loadedTxns
@@ -639,6 +833,16 @@ export function ClassificationSampler() {
         labelConfidence: v.classifierLabelConfidence,
       }))
     : null;
+
+  // Completed sample → report
+  if (sample?.completedAt) {
+    return (
+      <div className="acc-page">
+        {header}
+        <ReportScreen sample={sample} transactions={txns} />
+      </div>
+    );
+  }
 
   if (!txns) {
     return (

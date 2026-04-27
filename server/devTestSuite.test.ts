@@ -122,6 +122,60 @@ describe("validateVerdicts", () => {
     }
   });
 
+  // ── Per-row legibility test parameters (Task #118) ────────────────────────
+  describe("legibility fields", () => {
+    it("rejects an unknown merchantLegibility value", () => {
+      const r = validateVerdicts(
+        [{ transactionId: 101, verdict: "confirmed", merchantLegibility: "blurry" }],
+        original,
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/merchantLegibility/);
+    });
+
+    it("rejects a non-boolean containsCardNumber", () => {
+      const r = validateVerdicts(
+        [{ transactionId: 101, verdict: "confirmed", containsCardNumber: "yes" }],
+        original,
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/containsCardNumber/);
+    });
+
+    it("round-trips valid legibility values into the stored verdict", () => {
+      const r = validateVerdicts(
+        [
+          { transactionId: 101, verdict: "confirmed", merchantLegibility: "clear",     containsCardNumber: false },
+          { transactionId: 102, verdict: "skipped",   merchantLegibility: "illegible", containsCardNumber: true  },
+          { transactionId: 103, verdict: "corrected", correctedCategory: "travel", merchantLegibility: "partial" },
+        ],
+        original,
+      );
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.verdicts[0]!.merchantLegibility).toBe("clear");
+        expect(r.verdicts[0]!.containsCardNumber).toBe(false);
+        expect(r.verdicts[1]!.merchantLegibility).toBe("illegible");
+        expect(r.verdicts[1]!.containsCardNumber).toBe(true);
+        expect(r.verdicts[2]!.merchantLegibility).toBe("partial");
+        // Not provided → null, not omitted
+        expect(r.verdicts[2]!.containsCardNumber).toBeNull();
+      }
+    });
+
+    it("defaults missing legibility fields to null (does not omit them)", () => {
+      const r = validateVerdicts(
+        [{ transactionId: 101, verdict: "confirmed" }],
+        original,
+      );
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.verdicts[0]).toHaveProperty("merchantLegibility", null);
+        expect(r.verdicts[0]).toHaveProperty("containsCardNumber", null);
+      }
+    });
+  });
+
   it("counts confirmed/corrected/skipped correctly", () => {
     const r = validateVerdicts(
       [

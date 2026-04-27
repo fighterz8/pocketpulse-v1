@@ -18,6 +18,7 @@ import { Router as createRouter } from "express";
 import { DEV_MODE_ENABLED } from "../shared/devConfig.js";
 import {
   CLASSIFICATION_CLASS_VALUES,
+  CLASSIFICATION_LEGIBILITY_VALUES,
   CLASSIFICATION_RECURRENCE_VALUES,
   CLASSIFICATION_VERDICT_VALUES,
   V1_CATEGORIES,
@@ -40,6 +41,7 @@ const V1_SET = new Set<string>(V1_CATEGORIES);
 const CLASS_SET = new Set<string>(CLASSIFICATION_CLASS_VALUES);
 const RECUR_SET = new Set<string>(CLASSIFICATION_RECURRENCE_VALUES);
 const VERDICT_SET = new Set<string>(CLASSIFICATION_VERDICT_VALUES);
+const LEGIBILITY_SET = new Set<string>(CLASSIFICATION_LEGIBILITY_VALUES);
 
 const NOT_FOUND_BODY = { error: "Not found" } as const;
 
@@ -156,6 +158,27 @@ function validateVerdicts(
       }
     }
 
+    // ── Optional legibility / sensitive-data flags (Task #118) ──────────
+    // Both fields are independent of confirmed/corrected/skipped — the
+    // reviewer can flag illegible descriptions on a row they also marked
+    // "looks right". null is a real, separate "unanswered" state and must
+    // round-trip unchanged.
+    let merchantLegibility: "clear" | "partial" | "illegible" | null = null;
+    if (r.merchantLegibility != null) {
+      const m = String(r.merchantLegibility);
+      if (!LEGIBILITY_SET.has(m)) {
+        return { ok: false, error: `Invalid merchantLegibility: ${m}` };
+      }
+      merchantLegibility = m as "clear" | "partial" | "illegible";
+    }
+    let containsCardNumber: boolean | null = null;
+    if (r.containsCardNumber != null) {
+      if (typeof r.containsCardNumber !== "boolean") {
+        return { ok: false, error: `containsCardNumber must be boolean` };
+      }
+      containsCardNumber = r.containsCardNumber;
+    }
+
     if (verdict === "confirmed") confirmed++;
     else if (verdict === "corrected") corrected++;
     else skipped++;
@@ -172,6 +195,8 @@ function validateVerdicts(
       correctedCategory,
       correctedClass,
       correctedRecurrence,
+      merchantLegibility,
+      containsCardNumber,
     });
   }
 
@@ -249,6 +274,11 @@ export function createDevTestSuiteRouter(): Router {
         correctedCategory: null,
         correctedClass: null,
         correctedRecurrence: null,
+        // Initialise legibility fields explicitly (Task #118) so every row in
+        // a fresh sample has a consistent shape — "unanswered" is null, not
+        // missing.
+        merchantLegibility: null,
+        containsCardNumber: null,
       }));
 
       const sample = await createClassificationSample({
