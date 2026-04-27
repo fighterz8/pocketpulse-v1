@@ -3641,10 +3641,20 @@ html.dark .leaks-error {
 .acc-merchants-table {
   width: 100%;
   /*
-   * Floor the table at a width that comfortably fits all 8 columns
-   * without clipping the Action buttons. Below this, the wrap above
-   * scrolls horizontally instead of squashing cells into unreadable
-   * columns.
+   * Floor the table at a width that comfortably fits all 8 sampler
+   * columns (Date, Description/amount, Category, Class, Recurrence,
+   * Source/conf., Legibility, Action) without clipping the Action
+   * buttons. Sized at ~110px per column = 880px total, which keeps
+   * a typical 1024px+ desktop scroll-free while triggering the wrap
+   * above's overflow-x scroll on narrower viewports rather than
+   * squashing cells into unreadable widths.
+   *
+   * If a future task adds another column or significantly longer
+   * content (e.g. localized headers), prefer per-column `min-width`
+   * overrides on the new column over bumping this floor — that
+   * keeps the other 4 consumers of `.acc-merchants-table`
+   * (TeamSummary, TestSuiteIndex, and the 3 ReportScreen sub-tables)
+   * unaffected.
    */
   min-width: 880px;
   border-collapse: collapse;
