@@ -11,6 +11,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { Hint, HintIcon } from "../components/ui/tooltip";
+import type { ReactNode } from "react";
 import { useAuth, type AuthAccount } from "../hooks/use-auth";
 import { useUploads, type UploadFileResult } from "../hooks/use-uploads";
 
@@ -47,6 +49,12 @@ export type UploadCoreProps = {
   onImportComplete?: (results: UploadFileResult[]) => void;
   /** Override label for the "Upload more files" dismiss button. */
   dismissButtonLabel?: string;
+  /**
+   * Optional tooltip body shown when hovering the dropzone. Defaults to
+   * the standard Upload-page copy; onboarding overrides it with friendlier
+   * first-import wording.
+   */
+  dropzoneHintContent?: ReactNode;
 };
 
 export function UploadCore({
@@ -54,6 +62,7 @@ export function UploadCore({
   onAllImportsDismissed,
   onImportComplete,
   dismissButtonLabel,
+  dropzoneHintContent,
 }: UploadCoreProps) {
   const { upload } = useUploads();
 
@@ -300,8 +309,13 @@ export function UploadCore({
     }
   }
 
+  const dropzoneHint =
+    dropzoneHintContent ??
+    "Drag a CSV here, or browse. We support most major US banks (Chase, Amex, Bank of America, Citi, Discover, Capital One).";
+
   return (
     <div className="upload-core">
+      <Hint content={dropzoneHint} data-testid="hint-dropzone" side="top">
       <div
         className={`upload-dropzone ${dragActive ? "upload-dropzone--active" : ""} ${upload.isPending ? "upload-dropzone--disabled" : ""}`}
         data-testid="upload-dropzone"
@@ -354,6 +368,7 @@ export function UploadCore({
           }}
         />
       </div>
+      </Hint>
 
       {Object.keys(validationErrors).length > 0 && (
         <div
@@ -398,15 +413,20 @@ export function UploadCore({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className="upload-bulk-apply"
-                disabled={bulkAccount === "" || upload.isPending}
-                onClick={applyBulkAccount}
-                data-testid="button-apply-bulk-account"
+              <Hint
+                content="Use this when every file in the queue belongs to the same account. Files already imported aren't affected."
+                data-testid="hint-apply-bulk"
               >
-                Apply to all
-              </button>
+                <button
+                  type="button"
+                  className="upload-bulk-apply"
+                  disabled={bulkAccount === "" || upload.isPending}
+                  onClick={applyBulkAccount}
+                  data-testid="button-apply-bulk-account"
+                >
+                  Apply to all
+                </button>
+              </Hint>
             </div>
           )}
 
@@ -567,7 +587,14 @@ function QueueRow({
       {item.status === "pending" && (
         <div className="upload-queue-item-fields">
           <label className="upload-field">
-            <span className="upload-field-label">Account</span>
+            <span className="upload-field-label">
+              Account
+              <HintIcon
+                label="About account assignment"
+                content="Assigning the right account ensures accurate balance tracking and duplicate detection."
+                data-testid={`hint-account-${item.key}`}
+              />
+            </span>
             <AccountSelector
               accounts={accounts}
               value={item.accountId}
@@ -576,15 +603,20 @@ function QueueRow({
               fileKey={item.key}
             />
           </label>
-          <button
-            type="button"
-            className="upload-preview-toggle"
-            onClick={() => onTogglePreview(item.key)}
-            data-testid={`button-toggle-preview-${item.key}`}
-            aria-expanded={item.showPreview ? "true" : "false"}
+          <Hint
+            content="See the header row and first 5 lines so you can confirm the file is what you expect before importing."
+            data-testid={`hint-preview-${item.key}`}
           >
-            {item.showPreview ? "Hide preview" : "Preview first 5 rows"}
-          </button>
+            <button
+              type="button"
+              className="upload-preview-toggle"
+              onClick={() => onTogglePreview(item.key)}
+              data-testid={`button-toggle-preview-${item.key}`}
+              aria-expanded={item.showPreview ? "true" : "false"}
+            >
+              {item.showPreview ? "Hide preview" : "Preview first 5 rows"}
+            </button>
+          </Hint>
         </div>
       )}
 

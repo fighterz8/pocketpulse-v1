@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import { Hint } from "../components/ui/tooltip";
 import {
   useAvailableMonths,
   formatMonthLabel,
@@ -194,7 +195,24 @@ function LeakCard({
           </div>
 
           {/* Bucket label */}
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">{l.label}</p>
+          <Hint
+            content={
+              l.bucket === "repeat_discretionary"
+                ? "Repeat discretionary: a merchant you spend on regularly in optional categories like dining, coffee, or delivery."
+                : l.bucket === "micro_spend"
+                ? "Micro-spend: small individual charges that add up quickly when they repeat."
+                : "High-frequency convenience: lots of small charges to a convenience-style merchant within the period."
+            }
+            data-testid={`hint-bucket-${slug}`}
+          >
+            <p
+              className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 inline-block"
+              tabIndex={0}
+              data-testid={`bucket-trigger-${slug}`}
+            >
+              {l.label}
+            </p>
+          </Hint>
 
           {/* Category breakdown */}
           <div
@@ -224,10 +242,19 @@ function LeakCard({
         {/* Right column: amounts + link */}
         <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 sm:min-w-[120px] sm:text-right">
           <div>
-            <p className="text-lg font-bold leading-none text-red-500" data-testid={`leak-spend-${slug}`}>
-              {fmt(l.recentSpend)}{" "}
-              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">this month</span>
-            </p>
+            <Hint
+              content={`Estimated monthly impact if this spending continues — based on ${l.occurrences} charges in the selected month.`}
+              data-testid={`hint-spend-${slug}`}
+            >
+              <p
+                className="text-lg font-bold leading-none text-red-500 inline-block"
+                data-testid={`leak-spend-${slug}`}
+                tabIndex={0}
+              >
+                {fmt(l.recentSpend)}{" "}
+                <span className="text-xs font-normal text-slate-400 dark:text-slate-500">this month</span>
+              </p>
+            </Hint>
           </div>
           <a
             href={ledgerHref}

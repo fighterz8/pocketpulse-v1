@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const MOCK_MONTHS = [{ month: "2026-01", transactionCount: 5 }];
@@ -40,6 +40,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", makeMockFetch());
 });
 
+import { TooltipProvider } from "../components/ui/tooltip";
 import { Leaks } from "./Leaks";
 
 function renderLeaks() {
@@ -48,7 +49,9 @@ function renderLeaks() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <Leaks />
+      <TooltipProvider delayDuration={0}>
+        <Leaks />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -82,6 +85,15 @@ describe("Leaks page", () => {
     await waitFor(() => {
       expect(document.querySelector("[data-testid='leaks-empty']")).toBeInTheDocument();
     });
+  });
+
+  it("reveals the bucket tooltip when the bucket label is focused", async () => {
+    renderLeaks();
+    // Wait for the leak card to appear, then grab the explicit trigger.
+    const trigger = await screen.findByTestId("bucket-trigger-starbucks");
+    fireEvent.focus(trigger);
+    const content = await screen.findByTestId("hint-bucket-starbucks");
+    expect(content).toHaveTextContent(/micro-spend/i);
   });
 
   it("shows error state when leak fetch fails", async () => {

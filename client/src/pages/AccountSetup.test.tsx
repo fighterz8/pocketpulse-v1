@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "../components/ui/tooltip";
 import { AccountSetup } from "./AccountSetup";
 
 const { mockCreateAccount } = vi.hoisted(() => ({
@@ -18,7 +19,11 @@ vi.mock("../hooks/use-auth", () => ({
 function setup() {
   const onCreated = vi.fn();
   const onSkip = vi.fn();
-  render(<AccountSetup onCreated={onCreated} onSkip={onSkip} />);
+  render(
+    <TooltipProvider delayDuration={0}>
+      <AccountSetup onCreated={onCreated} onSkip={onSkip} />
+    </TooltipProvider>,
+  );
   return { onCreated, onSkip };
 }
 
@@ -42,6 +47,15 @@ describe("AccountSetup", () => {
     expect(
       screen.getByText(/PocketPulse organizes transactions/i),
     ).toBeInTheDocument();
+  });
+
+  it("reveals the account-type hint tooltip when the icon is focused", async () => {
+    setup();
+    const trigger = screen.getByTestId("hint-account-type");
+    expect(trigger).toHaveAttribute("aria-label", "About account type");
+    fireEvent.focus(trigger);
+    const content = await screen.findByTestId("hint-account-type-content");
+    expect(content).toHaveTextContent(/classify transfers/i);
   });
 
   it("renders the bank-card preview and updates as the user types", () => {

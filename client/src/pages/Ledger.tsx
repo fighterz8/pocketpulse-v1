@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { useAuth } from "../hooks/use-auth";
+import { Hint } from "../components/ui/tooltip";
 import {
   useTransactions,
   type Transaction,
@@ -204,14 +205,18 @@ export function Ledger() {
               Clear filters
             </button>
           )}
-          <button
-            className="ledger-export-btn"
-            onClick={handleExport}
-            data-testid="btn-export-csv"
-            title="Download filtered ledger as CSV"
+          <Hint
+            content="Download the rows currently shown (with your filters applied) as a CSV."
+            data-testid="hint-export-csv"
           >
-            Export CSV
-          </button>
+            <button
+              className="ledger-export-btn"
+              onClick={handleExport}
+              data-testid="btn-export-csv"
+            >
+              Export CSV
+            </button>
+          </Hint>
         </div>
 
         <div className="ledger-filter-bar">
@@ -267,7 +272,7 @@ export function Ledger() {
               className="ledger-date-input"
               value={filters.dateFrom ?? ""}
               onChange={(e) => setFilter("dateFrom", e.target.value)}
-              title="From date"
+              aria-label="From date"
             />
             <span className="ledger-date-sep">to</span>
             <input
@@ -275,7 +280,7 @@ export function Ledger() {
               className="ledger-date-input"
               value={filters.dateTo ?? ""}
               onChange={(e) => setFilter("dateTo", e.target.value)}
-              title="To date"
+              aria-label="To date"
             />
           </div>
         </div>
@@ -422,13 +427,19 @@ export function Ledger() {
         <h3 className="ledger-danger-title">Data Management</h3>
         <div className="ledger-danger-actions">
           {!wipeConfirm ? (
-            <button
-              className="ledger-danger-btn ledger-danger-btn--warn"
-              onClick={() => setWipeConfirm(true)}
-              disabled={wipeData.isPending || resetWorkspace.isPending}
+            <Hint
+              content="Permanent. Deletes all imported transactions but keeps your accounts. Export a CSV first if you want a backup."
+              data-testid="hint-wipe-data"
             >
-              Wipe Imported Data
-            </button>
+              <button
+                className="ledger-danger-btn ledger-danger-btn--warn"
+                onClick={() => setWipeConfirm(true)}
+                disabled={wipeData.isPending || resetWorkspace.isPending}
+                data-testid="btn-wipe-data"
+              >
+                Wipe Imported Data
+              </button>
+            </Hint>
           ) : (
             <div className="ledger-danger-confirm">
               <p className="ledger-danger-msg">
@@ -461,13 +472,19 @@ export function Ledger() {
           )}
 
           {!resetConfirm ? (
-            <button
-              className="ledger-danger-btn ledger-danger-btn--warn"
-              onClick={() => setResetConfirm(true)}
-              disabled={wipeData.isPending || resetWorkspace.isPending}
+            <Hint
+              content="Permanent. Deletes everything including your accounts — you'll need to set up your accounts again. Export a CSV first if you want a backup."
+              data-testid="hint-reset-workspace"
             >
-              Reset Workspace
-            </button>
+              <button
+                className="ledger-danger-btn ledger-danger-btn--warn"
+                onClick={() => setResetConfirm(true)}
+                disabled={wipeData.isPending || resetWorkspace.isPending}
+                data-testid="btn-reset-workspace"
+              >
+                Reset Workspace
+              </button>
+            </Hint>
           ) : (
             <div className="ledger-danger-confirm">
               <p className="ledger-danger-msg">
@@ -561,35 +578,58 @@ function TransactionRow({ txn, isEditing, onRowClick, onQuickUpdate, onSave, onC
           </select>
         </td>
         <td className="ledger-td-class">
-          <select
-            className="ledger-inline-select ledger-inline-select--class"
-            value={txn.transactionClass}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => { e.stopPropagation(); onQuickUpdate({ transactionClass: e.target.value }); }}
-            disabled={isSaving}
-            data-testid={`select-class-${txn.id}`}
+          <Hint
+            content="Set 'Transfer' for movement between your own accounts so it isn't double-counted as spending or income."
+            data-testid={`hint-class-${txn.id}`}
           >
-            {CLASS_OPTIONS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+            <select
+              className="ledger-inline-select ledger-inline-select--class"
+              value={txn.transactionClass}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => { e.stopPropagation(); onQuickUpdate({ transactionClass: e.target.value }); }}
+              disabled={isSaving}
+              data-testid={`select-class-${txn.id}`}
+            >
+              {CLASS_OPTIONS.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </Hint>
         </td>
         <td className="ledger-td-recurrence">
-          <select
-            className="ledger-inline-select ledger-inline-select--recurrence"
-            value={txn.recurrenceType}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => { e.stopPropagation(); onQuickUpdate({ recurrenceType: e.target.value }); }}
-            disabled={isSaving}
-            data-testid={`select-recurrence-${txn.id}`}
+          <Hint
+            content="Mark this 'Recurring' to help PocketPulse detect subscriptions and recurring bills."
+            data-testid={`hint-recurrence-${txn.id}`}
           >
-            {RECURRENCE_OPTIONS.map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
+            <select
+              className="ledger-inline-select ledger-inline-select--recurrence"
+              value={txn.recurrenceType}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => { e.stopPropagation(); onQuickUpdate({ recurrenceType: e.target.value }); }}
+              disabled={isSaving}
+              data-testid={`select-recurrence-${txn.id}`}
+            >
+              {RECURRENCE_OPTIONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </Hint>
         </td>
         <td className="ledger-td-status">
-          {txn.userCorrected && <span className="ledger-badge ledger-badge--edited">edited</span>}
+          {txn.userCorrected && (
+            <Hint
+              content="Manually corrected — this kind of edit is used to improve future automatic categorization."
+              data-testid={`hint-edited-${txn.id}`}
+            >
+              <span
+                className="ledger-badge ledger-badge--edited"
+                tabIndex={0}
+                data-testid={`badge-edited-${txn.id}`}
+              >
+                edited
+              </span>
+            </Hint>
+          )}
         </td>
       </tr>
       {isEditing && (

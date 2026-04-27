@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { Hint } from "../components/ui/tooltip";
 import type { AuthAccount } from "../hooks/use-auth";
 import type { UploadFileResult } from "../hooks/use-uploads";
 import { UploadCore } from "./UploadCore";
@@ -69,16 +70,22 @@ export function OnboardingUpload({
           onImportComplete={handleImportComplete}
           onAllImportsDismissed={onDone}
           dismissButtonLabel="Continue to dashboard"
+          dropzoneHintContent="Most US banks (Chase, Amex, BofA, Citi, Discover, Capital One) export ready-to-use CSVs from their statement page."
         />
 
-        <button
-          type="button"
-          className="onboarding-skip-link onboarding-skip-link--block"
-          onClick={onSkip}
-          data-testid="link-skip-onboarding-step-2"
+        <Hint
+          content="You can upload anytime from the Upload page."
+          data-testid="hint-skip-step-2"
         >
-          Skip for now
-        </button>
+          <button
+            type="button"
+            className="onboarding-skip-link onboarding-skip-link--block"
+            onClick={onSkip}
+            data-testid="link-skip-onboarding-step-2"
+          >
+            Skip for now
+          </button>
+        </Hint>
       </motion.div>
     </main>
   );

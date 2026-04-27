@@ -1,6 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "../components/ui/tooltip";
 import { Auth } from "./Auth";
+
+function renderAuth(props: Parameters<typeof Auth>[0] = {}) {
+  return render(
+    <TooltipProvider delayDuration={0}>
+      <Auth {...props} />
+    </TooltipProvider>,
+  );
+}
 
 const { mockAuthState, mockApiFetch } = vi.hoisted(() => ({
   mockAuthState: {
@@ -50,7 +59,7 @@ describe("Auth page inactivity notice", () => {
   });
 
   it("shows the inactivity notice when inactivityLogout is true", () => {
-    render(<Auth inactivityLogout={true} />);
+    renderAuth({ inactivityLogout: true });
     const notice = screen.getByTestId("inactivity-notice");
     expect(notice).toBeInTheDocument();
     expect(notice).toHaveTextContent(/logged out due to inactivity/i);
@@ -58,7 +67,7 @@ describe("Auth page inactivity notice", () => {
   });
 
   it("does not show the inactivity notice when inactivityLogout is false", () => {
-    render(<Auth inactivityLogout={false} />);
+    renderAuth({ inactivityLogout: false });
     expect(screen.queryByTestId("inactivity-notice")).not.toBeInTheDocument();
     expect(
       screen.queryByText(/logged out due to inactivity/i),
@@ -66,7 +75,7 @@ describe("Auth page inactivity notice", () => {
   });
 
   it("does not show the inactivity notice when inactivityLogout is omitted (default false)", () => {
-    render(<Auth />);
+    renderAuth();
     expect(screen.queryByTestId("inactivity-notice")).not.toBeInTheDocument();
   });
 });
@@ -86,7 +95,7 @@ describe("Auth forgot password mode", () => {
   });
 
   it("shows the Forgot password link in login mode", () => {
-    render(<Auth />);
+    renderAuth();
     expect(screen.getByTestId("link-forgot-password")).toBeInTheDocument();
   });
 
@@ -94,7 +103,7 @@ describe("Auth forgot password mode", () => {
     mockApiFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
-    render(<Auth />);
+    renderAuth();
 
     fireEvent.click(screen.getByTestId("link-forgot-password"));
 
@@ -120,7 +129,7 @@ describe("Auth forgot password mode", () => {
   });
 
   it("validates that an email is required before submitting", async () => {
-    render(<Auth />);
+    renderAuth();
     fireEvent.click(screen.getByTestId("link-forgot-password"));
     // Submit with empty email — required attribute should block native submit
     // but we also guard explicitly for browsers / a11y agents that bypass it.
@@ -132,11 +141,28 @@ describe("Auth forgot password mode", () => {
 
   it("shows the post-reset success notice when the localStorage flag is set", () => {
     window.localStorage.setItem("pp_password_reset_success", "1");
-    render(<Auth />);
+    renderAuth();
     expect(
       screen.getByTestId("text-reset-success-notice"),
     ).toBeInTheDocument();
     // Flag is consumed (cleared) so a refresh doesn't replay it.
     expect(window.localStorage.getItem("pp_password_reset_success")).toBeNull();
+  });
+});
+
+describe("Auth tooltips", () => {
+  beforeEach(() => {
+    mockAuthState.login.mutateAsync.mockReset();
+    mockAuthState.register.mutateAsync.mockReset();
+    mockApiFetch.mockReset();
+  });
+
+  it("reveals the password hint tooltip when the icon is focused", async () => {
+    renderAuth();
+    const trigger = screen.getByTestId("hint-password");
+    expect(trigger).toHaveAttribute("aria-label", "About passwords");
+    fireEvent.focus(trigger);
+    const content = await screen.findByTestId("hint-password-content");
+    expect(content).toHaveTextContent(/8 characters/i);
   });
 });

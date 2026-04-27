@@ -92,6 +92,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
 
+import { TooltipProvider } from "../components/ui/tooltip";
 import { Upload } from "./Upload";
 
 function renderUpload() {
@@ -100,7 +101,9 @@ function renderUpload() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <Upload />
+      <TooltipProvider delayDuration={0}>
+        <Upload />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -133,6 +136,14 @@ describe("Upload page basics (existing test ids)", () => {
     const input = document.querySelector('input[type="file"]');
     expect(input).toBeInTheDocument();
     expect(input).toHaveAttribute("accept", ".csv");
+  });
+
+  it("reveals the dropzone tooltip when the dropzone is focused", async () => {
+    renderUpload();
+    const dropzone = await screen.findByTestId("upload-dropzone");
+    fireEvent.focus(dropzone);
+    const content = await screen.findByTestId("hint-dropzone");
+    expect(content).toHaveTextContent(/bank-statement csvs/i);
   });
 });
 

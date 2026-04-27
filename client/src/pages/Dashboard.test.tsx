@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { TooltipProvider } from "../components/ui/tooltip";
 import { Dashboard } from "./Dashboard";
 
 function renderDashboard() {
@@ -10,7 +11,9 @@ function renderDashboard() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <Dashboard />
+      <TooltipProvider delayDuration={0}>
+        <Dashboard />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -177,5 +180,15 @@ describe("Dashboard", () => {
     expect(
       await screen.findByText(/view all transactions/i),
     ).toBeInTheDocument();
+  });
+
+  it("reveals the Net Cashflow tooltip when its hint icon is focused", async () => {
+    vi.stubGlobal("fetch", makeSuccessFetch(fullSummary));
+    renderDashboard();
+    const trigger = await screen.findByTestId("hint-net-cashflow");
+    fireEvent.focus(trigger);
+    const content = await screen.findByTestId("hint-net-cashflow-content");
+    expect(content).toHaveTextContent(/income/i);
+    expect(content).toHaveTextContent(/spending/i);
   });
 });

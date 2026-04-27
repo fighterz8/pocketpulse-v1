@@ -9,6 +9,7 @@ import {
   useDashboardSummary,
 } from "../hooks/use-dashboard";
 import { useAuth } from "../hooks/use-auth";
+import { Hint, HintIcon } from "../components/ui/tooltip";
 import { ONBOARDING_UPLOAD_SUCCESS_FLAG } from "./OnboardingUpload";
 
 interface LeakItem {
@@ -124,6 +125,8 @@ function KpiCard({
   href,
   "data-testid": testId,
   index = 0,
+  hint,
+  hintTestId,
 }: {
   label: string;
   value: string;
@@ -132,6 +135,8 @@ function KpiCard({
   href?: string;
   "data-testid"?: string;
   index?: number;
+  hint?: React.ReactNode;
+  hintTestId?: string;
 }) {
   const colorMap = {
     green: "text-emerald-600 dark:text-emerald-400",
@@ -141,7 +146,16 @@ function KpiCard({
   };
   return (
     <GlassCard index={index} href={href}>
-      <p className="kpi-label">{label}</p>
+      <p className="kpi-label">
+        {label}
+        {hint ? (
+          <HintIcon
+            label={`About ${label}`}
+            content={hint}
+            data-testid={hintTestId}
+          />
+        ) : null}
+      </p>
       <p data-testid={testId} className={`kpi-value ${colorMap[accent]}`}>{value}</p>
       {sub && <p className="kpi-sub">{sub}</p>}
       {href && <p className="kpi-drill">View transactions →</p>}
@@ -362,14 +376,18 @@ export function Dashboard() {
             Cashflow overview · <span className="font-medium text-slate-600 dark:text-slate-300">{periodLabelFull}</span>
           </p>
         </div>
-        <button
-          onClick={handleExport}
-          data-testid="btn-dashboard-export"
-          className="sync-btn"
-          title={`Export transactions for ${periodLabelFull}`}
+        <Hint
+          content={`Download a CSV of all transactions for ${periodLabelFull}.`}
+          data-testid="hint-dashboard-export"
         >
-          ↓ Export CSV
-        </button>
+          <button
+            onClick={handleExport}
+            data-testid="btn-dashboard-export"
+            className="sync-btn"
+          >
+            ↓ Export CSV
+          </button>
+        </Hint>
       </div>
       {monthSelector}
     </motion.div>
@@ -449,12 +467,24 @@ export function Dashboard() {
           index={1}
           href={ledgerUrl({}, dateRange)}
         >
-          <p className="kpi-label">Net Cashflow (Safe to Spend)</p>
+          <p className="kpi-label">
+            Net Cashflow (Safe to Spend)
+            <HintIcon
+              label="About Net Cashflow"
+              content="Income − Spending for this period. Excludes transfers between your accounts and any rows you've marked as excluded."
+              data-testid="hint-net-cashflow"
+            />
+          </p>
           <p data-testid="safe-to-spend-value" className={`dash-hero-value ${safeColor}`}>
             {currency(safeToSpend)}
           </p>
 
           <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <HintIcon
+              label="About Safe-to-Spend status"
+              content="Healthy: surplus is more than 20% of income. Tight: between 5% and 20%. Over: spending exceeds income."
+              data-testid="hint-safe-to-spend-badge"
+            />
             <span className={`dash-badge ${spendStatus.badge}`}>{spendStatus.label}</span>
             <span className="text-xs text-slate-400">
               Total income minus total spending · {periodLabelFull}
@@ -490,7 +520,14 @@ export function Dashboard() {
           return (
             <GlassCard className="flex flex-col justify-between" index={2} href={leaksHref}>
               <div>
-                <p className="kpi-label">Leak Detection</p>
+                <p className="kpi-label">
+                  Leak Detection
+                  <HintIcon
+                    label="About Leak Detection"
+                    content="A 'leak' is recurring or high-frequency discretionary spending we've flagged for review — think coffee, delivery, or unused subscriptions."
+                    data-testid="hint-leak-detection"
+                  />
+                </p>
                 {leakCount > 0 ? (
                   <>
                     <p data-testid="leak-count" className="dash-hero-value text-red-500 dark:text-red-400">
@@ -591,6 +628,8 @@ export function Dashboard() {
           accent="neutral"
           data-testid="kpi-discretionary-spend"
           index={9}
+          hint="Sum of Dining, Coffee, Delivery, and Shopping categories. Use it to gauge how much of your spending is optional this period."
+          hintTestId="hint-discretionary-spend"
         />
       </div>
 

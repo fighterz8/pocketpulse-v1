@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Hint, HintIcon } from "../components/ui/tooltip";
 import { useAuth, type AuthAccount } from "../hooks/use-auth";
 
 export type AccountSetupProps = {
@@ -99,6 +100,11 @@ export function AccountSetup({ onCreated, onSkip }: AccountSetupProps) {
           <label className="auth-field">
             <span className="auth-label">
               Last 4 digits — optional, helps you tell similar cards apart
+              <HintIcon
+                label="About last 4 digits"
+                content="Optional. Helps you tell apart multiple cards from the same bank — handy if you have, say, two Chase cards."
+                data-testid="hint-last-four"
+              />
             </span>
             <input
               className="auth-input"
@@ -117,7 +123,14 @@ export function AccountSetup({ onCreated, onSkip }: AccountSetupProps) {
           </label>
 
           <label className="auth-field">
-            <span className="auth-label">Account type</span>
+            <span className="auth-label">
+              Account type
+              <HintIcon
+                label="About account type"
+                content="Picking the right type helps PocketPulse classify transfers and recurring charges correctly."
+                data-testid="hint-account-type"
+              />
+            </span>
             <select
               className="auth-input"
               name="accountType"
@@ -154,15 +167,20 @@ export function AccountSetup({ onCreated, onSkip }: AccountSetupProps) {
             {busy ? "Adding…" : "Add bank account"}
           </button>
 
-          <button
-            type="button"
-            className="onboarding-skip-link"
-            onClick={onSkip}
-            disabled={busy}
-            data-testid="link-skip-onboarding-step-1"
+          <Hint
+            content="You can add a bank account anytime from the Upload page."
+            data-testid="hint-skip-step-1"
           >
-            Skip for now
-          </button>
+            <button
+              type="button"
+              className="onboarding-skip-link"
+              onClick={onSkip}
+              disabled={busy}
+              data-testid="link-skip-onboarding-step-1"
+            >
+              Skip for now
+            </button>
+          </Hint>
         </form>
       </div>
     </main>

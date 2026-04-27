@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Hint, HintIcon } from "../components/ui/tooltip";
 import { useAuth } from "../hooks/use-auth";
 import { apiFetch, readJsonError } from "../lib/api";
 import { DEV_MODE_ENABLED } from "@shared/devConfig";
@@ -171,7 +172,14 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
 
             {mode !== "forgot" ? (
               <label className="auth-field">
-                <span className="auth-label">Password</span>
+                <span className="auth-label">
+                  Password
+                  <HintIcon
+                    label="About passwords"
+                    content="At least 8 characters. We hash it with bcrypt — we never store or see your plaintext password."
+                    data-testid="hint-password"
+                  />
+                </span>
                 <input
                   className="auth-input"
                   type="password"
@@ -228,6 +236,11 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
                     />
                     <span className="auth-label auth-label--check">
                       Register as a beta tester
+                      <HintIcon
+                        label="About beta testing"
+                        content="Beta testers get early access to new features and may receive occasional feedback requests."
+                        data-testid="hint-beta-tester"
+                      />
                       <span className="auth-label-hint">Enables the Accuracy Report feature for research purposes</span>
                     </span>
                   </label>
@@ -268,14 +281,19 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
 
         {mode === "login" ? (
           <div className="auth-switch auth-switch--forgot">
-            <button
-              type="button"
-              className="auth-linkish"
-              onClick={() => switchTo("forgot")}
-              data-testid="link-forgot-password"
+            <Hint
+              content="We'll email you a one-time link valid for 30 minutes."
+              data-testid="hint-forgot-password"
             >
-              Forgot password?
-            </button>
+              <button
+                type="button"
+                className="auth-linkish"
+                onClick={() => switchTo("forgot")}
+                data-testid="link-forgot-password"
+              >
+                Forgot password?
+              </button>
+            </Hint>
           </div>
         ) : null}
 

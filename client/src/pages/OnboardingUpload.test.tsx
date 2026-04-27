@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "../components/ui/tooltip";
 import {
   ONBOARDING_UPLOAD_SUCCESS_FLAG,
   OnboardingUpload,
@@ -55,15 +56,41 @@ function renderOnboardingUpload(props: Partial<{
   });
   render(
     <QueryClientProvider client={qc}>
-      <OnboardingUpload
-        account={account}
-        onDone={onDone}
-        onSkip={onSkip}
-      />
+      <TooltipProvider delayDuration={0}>
+        <OnboardingUpload
+          account={account}
+          onDone={onDone}
+          onSkip={onSkip}
+        />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   return { onDone, onSkip };
 }
+
+describe("OnboardingUpload tooltips", () => {
+  beforeEach(() => {
+    mockApiFetch.mockReset();
+    localStorage.removeItem(ONBOARDING_UPLOAD_SUCCESS_FLAG);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ uploads: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+  });
+
+  it("reveals the skip-step-2 tooltip when the skip link is focused", async () => {
+    renderOnboardingUpload();
+    const skip = await screen.findByTestId("link-skip-onboarding-step-2");
+    fireEvent.focus(skip);
+    const content = await screen.findByTestId("hint-skip-step-2");
+    expect(content).toHaveTextContent(/upload anytime/i);
+  });
+});
 
 describe("OnboardingUpload", () => {
   beforeEach(() => {

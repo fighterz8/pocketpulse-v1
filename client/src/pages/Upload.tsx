@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "../hooks/use-auth";
 import { useUploads } from "../hooks/use-uploads";
+import { Hint } from "../components/ui/tooltip";
 import { UploadCore } from "./UploadCore";
 
 function formatUploadDate(iso: string): string {
@@ -66,7 +67,10 @@ export function Upload() {
             Loading your accounts…
           </p>
         ) : hasAccounts ? (
-          <UploadCore accounts={accounts!} />
+          <UploadCore
+            accounts={accounts!}
+            dropzoneHintContent="Drop one or more bank-statement CSVs here. We'll detect the columns automatically and let you preview each file before importing."
+          />
         ) : (
           <BankAccountGate />
         )}
@@ -110,12 +114,24 @@ export function Upload() {
                       {formatUploadDate(u.uploadedAt)}
                     </span>
                   </span>
-                  <span
-                    className={`upload-history-badge upload-history-badge--${u.status}`}
-                    data-testid={`status-upload-${u.id}`}
+                  <Hint
+                    content={
+                      u.status === "complete"
+                        ? "All rows in this file were imported successfully."
+                        : u.status === "processing"
+                        ? "We're still importing rows from this file."
+                        : "Something went wrong importing this file. Try re-uploading it."
+                    }
+                    data-testid={`hint-upload-status-${u.id}`}
                   >
-                    {u.status === "complete" ? "Imported" : u.status}
-                  </span>
+                    <span
+                      className={`upload-history-badge upload-history-badge--${u.status}`}
+                      data-testid={`status-upload-${u.id}`}
+                      tabIndex={0}
+                    >
+                      {u.status === "complete" ? "Imported" : u.status}
+                    </span>
+                  </Hint>
                 </li>
               );
             })}

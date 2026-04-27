@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 function mockFetch(url: string) {
@@ -52,6 +52,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
 
+import { TooltipProvider } from "../components/ui/tooltip";
 import { Ledger } from "./Ledger";
 
 function renderLedger() {
@@ -60,7 +61,9 @@ function renderLedger() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <Ledger />
+      <TooltipProvider delayDuration={0}>
+        <Ledger />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
@@ -109,5 +112,14 @@ describe("Ledger page", () => {
     expect(screen.getByText("Data Management")).toBeInTheDocument();
     expect(screen.getByText("Wipe Imported Data")).toBeInTheDocument();
     expect(screen.getByText("Reset Workspace")).toBeInTheDocument();
+  });
+
+  it("reveals the Export CSV tooltip when the button is focused", async () => {
+    renderLedger();
+    const exportBtn = await screen.findByTestId("btn-export-csv");
+    fireEvent.focus(exportBtn);
+    const content = await screen.findByTestId("hint-export-csv");
+    expect(content).toHaveTextContent(/download/i);
+    expect(content).toHaveTextContent(/csv/i);
   });
 });
