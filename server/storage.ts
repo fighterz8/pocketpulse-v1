@@ -457,6 +457,30 @@ export async function updateUploadAiStatus(
 }
 
 /**
+ * Atomically claim a pending upload for AI processing. This is the shared
+ * concurrency guard for serverless runtimes where in-process Sets are not
+ * shared across invocations.
+ */
+export async function claimUploadAiProcessing(
+  uploadId: number,
+  aiRowsPending: number,
+) {
+  const [row] = await db
+    .update(uploads)
+    .set({
+      aiStatus: "processing",
+      aiRowsPending,
+      aiRowsDone: 0,
+      aiStartedAt: new Date(),
+      aiCompletedAt: null,
+      aiError: null,
+    })
+    .where(and(eq(uploads.id, uploadId), eq(uploads.aiStatus, "pending")))
+    .returning();
+  return row ?? null;
+}
+
+/**
  * Atomically bump an upload's `ai_rows_done` counter. Used by the worker
  * after each chunk so progress is visible to status pollers without the
  * worker needing to re-read the row first.

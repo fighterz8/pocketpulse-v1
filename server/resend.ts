@@ -1,13 +1,21 @@
 /**
- * Resend email client — Replit Resend integration.
- * WARNING: Never cache this client. Tokens expire.
- * Always call getUncachableResendClient() fresh on every request.
+ * Resend email client.
+ *
+ * Vercel/portable deployments read static RESEND_* env vars. Replit can still
+ * fall back to its connector service so the live app keeps working before DNS
+ * cutover.
  */
 import { Resend } from "resend";
 
 let connectionSettings: any;
 
 async function getCredentials(): Promise<{ apiKey: string; fromEmail: string }> {
+  const envApiKey = process.env.RESEND_API_KEY;
+  const envFromEmail = process.env.RESEND_FROM_EMAIL;
+  if (envApiKey && envFromEmail) {
+    return { apiKey: envApiKey, fromEmail: envFromEmail };
+  }
+
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? "repl " + process.env.REPL_IDENTITY
@@ -15,8 +23,10 @@ async function getCredentials(): Promise<{ apiKey: string; fromEmail: string }> 
       ? "depl " + process.env.WEB_REPL_RENEWAL
       : null;
 
-  if (!xReplitToken) {
-    throw new Error("X-Replit-Token not found for repl/depl");
+  if (!hostname || !xReplitToken) {
+    throw new Error(
+      "Email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.",
+    );
   }
 
   connectionSettings = await fetch(

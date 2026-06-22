@@ -65,6 +65,7 @@ import { normalizeEmail } from "./auth.js";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
+import { scheduleBackgroundTask } from "./background.js";
 import {
   detectRecurringCandidates,
   recurrenceKey,
@@ -149,6 +150,8 @@ type GoogleUserInfo = {
 export type CreateAppOptions = {
   /** Override session store (route tests use `MemoryStore` so PostgreSQL `session` is not required). */
   sessionStore?: session.Store;
+  /** Run process-level maintenance jobs after app creation. Disable for serverless. */
+  runStartupJobs?: boolean;
 };
 
 function defaultSessionStore() {
@@ -1526,12 +1529,10 @@ export function createApp(options?: CreateAppOptions) {
         for (const r of results) {
           if (r.status === "complete" && r.uploadId != null) {
             const uploadId = r.uploadId;
-            // Detached intentionally — never awaited from the request.
-            void runUploadAiWorker(userId, uploadId).catch((err) => {
-              console.error(
-                `[aiWorker] uncaught error for upload=${uploadId}: ${err}`,
-              );
-            });
+            scheduleBackgroundTask(
+              runUploadAiWorker(userId, uploadId),
+              `aiWorker upload=${uploadId}`,
+            );
           }
         }
       } catch (e) {
@@ -1593,11 +1594,10 @@ export function createApp(options?: CreateAppOptions) {
       const rows = await listActiveAiUploadsForUser(userId);
       for (const row of rows) {
         if (row.aiStatus === "pending") {
-          void runUploadAiWorker(userId, row.id).catch((err) => {
-            console.error(
-              `[aiWorker] uncaught error for upload=${row.id}: ${err}`,
-            );
-          });
+          scheduleBackgroundTask(
+            runUploadAiWorker(userId, row.id),
+            `aiWorker upload=${row.id}`,
+          );
         }
       }
       res.json({
@@ -2226,42 +2226,44 @@ export function createApp(options?: CreateAppOptions) {
     },
   );
 
-  // Startup recurring re-sync: ensures the updated detector logic applies
-  // immediately for all existing users without requiring a manual re-upload.
-  setImmediate(async () => {
-    try {
-      if (typeof db.update !== "function" || typeof db.select !== "function")
-        return;
-      // Step 0: Backfill recurrenceSource for pre-feature rows.
-      // Rows with recurrenceSource='none' but recurrenceType='recurring' were
-      // written before this column existed — they got their recurring label from
-      // a classifier keyword pass (hint), so promote them to 'hint' now.
-      // syncRecurringCandidates (below) will then promote outflow rows to
-      // 'detected' once it evaluates them, making the full corpus consistent.
-      const backfillResult = await db
-        .update(txnTable)
-        .set({ recurrenceSource: "hint" })
-        .where(
-          and(
-            eq(txnTable.recurrenceSource, "none"),
-            eq(txnTable.recurrenceType, "recurring"),
-          ),
+  if (options?.runStartupJobs !== false) {
+    // Startup recurring re-sync: ensures the updated detector logic applies
+    // immediately for all existing users without requiring a manual re-upload.
+    setImmediate(async () => {
+      try {
+        if (typeof db.update !== "function" || typeof db.select !== "function")
+          return;
+        // Step 0: Backfill recurrenceSource for pre-feature rows.
+        // Rows with recurrenceSource='none' but recurrenceType='recurring' were
+        // written before this column existed — they got their recurring label from
+        // a classifier keyword pass (hint), so promote them to 'hint' now.
+        // syncRecurringCandidates (below) will then promote outflow rows to
+        // 'detected' once it evaluates them, making the full corpus consistent.
+        const backfillResult = await db
+          .update(txnTable)
+          .set({ recurrenceSource: "hint" })
+          .where(
+            and(
+              eq(txnTable.recurrenceSource, "none"),
+              eq(txnTable.recurrenceType, "recurring"),
+            ),
+          );
+        console.log(
+          `[startup] recurrenceSource backfill: ${(backfillResult as { rowCount?: number } | undefined)?.rowCount ?? 0} rows promoted to 'hint'`,
         );
-      console.log(
-        `[startup] recurrenceSource backfill: ${(backfillResult as { rowCount?: number } | undefined)?.rowCount ?? 0} rows promoted to 'hint'`,
-      );
 
-      const allUsers = await db.select({ id: usersTable.id }).from(usersTable);
-      for (const user of allUsers) {
-        await syncRecurringCandidates(user.id);
+        const allUsers = await db.select({ id: usersTable.id }).from(usersTable);
+        for (const user of allUsers) {
+          await syncRecurringCandidates(user.id);
+        }
+        console.log(
+          `[startup] recurring-sync complete for ${allUsers.length} user(s)`,
+        );
+      } catch (err) {
+        console.warn("[startup] recurring-sync skipped:", err);
       }
-      console.log(
-        `[startup] recurring-sync complete for ${allUsers.length} user(s)`,
-      );
-    } catch (err) {
-      console.warn("[startup] recurring-sync skipped:", err);
-    }
-  });
+    });
+  }
 
   return app;
 }

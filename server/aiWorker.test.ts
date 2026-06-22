@@ -27,6 +27,7 @@ vi.mock("./ai-classifier.js", () => ({
 }));
 
 vi.mock("./storage.js", () => ({
+  claimUploadAiProcessing: vi.fn().mockResolvedValue({ id: 1 }),
   countNeedsAiForUpload: vi.fn(),
   listNeedsAiTransactionsForUpload: vi.fn(),
   bulkUpdateTransactions: vi.fn().mockResolvedValue(undefined),
@@ -39,6 +40,7 @@ vi.mock("./storage.js", () => ({
 import { aiClassifyBatch } from "./ai-classifier.js";
 import {
   bulkUpdateTransactions,
+  claimUploadAiProcessing,
   countNeedsAiForUpload,
   incrementUploadAiRowsDone,
   listNeedsAiTransactionsForUpload,
@@ -52,6 +54,7 @@ const mockedList = vi.mocked(listNeedsAiTransactionsForUpload);
 const mockedBulkUpdate = vi.mocked(bulkUpdateTransactions);
 const mockedUpdateStatus = vi.mocked(updateUploadAiStatus);
 const mockedIncrement = vi.mocked(incrementUploadAiRowsDone);
+const mockedClaim = vi.mocked(claimUploadAiProcessing);
 
 function makeRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -137,9 +140,9 @@ describe("runUploadAiWorker", () => {
     expect(out.status).toBe("complete");
     expect(out.rowsProcessed).toBe(2);
 
-    // Status transitions: processing first, then complete.
+    // Processing is claimed atomically, then terminal status is written.
     const statuses = mockedUpdateStatus.mock.calls.map((c) => c[1].aiStatus);
-    expect(statuses).toContain("processing");
+    expect(mockedClaim).toHaveBeenCalledWith(300, 2);
     expect(statuses[statuses.length - 1]).toBe("complete");
 
     // Both rows promoted to labelSource="ai".
@@ -190,6 +193,18 @@ describe("runUploadAiWorker", () => {
     resolveAi(new Map([[0, makeAiResult(0)]]));
     const firstResult = await first;
     expect(firstResult.status).toBe("complete");
+  });
+
+  it("skips when another invocation already claimed the upload", async () => {
+    mockedCount.mockResolvedValue(1);
+    mockedClaim.mockResolvedValueOnce(null as never);
+
+    const out = await runUploadAiWorker(1, 700);
+
+    expect(out.status).toBe("skipped");
+    expect(out.error).toBe("already claimed");
+    expect(mockedList).not.toHaveBeenCalled();
+    expect(mockedAi).not.toHaveBeenCalled();
   });
 
   it("captures internal errors as a failed status instead of throwing", async () => {

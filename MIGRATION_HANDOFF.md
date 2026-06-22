@@ -2,6 +2,25 @@
 
 > **Scope:** documentation and migration prep only. No deployment, no DNS changes, no new features.
 
+## Branch Update — `vercel-migration-prep`
+
+This branch adds the first Vercel compatibility pass:
+
+- `api/index.ts` exports the Express app for Vercel without starting a port listener.
+- `vercel.json` builds the Vite SPA to `dist/public`, rewrites `/api/*` to the Express function, and falls back app routes to `index.html`.
+- `server/resend.ts` now reads `RESEND_API_KEY` / `RESEND_FROM_EMAIL` first, with the Replit connector path preserved as a fallback.
+- `server/background.ts` uses Vercel `waitUntil()` for async work during Vercel function invocations and keeps the old detached-promise behavior elsewhere.
+- `runUploadAiWorker()` now claims pending work via the database before running AI, so serverless duplicate invocations do not rely only on process memory.
+- `createApp({ runStartupJobs: false })` disables process-level route startup sweeps for Vercel.
+- `npm run db:maintenance` runs startup maintenance intentionally outside request runtime.
+
+Remaining before public/domain cutover:
+
+- Configure Vercel environment variables.
+- Run `npm run db:migrate` and `npm run db:maintenance` intentionally against the preview/target database.
+- Validate upload + AI enhancement on the `vercel.app` preview with real timing/logs.
+- Decide whether `waitUntil()` is enough for beta volume or whether to move AI enhancement to an external durable queue before broader launch.
+
 ---
 
 ## 1. Runtime Architecture

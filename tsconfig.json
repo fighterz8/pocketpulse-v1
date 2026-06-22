@@ -18,6 +18,7 @@
   },
   "include": [
     "server/**/*.ts",
+    "api/**/*.ts",
     "shared/**/*.ts",
     "script/**/*.ts",
     "client/**/*.ts",

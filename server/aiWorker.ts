@@ -35,6 +35,7 @@ import { recurrenceKey } from "./recurrenceDetector.js";
 import {
   batchUpsertMerchantClassifications,
   bulkUpdateTransactions,
+  claimUploadAiProcessing,
   countNeedsAiForUpload,
   getUserCorrectionExamples,
   incrementUploadAiRowsDone,
@@ -126,14 +127,15 @@ export async function runUploadAiWorker(
       };
     }
 
-    await updateUploadAiStatus(uploadId, {
-      aiStatus: "processing",
-      aiRowsPending: remaining,
-      aiRowsDone: 0,
-      aiStartedAt: new Date(),
-      aiCompletedAt: null,
-      aiError: null,
-    });
+    const claimed = await claimUploadAiProcessing(uploadId, remaining);
+    if (!claimed) {
+      return {
+        uploadId,
+        status: "skipped",
+        rowsProcessed: 0,
+        error: "already claimed",
+      };
+    }
 
     const rows = await listNeedsAiTransactionsForUpload(userId, uploadId);
     if (rows.length === 0) {
