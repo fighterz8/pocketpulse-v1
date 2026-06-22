@@ -10,14 +10,17 @@
     "start": "NODE_ENV=production node dist/server/index.js",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "^5.90.2",
+    "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
     "autoprefixer": "^10.4.27",
     "bcrypt": "^6.0.0",
+    "compression": "^1.8.1",
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",
     "csrf-csrf": "^3.2.2",
@@ -32,6 +35,7 @@
     "openai": "^6.33.0",
     "pg": "^8.14.1",
     "postcss": "^8.5.8",
+    "posthog-js": "^1.373.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "resend": "^4.0.0",
