@@ -41,6 +41,15 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatImportDate(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export type UploadCoreProps = {
   accounts: AuthAccount[];
   /** Called once an import has finished AND the user dismissed the queue. */
@@ -504,6 +513,34 @@ function ResultsHeadline({ queue }: { queue: QueuedFile[] }) {
       (q.result?.intraBatchDuplicates ?? 0),
     0,
   );
+  const coverageRanges = completed
+    .map((q) => q.result?.coverage)
+    .filter((coverage): coverage is NonNullable<UploadFileResult["coverage"]> =>
+      Boolean(coverage),
+    );
+  const coverageStart =
+    coverageRanges.length > 0
+      ? coverageRanges.map((coverage) => coverage.startDate).sort()[0]
+      : null;
+  const coverageEnd =
+    coverageRanges.length > 0
+      ? coverageRanges.map((coverage) => coverage.endDate).sort().at(-1)!
+      : null;
+  const coverageDays =
+    coverageStart && coverageEnd
+      ? Math.round(
+          (Date.parse(coverageEnd) - Date.parse(coverageStart)) /
+            (24 * 60 * 60 * 1000),
+        ) + 1
+      : null;
+  const leakHunterReadiness =
+    coverageDays === null
+      ? null
+      : coverageDays >= 365
+        ? "Leak Hunter can now check active charges, stopped subscriptions, annual renewals, price creep, and repeat spending."
+        : coverageDays >= 90
+          ? "Leak Hunter can now check active charges and recent repeat spending; 12 months is better for stopped leaks and price creep."
+          : "Leak Hunter can run a first pass now; 90 days or more improves recurring-charge confidence.";
 
   return (
     <div className="upload-results-summary">
@@ -521,14 +558,33 @@ function ResultsHeadline({ queue }: { queue: QueuedFile[] }) {
           skipped
         </p>
       )}
-      {completed.length > 0 && (
-        <a
-          href="/transactions"
-          className="upload-results-link"
-          data-testid="link-review-ledger"
+      {coverageStart && coverageEnd && leakHunterReadiness && (
+        <p
+          className="upload-results-leak-hunter-note"
+          data-testid="text-leak-hunter-handoff"
         >
-          Review in Ledger →
-        </a>
+          Leak Hunter will analyze {formatImportDate(coverageStart)} to{" "}
+          {formatImportDate(coverageEnd)} ({coverageDays} day
+          {coverageDays === 1 ? "" : "s"}). {leakHunterReadiness}
+        </p>
+      )}
+      {completed.length > 0 && (
+        <div className="upload-results-links">
+          <a
+            href="/leaks?mode=full"
+            className="upload-results-link"
+            data-testid="link-review-leak-hunter"
+          >
+            Review in Leak Hunter →
+          </a>
+          <a
+            href="/transactions"
+            className="upload-results-link upload-results-link--secondary"
+            data-testid="link-review-ledger"
+          >
+            Review in Ledger →
+          </a>
+        </div>
       )}
     </div>
   );

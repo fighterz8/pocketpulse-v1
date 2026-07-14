@@ -13,3 +13,4 @@ tmp
 *.tsbuildinfo
 .vite
 .vercel
+.env*.local

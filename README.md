@@ -2,7 +2,7 @@
 
 Cashflow analysis for small businesses. Import your bank statements, automatically classify transactions, spot recurring charges, and get a clear picture of where your money is going.
 
-> **Beta** — the core feature set is complete and stable. We're actively gathering feedback before general availability.
+The public entry point is the landing page at `/`; sign-in and registration live at `/auth`.
 
 ---
 
@@ -73,12 +73,16 @@ Optional:
 | `PORT` | Server port (default `5000`) |
 | `OPENAI_API_KEY` | Enables AI-assisted CSV detection and classification fallback |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables Google sign-in/sign-up. Add `${APP_ORIGIN}/api/auth/google/callback` as an authorized redirect URI in Google Cloud Console. |
+| `POCKETPULSE_DEV_TOOLS` | Set to `1` to enable the internal classifier lab routes/UI |
+| `POCKETPULSE_DEV_EMAILS` | Comma-separated email allowlist for classifier lab access |
+| `DEV_TEAM_USER_IDS` | Comma-separated user IDs for the classifier lab team summary |
 
 ### Install and run
 
 ```bash
 npm install
-npm run db:push   # apply schema to the database
+npm run db:migrate # apply committed migrations to the database
+npm run db:maintenance # seed merchant rules and recover stale async jobs
 npm run dev       # development server on localhost:5000
 ```
 
@@ -93,20 +97,26 @@ npm run dev       # development server on localhost:5000
 | `npm run start` | Production server — compiled Express serves API and static SPA |
 | `npm run check` | TypeScript type check (`tsc --noEmit`) |
 | `npm test` | Run Vitest test suite |
-| `npm run db:push` | Push Drizzle schema to the database |
+| `npm run db:migrate` | Apply committed Drizzle migrations |
+| `npm run db:maintenance` | Seed global merchant rules and recover stuck async uploads |
+| `npm run db:push` | Push Drizzle schema directly; local prototyping only, do not use for shared preview/production DBs |
 
 ---
 
 ## API
 
-All endpoints require an authenticated session except `POST /api/register`, `POST /api/login`, and `GET /api/csrf-token`. Mutating requests require a valid `X-CSRF-Token` header.
+All endpoints require an authenticated session except `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, Google OAuth start/callback, `GET /api/auth/me`, `GET /api/health`, and `GET /api/csrf-token`. Mutating requests require a valid `X-CSRF-Token` header except the anti-enumeration forgot-password request.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/register` | Create account |
-| `POST` | `/api/login` | Authenticate |
-| `POST` | `/api/logout` | End session |
-| `GET` | `/api/me` | Current user and accounts |
+| `POST` | `/api/auth/register` | Create account |
+| `POST` | `/api/auth/login` | Authenticate |
+| `POST` | `/api/auth/logout` | End session |
+| `GET` | `/api/auth/me` | Current user |
+| `GET` | `/api/auth/google/start` | Start Google OAuth |
+| `GET` | `/api/auth/google/callback` | Complete Google OAuth |
+| `POST` | `/api/auth/forgot-password` | Request password reset email |
+| `POST` | `/api/auth/reset-password` | Complete password reset |
 | `GET` | `/api/accounts` | List accounts |
 | `POST` | `/api/accounts` | Create account |
 | `GET` | `/api/csrf-token` | Fetch CSRF token |

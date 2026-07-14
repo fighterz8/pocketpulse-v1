@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { Hint, HintIcon } from "../components/ui/tooltip";
 import { useAuth } from "../hooks/use-auth";
 import { apiFetch, readJsonError } from "../lib/api";
-import { DEV_MODE_ENABLED } from "@shared/devConfig";
 import { PASSWORD_RESET_SUCCESS_FLAG } from "./ResetPassword";
 
 type Mode = "login" | "register" | "forgot";
@@ -14,7 +13,6 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [isBetaTester, setIsBetaTester] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // Forgot-password sub-state. Kept inline rather than in its own component
@@ -91,7 +89,6 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
           password,
           displayName: displayName.trim(),
           companyName: companyName.trim() || undefined,
-          isDev: DEV_MODE_ENABLED && isBetaTester,
         });
       }
     } catch {
@@ -227,28 +224,6 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
                     disabled={busy}
                   />
                 </label>
-                {DEV_MODE_ENABLED ? (
-                  <label className="auth-field auth-field--check" data-testid="label-beta-tester">
-                    <input
-                      className="auth-checkbox"
-                      type="checkbox"
-                      name="isBetaTester"
-                      checked={isBetaTester}
-                      onChange={(e) => setIsBetaTester(e.target.checked)}
-                      disabled={busy}
-                      data-testid="checkbox-beta-tester"
-                    />
-                    <span className="auth-label auth-label--check">
-                      Register as a beta tester
-                      <HintIcon
-                        label="About beta testing"
-                        content="Beta testers get early access to new features and may receive occasional feedback requests."
-                        data-testid="hint-beta-tester"
-                      />
-                      <span className="auth-label-hint">Enables the Accuracy Report feature for research purposes</span>
-                    </span>
-                  </label>
-                ) : null}
               </>
             ) : null}
 
@@ -349,20 +324,6 @@ export function Auth({ inactivityLogout = false }: { inactivityLogout?: boolean 
             </button>
           )}
         </div>
-
-        {mode === "login" ? (
-          <button
-            type="button"
-            className="auth-beta-reset"
-            data-testid="button-beta-reset"
-            onClick={() => {
-              localStorage.removeItem("pp_beta_access");
-              window.location.reload();
-            }}
-          >
-            ← Back to coming soon
-          </button>
-        ) : null}
 
         <nav className="legal-footer-links legal-footer-links--auth" aria-label="Legal links">
           <a href="/privacy">Privacy Policy</a>

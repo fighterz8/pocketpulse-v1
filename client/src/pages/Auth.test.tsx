@@ -150,29 +150,6 @@ describe("Auth forgot password mode", () => {
   });
 });
 
-describe("Auth back-to-coming-soon button", () => {
-  beforeEach(() => {
-    mockApiFetch.mockReset();
-  });
-
-  it("renders button-beta-reset in login mode", () => {
-    renderAuth();
-    expect(screen.getByTestId("button-beta-reset")).toBeInTheDocument();
-  });
-
-  it("hides button-beta-reset in register mode", () => {
-    renderAuth();
-    fireEvent.click(screen.getByRole("button", { name: /create an account/i }));
-    expect(screen.queryByTestId("button-beta-reset")).not.toBeInTheDocument();
-  });
-
-  it("hides button-beta-reset in forgot-password mode", () => {
-    renderAuth();
-    fireEvent.click(screen.getByTestId("link-forgot-password"));
-    expect(screen.queryByTestId("button-beta-reset")).not.toBeInTheDocument();
-  });
-});
-
 describe("Auth Google option", () => {
   beforeEach(() => {
     mockApiFetch.mockReset();

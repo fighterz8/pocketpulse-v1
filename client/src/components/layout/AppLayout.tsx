@@ -1,6 +1,5 @@
 import { type ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { DEV_MODE_ENABLED } from "@shared/devConfig";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../hooks/use-auth";
 import { useTheme } from "../../hooks/use-theme";
@@ -78,7 +77,7 @@ export function AppLayout({
   const [location] = useLocation();
   const { user } = useAuth();
   const { isDark, toggleDark } = useTheme();
-  const showAccuracy = DEV_MODE_ENABLED && user?.isDev === true;
+  const showAccuracy = user?.devToolsEnabled === true && user.isDev === true;
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const closeSidebar = () => setMobileOpen(false);
@@ -118,7 +117,7 @@ export function AppLayout({
           onClick={closeSidebar}
         >
           <IconLeaks />
-          Leak Detection
+          Leak Hunter
         </Link>
       </li>
       {showAccuracy && (

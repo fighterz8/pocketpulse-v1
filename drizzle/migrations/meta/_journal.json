@@ -10,6 +10,41 @@
       "breakpoints": true
     },
     {
+      "idx": 1,
+      "version": "7",
+      "when": 1776500000000,
+      "tag": "0001_strip_candidate_key_amount_suffix",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776600000000,
+      "tag": "0002_transactions_dedup_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776700000000,
+      "tag": "0003_recurrence_source_check_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776800000000,
+      "tag": "0004_rule_seed_warmup",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776900000000,
+      "tag": "0005_merchant_classifications_global",
+      "breakpoints": true
+    },
+    {
       "idx": 6,
       "version": "7",
       "when": 1777000000000,

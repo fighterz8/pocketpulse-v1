@@ -66,9 +66,15 @@ export function Ledger() {
   const filtersFromUrl = (): TransactionFilters => {
     const p = new URLSearchParams(window.location.search);
     const excludedParam = p.get("excluded");
+    const accountIdParam = p.get("accountId");
+    const accountId =
+      accountIdParam && /^\d+$/.test(accountIdParam)
+        ? Number(accountIdParam)
+        : undefined;
     return {
       page: 1,
       limit: 50,
+      accountId,
       search: p.get("search") ?? undefined,
       category: p.get("category") ?? undefined,
       transactionClass: p.get("transactionClass") ?? undefined,

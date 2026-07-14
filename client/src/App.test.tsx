@@ -52,6 +52,9 @@ function stubMutation() {
 vi.mock("./pages/Auth", () => ({
   Auth: () => <div data-testid="stub-auth">AUTH</div>,
 }));
+vi.mock("./pages/Landing", () => ({
+  Landing: () => <div data-testid="stub-landing">LANDING</div>,
+}));
 vi.mock("./pages/AccountSetup", () => ({
   AccountSetup: ({
     onCreated,
@@ -114,9 +117,6 @@ vi.mock("./pages/ResetPassword", () => ({
   ResetPassword: () => <div data-testid="stub-reset">RESET</div>,
   PASSWORD_RESET_SUCCESS_FLAG: "pp_password_reset_success",
 }));
-vi.mock("./pages/ComingSoon", () => ({
-  ComingSoon: () => <div data-testid="stub-coming-soon">COMING_SOON</div>,
-}));
 vi.mock("./pages/not-found", () => ({
   NotFoundPage: () => <div data-testid="stub-not-found">NOT_FOUND</div>,
 }));
@@ -148,8 +148,6 @@ function renderGate(initialPath: string = "/") {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  // Mark beta unlocked so the gate doesn't trip the beta wall.
-  localStorage.setItem("pp_beta_access", "1");
   const utils = render(
     <QueryClientProvider client={qc}>
       <Router hook={memory.hook}>
@@ -171,12 +169,38 @@ describe("AppGate routing state machine", () => {
       displayName: "X",
       companyName: null,
       isDev: false,
+      devToolsEnabled: false,
     };
     authState.accounts = null;
   });
   afterEach(() => {
-    localStorage.removeItem("pp_beta_access");
     localStorage.removeItem("pp_welcome_seen");
+  });
+
+  it("renders auth for signed-out users by default", () => {
+    authState.isAuthenticated = false;
+    authState.accounts = null;
+    renderGate();
+    expect(screen.getByTestId("stub-auth")).toBeInTheDocument();
+  });
+
+  it("can render the official landing page for signed-out public entry", () => {
+    authState.isAuthenticated = false;
+    authState.accounts = null;
+    const memory = memoryLocation({ path: "/", record: true });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={qc}>
+        <Router hook={memory.hook}>
+          <AppGate unauthenticatedView="landing" />
+        </Router>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("stub-landing")).toBeInTheDocument();
   });
 
   it("renders Step 1 (AccountSetup) when authenticated and accounts is empty", () => {

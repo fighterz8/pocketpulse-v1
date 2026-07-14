@@ -25,7 +25,7 @@ export function PrivacyPolicy() {
 
       <h2>Information we collect</h2>
       <ul>
-        <li><strong>Account information:</strong> name, email address, password hash if you use email/password sign-in, and optional company or beta-tester details.</li>
+        <li><strong>Account information:</strong> name, email address, password hash if you use email/password sign-in, and optional company or tester details.</li>
         <li><strong>Google sign-in information:</strong> if you choose “Continue with Google,” we receive your verified email address, name, and basic profile information from Google. We do not request Gmail, Drive, Calendar, or other Google product data.</li>
         <li><strong>Financial data you provide:</strong> CSV files and transaction details you upload, including dates, descriptions, merchants, amounts, account labels, categories, recurrence labels, and leak-detection results.</li>
         <li><strong>Usage and technical data:</strong> basic logs needed to operate, debug, secure, and improve the service.</li>
@@ -36,7 +36,7 @@ export function PrivacyPolicy() {
         <li>To create and secure your account.</li>
         <li>To import, classify, display, and help you review your transaction data.</li>
         <li>To remember corrections you make so the product can be more useful for you.</li>
-        <li>To provide password reset, session security, beta access, support, and product improvements.</li>
+        <li>To provide password reset, session security, account access, support, and product improvements.</li>
         <li>To detect abuse, troubleshoot errors, and maintain service reliability.</li>
       </ul>
 
@@ -117,7 +117,7 @@ export function TermsOfService() {
 
       <h2>Beta status and availability</h2>
       <p>
-        Pocket Pulse may be offered as a beta or early-access product. Features may change, and the service may be interrupted, limited, or discontinued. We will try to maintain a reliable experience, but we do not guarantee uninterrupted availability.
+        Pocket Pulse may be offered as an early-access product. Features may change, and the service may be interrupted, limited, or discontinued. We will try to maintain a reliable experience, but we do not guarantee uninterrupted availability.
       </p>
 
       <h2>Disclaimers</h2>

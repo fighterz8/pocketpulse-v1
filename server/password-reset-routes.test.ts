@@ -44,6 +44,8 @@ vi.mock("./csrf.js", () => ({
 
 const sendMock = vi.fn().mockResolvedValue({ id: "msg_1" });
 vi.mock("./resend.js", () => ({
+  formatFromEmail: (fromEmail: string) =>
+    fromEmail.includes("<") ? fromEmail : `PocketPulse <${fromEmail}>`,
   getUncachableResendClient: vi.fn(async () => ({
     client: { emails: { send: sendMock } },
     fromEmail: "noreply@pocket-pulse.com",

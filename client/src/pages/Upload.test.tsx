@@ -494,6 +494,11 @@ describe("Per-file status pills", () => {
             uploadId: 99,
             status: "complete",
             rowCount: 7,
+            coverage: {
+              startDate: "2025-01-01",
+              endDate: "2025-04-15",
+              coverageDays: 105,
+            },
             previouslyImported: 2,
           },
         ],
@@ -535,6 +540,20 @@ describe("Per-file status pills", () => {
     // After completion the import button is replaced with "Upload more files".
     expect(screen.getByTestId("button-upload-more")).toBeInTheDocument();
     expect(screen.queryByTestId("button-import")).not.toBeInTheDocument();
+    expect(screen.getByTestId("link-review-leak-hunter")).toHaveAttribute(
+      "href",
+      "/leaks?mode=full",
+    );
+    expect(screen.getByTestId("text-leak-hunter-handoff")).toHaveTextContent(
+      "Leak Hunter will analyze Jan 1, 2025 to Apr 15, 2025",
+    );
+    expect(screen.getByTestId("text-leak-hunter-handoff")).toHaveTextContent(
+      "12 months is better for stopped leaks and price creep",
+    );
+    expect(screen.getByTestId("link-review-ledger")).toHaveAttribute(
+      "href",
+      "/transactions",
+    );
   });
 
   it("transitions pending → failed and shows a per-row error", async () => {

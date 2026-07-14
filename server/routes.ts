@@ -23,7 +23,6 @@ import {
   REVIEW_STATUSES,
   V1_CATEGORIES,
 } from "../shared/schema.js";
-import { DEV_MODE_ENABLED } from "../shared/devConfig.js";
 import {
   consumePasswordResetTokenAndUpdatePassword,
   countNeedsAiForUpload,
@@ -72,9 +71,17 @@ import {
 } from "./recurrenceDetector.js";
 import { detectLeaks } from "./cashflow.js";
 import { createDevTestSuiteRouter } from "./devTestSuite.js";
+import { buildLeakHunterReport, isValidIsoDate } from "./leakHunter.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { runUploadAiWorker } from "./aiWorker.js";
-import { getUncachableResendClient } from "./resend.js";
+import {
+  isDevEmailAllowed,
+  toAuthUserPayload,
+} from "./devAccess.js";
+import {
+  formatFromEmail,
+  getUncachableResendClient,
+} from "./resend.js";
 import { buildLaunchEmailHtml, buildLaunchEmailText } from "./launchEmail.js";
 import {
   buildPasswordResetEmailHtml,
@@ -452,8 +459,17 @@ async function syncRecurringCandidates(
 export function createApp(options?: CreateAppOptions) {
   const store = options?.sessionStore ?? defaultSessionStore();
   const app = express();
+  const isProduction = process.env.NODE_ENV === "production";
   app.set("trust proxy", 1);
-  app.use(helmet());
+  app.use(
+    isProduction
+      ? helmet()
+      : helmet({
+          // Vite's React refresh preamble is injected inline in development.
+          // Keep the rest of Helmet's headers, but avoid a blank dev screen.
+          contentSecurityPolicy: false,
+        }),
+  );
   const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -485,7 +501,7 @@ export function createApp(options?: CreateAppOptions) {
       error: "Too many password reset attempts, please try again later",
     },
   });
-  app.use(globalLimiter);
+  app.use("/api", globalLimiter);
   app.use(express.json());
   app.use(cookieParser());
   app.use(sessionMiddleware(store));
@@ -543,7 +559,7 @@ export function createApp(options?: CreateAppOptions) {
           batch.map(async ({ email }) => {
             try {
               await client.emails.send({
-                from: "PocketPulse <noreply@pocket-pulse.com>",
+                from: formatFromEmail(fromEmail),
                 to: email,
                 subject:
                   "PocketPulse is live — your finances just got a whole lot clearer 🎉",
@@ -619,36 +635,10 @@ export function createApp(options?: CreateAppOptions) {
       }
 
       req.session.lastActivity = now;
-      res.json({ authenticated: true, user });
+      res.json({ authenticated: true, user: toAuthUserPayload(user) });
     } catch (e) {
       next(e);
     }
-  });
-
-  app.post("/api/beta/unlock", authLimiter, (req, res) => {
-    const expected = process.env.BETA_ACCESS_CODE;
-    if (!expected || expected.length === 0) {
-      console.warn(
-        "[beta] BETA_ACCESS_CODE is not set — all beta unlock attempts will be rejected. Add it in Replit Secrets to enable the gate.",
-      );
-      res.status(401).json({ error: "Invalid code" });
-      return;
-    }
-
-    const submitted = req.body?.code;
-    if (typeof submitted !== "string" || submitted.length === 0) {
-      res.status(401).json({ error: "Invalid code" });
-      return;
-    }
-
-    const a = Buffer.from(submitted.trim().toLowerCase(), "utf8");
-    const b = Buffer.from(expected.trim().toLowerCase(), "utf8");
-    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-      res.status(401).json({ error: "Invalid code" });
-      return;
-    }
-
-    res.json({ ok: true });
   });
 
   app.post("/api/waitlist", authLimiter, async (req, res, next) => {
@@ -680,7 +670,7 @@ export function createApp(options?: CreateAppOptions) {
 
   app.post("/api/auth/register", authLimiter, async (req, res, next) => {
     try {
-      const { email, password, displayName, companyName, isDev } =
+      const { email, password, displayName, companyName } =
         req.body ?? {};
       if (
         typeof email !== "string" ||
@@ -718,7 +708,7 @@ export function createApp(options?: CreateAppOptions) {
           companyName === undefined || companyName === null
             ? null
             : String(companyName),
-        isDev: DEV_MODE_ENABLED && isDev === true,
+        isDev: isDevEmailAllowed(email),
       });
 
       await regenerateSession(req);
@@ -727,7 +717,7 @@ export function createApp(options?: CreateAppOptions) {
       await saveSession(req);
       // Return accounts (empty for new users) so the client can pre-populate
       // its cache and skip a sequential fetch after the session is established.
-      res.status(201).json({ user, accounts: [] });
+      res.status(201).json({ user: toAuthUserPayload(user), accounts: [] });
     } catch (e) {
       if (e instanceof DuplicateEmailError) {
         res.status(409).json({ error: e.message });
@@ -765,7 +755,7 @@ export function createApp(options?: CreateAppOptions) {
       // Return accounts alongside user so the client can pre-populate its cache
       // and skip a sequential fetch after the session is established.
       const userAccounts = await listAccountsForUser(record.id);
-      res.json({ user, accounts: userAccounts });
+      res.json({ user: toAuthUserPayload(user), accounts: userAccounts });
     } catch (e) {
       next(e);
     }
@@ -812,6 +802,7 @@ export function createApp(options?: CreateAppOptions) {
           email,
           passwordHash: randomPasswordHash,
           displayName: profile.name?.trim() || profile.given_name?.trim() || email.split("@")[0]!,
+          isDev: isDevEmailAllowed(email),
         });
       } else {
         await ensureUserPreferences(user.id);
@@ -925,9 +916,9 @@ export function createApp(options?: CreateAppOptions) {
         const resetUrl = `${origin}/reset-password?token=${rawToken}`;
 
         try {
-          const { client } = await getUncachableResendClient();
+          const { client, fromEmail } = await getUncachableResendClient();
           await client.emails.send({
-            from: "PocketPulse <noreply@pocket-pulse.com>",
+            from: formatFromEmail(fromEmail),
             to: normalized,
             subject: "Reset your PocketPulse password",
             html: buildPasswordResetEmailHtml(resetUrl),
@@ -1134,6 +1125,11 @@ export function createApp(options?: CreateAppOptions) {
           uploadId: number | null;
           status: string;
           rowCount: number;
+          coverage?: {
+            startDate: string;
+            endDate: string;
+            coverageDays: number;
+          };
           previouslyImported?: number;
           intraBatchDuplicates?: number;
           error?: string;
@@ -1460,6 +1456,14 @@ export function createApp(options?: CreateAppOptions) {
 
           const { insertedCount, previouslyImported, intraBatchDuplicates } =
             await createTransactionBatch(txnInputs, sessionSeen);
+          const parsedDates = parseResult.rows.map((row) => row.date).sort();
+          const startDate = parsedDates[0]!;
+          const endDate = parsedDates[parsedDates.length - 1]!;
+          const coverageDays =
+            Math.round(
+              (Date.parse(endDate) - Date.parse(startDate)) /
+                (24 * 60 * 60 * 1000),
+            ) + 1;
 
           await updateUploadStatus(
             uploadRecord.id,
@@ -1494,6 +1498,11 @@ export function createApp(options?: CreateAppOptions) {
             uploadId: uploadRecord.id,
             status: "complete",
             rowCount: insertedCount,
+            coverage: {
+              startDate,
+              endDate,
+              coverageDays,
+            },
             previouslyImported:
               previouslyImported > 0 ? previouslyImported : undefined,
             intraBatchDuplicates:
@@ -2201,9 +2210,66 @@ export function createApp(options?: CreateAppOptions) {
     }
   });
 
+  app.get("/api/leak-hunter/report", requireAuth, async (req, res, next) => {
+    try {
+      const userId = req.session.userId!;
+      const q = req.query;
+      const mode = typeof q.mode === "string" && q.mode ? q.mode : "full";
+
+      if (
+        !["full", "active", "stopped", "price_creep", "recent_habits"].includes(
+          mode,
+        )
+      ) {
+        res.status(400).json({ error: "Invalid leak hunter mode" });
+        return;
+      }
+
+      const accountId =
+        typeof q.accountId === "string" && q.accountId
+          ? parseInt(q.accountId, 10)
+          : undefined;
+      if (
+        typeof q.accountId === "string" &&
+        q.accountId &&
+        (!/^\d+$/.test(q.accountId) ||
+          typeof accountId !== "number" ||
+          !Number.isInteger(accountId) ||
+          accountId <= 0)
+      ) {
+        res.status(400).json({ error: "Invalid accountId" });
+        return;
+      }
+
+      const asOfDate =
+        typeof q.asOf === "string" && isValidIsoDate(q.asOf)
+          ? q.asOf
+          : undefined;
+      if (q.asOf && !asOfDate) {
+        res.status(400).json({ error: "asOf must use YYYY-MM-DD format" });
+        return;
+      }
+
+      const rows = await listAllTransactionsForExport({
+        userId,
+        accountId,
+        excluded: "false",
+      });
+
+      res.json(
+        buildLeakHunterReport(rows, {
+          asOfDate,
+          selectedAccountId: accountId,
+        }),
+      );
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // ── Dev Test Suite (PR1: classification sampler + team view) ─────────────
-  // All routes inside the router are gated by requireDev — DEV_MODE_ENABLED +
-  // session auth + users.isDev. Failures return 404 (never reveal the feature).
+  // All routes inside the router are gated by requireDev — env-enabled dev
+  // tools + session auth + dev user/allowlisted email. Failures return 404.
   app.use("/api/dev", createDevTestSuiteRouter());
 
   app.use("/api", (_req, res) => {

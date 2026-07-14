@@ -9,6 +9,8 @@ const user = {
   email: "u@example.com",
   displayName: "U",
   companyName: null as string | null,
+  isDev: false,
+  devToolsEnabled: false,
 };
 
 function jsonResponse(data: unknown, status = 200) {

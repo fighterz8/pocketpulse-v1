@@ -1,7 +1,7 @@
 -- Phase 7: Dev Test Suite — parser fidelity samples (PR2)
 --
 -- Adds the second sandboxed verdict table for the developer-only Test Suite
--- (gated by DEV_MODE_ENABLED + users.is_dev). Samples never mutate any
+-- (gated by server dev-tools access + users.is_dev). Samples never mutate any
 -- production transaction or upload rows.
 --
 -- Also backfills uploads.warning_count (default 0) so the parser-sample

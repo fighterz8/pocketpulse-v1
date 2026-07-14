@@ -2,12 +2,9 @@
  * Component tests for ResetPassword.
  *
  * The most important behaviour to lock in: after a successful reset
- * the page MUST set the beta-access localStorage flag and trigger a
- * full-page navigation to `/`. Without that flag, an unauthenticated
- * user landing back on `/` (which is the common case — they followed
- * the email link in a fresh browser session) would be trapped behind
- * the marketing `ComingSoon` gate instead of the sign-in form, leaving
- * them no way back in after consuming a one-time token.
+ * the page MUST set the password-reset success flag and trigger a
+ * full-page navigation to `/`, so the normal signed-out auth route can
+ * show the post-reset notice.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +31,6 @@ vi.mock("wouter", () => ({
 }));
 
 import {
-  BETA_ACCESS_FLAG,
   PASSWORD_RESET_SUCCESS_FLAG,
   ResetPassword,
 } from "./ResetPassword";
@@ -78,7 +74,7 @@ describe("ResetPassword", () => {
     expect(screen.queryByTestId("input-new-password")).not.toBeInTheDocument();
   });
 
-  it("on a successful reset, sets BOTH localStorage flags and full-page-navigates to /", async () => {
+  it("on a successful reset, sets the success flag and full-page-navigates to /", async () => {
     setLocationSearch("?token=42.deadbeefverifier");
     mockApiFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), {
@@ -116,12 +112,8 @@ describe("ResetPassword", () => {
 
     // 1. PASSWORD_RESET_SUCCESS_FLAG so Auth shows the "updated" notice.
     expect(window.localStorage.getItem(PASSWORD_RESET_SUCCESS_FLAG)).toBe("1");
-    // 2. BETA_ACCESS_FLAG so the marketing gate doesn't trap a
-    //    fresh-device user after a one-time token consume.
-    expect(window.localStorage.getItem(BETA_ACCESS_FLAG)).toBe("1");
     // Full-page nav (window.location.assign) — NOT a wouter setLocation,
-    // because AppGate samples the beta flag once on mount and we need it
-    // to re-read the freshly-set value.
+    // because AppGate should remount into the normal signed-out route.
     expect(assignSpy).toHaveBeenCalledTimes(1);
     expect(assignSpy).toHaveBeenCalledWith("/");
     expect(mockSetLocation).not.toHaveBeenCalled();
@@ -163,7 +155,6 @@ describe("ResetPassword", () => {
     await new Promise((r) => setTimeout(r, 2_100));
 
     expect(window.localStorage.getItem(PASSWORD_RESET_SUCCESS_FLAG)).toBeNull();
-    expect(window.localStorage.getItem(BETA_ACCESS_FLAG)).toBeNull();
     expect(assignSpy).not.toHaveBeenCalled();
   });
 

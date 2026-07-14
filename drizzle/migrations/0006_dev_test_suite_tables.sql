@@ -1,7 +1,7 @@
 -- Phase 6: Dev Test Suite — classification samples
 --
 -- Stores per-user classification accuracy samples for the developer-only
--- Test Suite (gated by DEV_MODE_ENABLED + users.is_dev). Verdicts are
+-- Test Suite (gated by server dev-tools access + users.is_dev). Verdicts are
 -- snapshotted from the classifier at sample creation time and never
 -- mutate any production transaction rows.
 --

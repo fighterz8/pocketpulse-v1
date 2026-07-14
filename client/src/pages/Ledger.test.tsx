@@ -49,6 +49,7 @@ function mockFetch(url: string) {
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, "", "/transactions");
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
 
@@ -112,6 +113,20 @@ describe("Ledger page", () => {
     expect(screen.getByText("Advanced data management")).toBeInTheDocument();
     expect(screen.getByText("Wipe Imported Data")).toBeInTheDocument();
     expect(screen.getByText("Reset Workspace")).toBeInTheDocument();
+  });
+
+  it("initializes the account filter from URL query params", async () => {
+    window.history.replaceState({}, "", "/transactions?accountId=1&excluded=false");
+    const fetchSpy = vi.fn(mockFetch);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderLedger();
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/api/transactions?page=1&limit=50&accountId=1"),
+      );
+    });
   });
 
   it("reveals the Export CSV tooltip when the button is focused", async () => {

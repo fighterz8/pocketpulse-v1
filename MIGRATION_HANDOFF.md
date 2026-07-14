@@ -89,7 +89,7 @@ npm start
 | Variable | Purpose | Default if absent |
 |---|---|---|
 | `ADMIN_SECRET` | Admin-only API endpoints | Admin routes return 403 |
-| `BETA_ACCESS_CODE` | Beta access gate on landing page | Gate rejects every code |
+| `BETA_ACCESS_CODE` | Removed beta gate; no longer required | N/A |
 | `GOOGLE_CLIENT_ID` | Google OAuth sign-in | Google sign-in disabled |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth sign-in | Google sign-in disabled |
 | `APP_ORIGIN` | Fallback origin if `PUBLIC_APP_URL` not set | Derived from request host |

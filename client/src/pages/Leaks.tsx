@@ -1,103 +1,79 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Hint } from "../components/ui/tooltip";
-import { useAvailableMonths, formatMonthLabel } from "../hooks/use-dashboard";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+type LeakHunterMode =
+  | "full"
+  | "active"
+  | "stopped"
+  | "price_creep"
+  | "recent_habits";
 
-interface CategoryBreakdownItem {
-  category: string;
-  total: number;
-  count: number;
-}
-
-interface LeakItem {
-  merchant: string;
-  merchantKey: string;
-  merchantFilter: string;
-  dominantCategory: string;
-  categoryBreakdown: CategoryBreakdownItem[];
-  bucket: "repeat_discretionary" | "micro_spend" | "high_frequency_convenience";
-  label: string;
-  monthlyAmount: number;
-  occurrences: number;
-  firstDate: string;
-  lastDate: string;
-  confidence: "High" | "Medium" | "Low";
-  averageAmount: number;
-  recentSpend: number;
-  dailyAverage?: number;
-  transactionClass: "expense";
-  recurrenceType?: "recurring" | "one-time";
-  isSubscriptionLike: boolean;
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function fmt(n: number): string {
-  return (
-    "$" +
-    n.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-  );
-}
-
-function fmtShort(n: number): string {
-  if (n >= 1000) return "$" + (n / 1000).toFixed(1) + "K";
-  return "$" + n.toFixed(0);
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function monthToDateRange(month: string): {
-  startDate: string;
-  endDate: string;
-} {
-  const [y, m] = month.split("-").map(Number);
-  const from = new Date(y, m - 1, 1);
-  const to = new Date(y, m, 0);
-  const pad = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { startDate: pad(from), endDate: pad(to) };
-}
-
-function currentMonthStr(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthFromIso(iso: string): string {
-  return iso.slice(0, 7);
-}
-
-function shortDate(iso: string): string {
-  const [year, mo, day] = iso.split("-").map(Number);
-  return new Date(year, mo - 1, day).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-const CATEGORY_COLORS: Record<string, string> = {
-  dining: "bg-orange-100 text-orange-700",
-  coffee: "bg-amber-100 text-amber-700",
-  delivery: "bg-yellow-100 text-yellow-700",
-  convenience: "bg-lime-100 text-lime-700",
-  shopping: "bg-pink-100 text-pink-700",
-  entertainment: "bg-purple-100 text-purple-700",
-  fitness: "bg-green-100 text-green-700",
-  software: "bg-violet-100 text-violet-700",
-  other: "bg-slate-100 text-slate-600",
+type LeakHunterCoverage = {
+  startDate: string | null;
+  endDate: string | null;
+  asOfDate: string | null;
+  totalTransactions: number;
+  accountCount: number;
+  coverageDays: number;
+  coverageQuality: "empty" | "limited" | "partial" | "useful" | "strong";
+  freshness: "current" | "slightly_stale" | "stale";
+  limitations: string[];
 };
 
-function categoryColor(cat: string): string {
-  return CATEGORY_COLORS[cat] ?? "bg-slate-100 text-slate-600";
-}
+type LeakHunterFinding = {
+  id: string;
+  merchantKey: string;
+  merchant: string;
+  status:
+    | "active"
+    | "possibly_active"
+    | "overdue"
+    | "inactive"
+    | "historical"
+    | "insufficient_history";
+  kind: "subscription" | "bill" | "habit" | "price_creep" | "unknown";
+  firstSeen: string;
+  lastSeen: string;
+  expectedNextDate?: string;
+  cadence?: "weekly" | "biweekly" | "monthly" | "quarterly" | "annual";
+  occurrences: number;
+  averageAmount: number;
+  latestAmount: number;
+  monthlyEquivalent: number;
+  historicalTotal: number;
+  priceChangePct?: number;
+  confidence: "high" | "medium" | "low";
+  evidence: string[];
+  ledgerQuery: Record<string, string>;
+};
+
+type LeakHunterReport = {
+  coverage: LeakHunterCoverage;
+  summary: {
+    activeCount: number;
+    inactiveCount: number;
+    priceCreepCount: number;
+    recentHabitCount: number;
+    estimatedActiveMonthly: number;
+    estimatedHistoricalTotal: number;
+  };
+  sections: {
+    activeLeaks: LeakHunterFinding[];
+    stoppedLeaks: LeakHunterFinding[];
+    priceCreep: LeakHunterFinding[];
+    recentHabits: LeakHunterFinding[];
+    needsReview: LeakHunterFinding[];
+  };
+};
+
+const MODE_OPTIONS: Array<{ value: LeakHunterMode; label: string }> = [
+  { value: "full", label: "Full hunt" },
+  { value: "active", label: "Active" },
+  { value: "stopped", label: "Stopped" },
+  { value: "price_creep", label: "Price creep" },
+  { value: "recent_habits", label: "Recent habits" },
+];
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -112,266 +88,464 @@ const fadeUp = {
   }),
 };
 
-// ─── Month selector ───────────────────────────────────────────────────────────
-
-function MonthSelector({
-  months,
-  selected,
-  onSelect,
-}: {
-  months: Array<{ month: string; transactionCount: number }>;
-  selected: string | null;
-  onSelect: (month: string) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = scrollRef.current?.querySelector<HTMLElement>(
-      "[data-active='true']",
-    );
-    el?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "center",
-    });
-  }, [selected]);
-
-  if (months.length === 0) return null;
-
+function fmt(n: number): string {
   return (
-    <div
-      ref={scrollRef}
-      className="period-selector"
-      data-testid="leaks-month-selector"
-    >
-      {months.map(({ month }) => (
-        <button
-          key={month}
-          data-testid={`leaks-month-btn-${month}`}
-          data-active={selected === month ? "true" : "false"}
-          onClick={() => onSelect(month)}
-          className={`period-btn ${selected === month ? "period-btn--active" : ""}`}
-        >
-          {formatMonthLabel(month)}
-        </button>
-      ))}
-    </div>
+    "$" +
+    n.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
   );
 }
 
-// ─── LeakCard ─────────────────────────────────────────────────────────────────
+function fmtShort(n: number): string {
+  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1000) return "$" + (n / 1000).toFixed(1) + "K";
+  return "$" + n.toFixed(0);
+}
 
-function LeakCard({
-  leak: l,
-  index = 0,
-  startDate,
-  endDate,
-}: {
-  leak: LeakItem;
-  index?: number;
-  startDate: string;
-  endDate: string;
-}) {
-  // Use ?search= so the Ledger's ILIKE filter picks up all of this merchant's
-  // transactions across every category within the selected date range.
-  const ledgerParams = new URLSearchParams({
-    search: l.merchantFilter,
-    transactionClass: "expense",
-    dateFrom: startDate,
-    dateTo: endDate,
+function sentenceCase(s: string): string {
+  return s.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "No dates yet";
+  const [year, mo, day] = iso.split("-").map(Number);
+  return new Date(year, mo - 1, day).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
-  const ledgerHref = `/transactions?${ledgerParams.toString()}`;
+}
 
-  const bucketBorderColor =
-    l.bucket === "micro_spend"
-      ? "border-l-amber-400"
-      : l.bucket === "high_frequency_convenience"
-        ? "border-l-orange-400"
-        : "border-l-pink-400";
+function isBackdatedAnalysis(coverage: LeakHunterCoverage): boolean {
+  if (!coverage.asOfDate || !coverage.endDate) return false;
+  return coverage.asOfDate < coverage.endDate;
+}
 
-  const slug = l.merchantKey.replace(/\W+/g, "-");
+function ledgerHref(query: Record<string, string>, accountId?: string | null): string {
+  const params = new URLSearchParams({ excluded: "false", ...query });
+  if (accountId) params.set("accountId", accountId);
+  return `/transactions?${params.toString()}`;
+}
 
-  // Date span: only show if first and last differ
-  const dateSpan =
-    l.firstDate !== l.lastDate
-      ? `${shortDate(l.firstDate)} – ${shortDate(l.lastDate)}`
-      : shortDate(l.lastDate);
+function findingCostLabel(finding: LeakHunterFinding): string {
+  if (finding.status === "inactive" || finding.status === "historical") {
+    return `${fmt(finding.historicalTotal)} tracked historically`;
+  }
+  if (finding.status === "insufficient_history" || finding.kind === "habit") {
+    return `${fmt(finding.historicalTotal)} seen in this window`;
+  }
+  return `${fmt(finding.monthlyEquivalent * 12)} per year if active`;
+}
+
+function initialMode(): LeakHunterMode {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  return MODE_OPTIONS.some((option) => option.value === mode)
+    ? (mode as LeakHunterMode)
+    : "full";
+}
+
+function reportParams(mode: LeakHunterMode): URLSearchParams {
+  const currentParams = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams({ mode });
+  const accountId = currentParams.get("accountId");
+  const asOf = currentParams.get("asOf");
+
+  if (accountId) params.set("accountId", accountId);
+  if (asOf) params.set("asOf", asOf);
+
+  return params;
+}
+
+function updateModeUrl(mode: LeakHunterMode) {
+  const params = reportParams(mode);
+  const nextUrl = `${window.location.pathname}?${params.toString()}`;
+  window.history.replaceState({}, "", nextUrl);
+}
+
+function coverageTone(quality: LeakHunterCoverage["coverageQuality"]): string {
+  if (quality === "strong") return "Strong coverage";
+  if (quality === "useful") return "Useful coverage";
+  if (quality === "partial") return "Partial coverage";
+  if (quality === "limited") return "Limited coverage";
+  return "No history";
+}
+
+function coverageGuidance(quality: LeakHunterCoverage["coverageQuality"]): string {
+  if (quality === "strong") {
+    return "Enough history for active charges, stopped patterns, annual renewals, and price-creep checks.";
+  }
+  if (quality === "useful") {
+    return "Enough history for active charges and recent habits; more months can strengthen stopped-leak and price-creep checks.";
+  }
+  if (quality === "partial") {
+    return "Good for a first pass on active charges, but annual renewals and price creep need more history.";
+  }
+  if (quality === "limited") {
+    return "Short history can catch obvious repeats; 90 days is better for active leaks and 12 months is better for stopped patterns.";
+  }
+  return "Upload transaction history so PocketPulse can infer dates before checking for leaks.";
+}
+
+function emptyGuidance(
+  coverage: LeakHunterCoverage,
+  mode: LeakHunterMode,
+): { title: string; body: string; action: string } {
+  if (coverage.coverageQuality === "empty") {
+    return {
+      title: "Upload history to start a leak hunt",
+      body: "A bank or card CSV lets PocketPulse infer the covered dates before looking for recurring charges, stopped subscriptions, price creep, and repeat spending.",
+      action: "Upload transactions",
+    };
+  }
+
+  if (coverage.coverageQuality === "limited" || coverage.coverageQuality === "partial") {
+    return {
+      title: "This upload is too short for a confident hit",
+      body: "Short windows can catch obvious repeats, but 90 days is better for active charges and 12 months is better for stopped leaks, annual renewals, and price creep.",
+      action: "Add more history",
+    };
+  }
+
+  if (mode === "price_creep") {
+    return {
+      title: "No meaningful price creep found",
+      body: "The recurring charges in this history did not show a clear latest-amount jump. Check Full hunt for active or stopped patterns worth reviewing.",
+      action: "Upload more history",
+    };
+  }
+
+  if (mode === "recent_habits") {
+    return {
+      title: "No repeat recent habits found",
+      body: "This import does not show a clear discretionary repeat pattern in the current window. More recent checking or card history may reveal one.",
+      action: "Upload more history",
+    };
+  }
+
+  return {
+    title: "No findings in this mode",
+    body: "Your current history did not surface a clear pattern here. More account coverage can improve confidence, especially for card subscriptions and annual renewals.",
+    action: "Upload more history",
+  };
+}
+
+function CoverageStrip({ coverage }: { coverage: LeakHunterCoverage }) {
+  const range =
+    coverage.startDate && coverage.endDate
+      ? `${formatDate(coverage.startDate)} to ${formatDate(coverage.endDate)}`
+      : "Upload transaction history to begin";
+  const freshness =
+    coverage.freshness === "current"
+      ? "Current"
+      : coverage.freshness === "slightly_stale"
+        ? "Slightly stale"
+        : "Stale";
+  const freshnessWarning =
+    coverage.freshness === "current"
+      ? null
+      : coverage.freshness === "slightly_stale"
+        ? "Your latest uploaded transaction is a little old, so active-charge timing may need a quick ledger check."
+        : "Your latest uploaded transaction is stale, so active leaks may already have changed since this history ended.";
+  const backdatedAnalysis = isBackdatedAnalysis(coverage);
 
   return (
     <motion.div
-      custom={index}
+      className="leak-hunter-coverage"
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      className={`glass-card border-l-4 ${bucketBorderColor}`}
-      data-testid={`leak-card-${slug}`}
+      custom={1}
+      data-testid="leak-hunter-coverage"
     >
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="flex-1 min-w-0">
-          {/* Header: merchant name + badge row */}
-          <div className="flex items-start gap-2 flex-wrap mb-1.5">
-            <span className="font-semibold text-slate-800 dark:text-slate-100 text-sm leading-snug">
-              {l.merchant}
-            </span>
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${categoryColor(l.dominantCategory)}`}
-            >
-              {capitalize(l.dominantCategory)}
-            </span>
-          </div>
-
-          {/* Bucket label */}
-          <Hint
-            content={
-              l.bucket === "repeat_discretionary"
-                ? "Repeat discretionary: a merchant you spend on regularly in optional categories like dining, coffee, or delivery."
-                : l.bucket === "micro_spend"
-                  ? "Micro-spend: small individual charges that add up quickly when they repeat."
-                  : "High-frequency convenience: lots of small charges to a convenience-style merchant within the period."
-            }
-            data-testid={`hint-bucket-${slug}`}
-          >
-            <p
-              className="text-xs text-slate-500 dark:text-slate-400 mb-1.5 inline-block"
-              tabIndex={0}
-              data-testid={`bucket-trigger-${slug}`}
-            >
-              {l.label}
-            </p>
-          </Hint>
-
-          {/* Category breakdown */}
-          <div
-            className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400 mb-1.5"
-            data-testid={`leak-breakdown-${slug}`}
-          >
-            {l.categoryBreakdown.map((b) => (
-              <span key={b.category}>
-                <span
-                  className={`inline-block px-1 py-0 rounded text-[10px] font-medium mr-0.5 ${categoryColor(b.category)}`}
-                >
-                  {capitalize(b.category)}
-                </span>
-                {b.count}x {fmt(b.total)}
-              </span>
-            ))}
-          </div>
-
-          {/* Stats row: occurrences, avg, date span */}
-          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 dark:text-slate-400">
-            <span data-testid={`leak-occurrences-${slug}`}>
-              {l.occurrences} charges
-            </span>
-            <span>·</span>
-            <span>avg {fmt(l.averageAmount)}</span>
-            <span>·</span>
-            <span data-testid={`leak-datespan-${slug}`}>{dateSpan}</span>
-          </div>
-        </div>
-
-        {/* Right column: amounts + link */}
-        <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 sm:min-w-[120px] sm:text-right">
-          <div>
-            <Hint
-              content={`Estimated monthly impact if this spending continues — based on ${l.occurrences} charges in the selected month.`}
-              data-testid={`hint-spend-${slug}`}
-            >
-              <p
-                className="text-lg font-bold leading-none text-red-500 inline-block"
-                data-testid={`leak-spend-${slug}`}
-                tabIndex={0}
-              >
-                {fmt(l.recentSpend)}{" "}
-                <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
-                  this month
-                </span>
-              </p>
-            </Hint>
-          </div>
-          <a
-            href={ledgerHref}
-            data-testid={`link-ledger-${slug}`}
-            className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
-          >
-            View in Ledger →
-          </a>
-        </div>
+      <div>
+        <p className="leak-hunter-eyebrow">{coverageTone(coverage.coverageQuality)}</p>
+        <p className="leak-hunter-coverage-main">
+          Analyzing {coverage.accountCount} account
+          {coverage.accountCount === 1 ? "" : "s"} from {range}.
+        </p>
+        <p className="leak-hunter-coverage-sub">
+          Current as of {formatDate(coverage.asOfDate)} ·{" "}
+          {coverage.totalTransactions.toLocaleString()} transactions ·{" "}
+          {coverage.coverageDays} days
+        </p>
+        <p className="leak-hunter-coverage-guidance">
+          {coverageGuidance(coverage.coverageQuality)}
+        </p>
+        {backdatedAnalysis && (
+          <p className="leak-hunter-coverage-guidance" data-testid="leak-hunter-as-of-note">
+            Later imported transactions through {formatDate(coverage.endDate)} stay visible in
+            coverage, but this report's findings stop at {formatDate(coverage.asOfDate)}.
+          </p>
+        )}
+        {freshnessWarning && (
+          <p className="leak-hunter-freshness-warning" data-testid="leak-hunter-freshness-warning">
+            {freshnessWarning}
+          </p>
+        )}
       </div>
+      <span className={`leak-hunter-freshness leak-hunter-freshness--${coverage.freshness}`}>
+        {freshness}
+      </span>
     </motion.div>
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+function ModeControl({
+  mode,
+  report,
+  onChange,
+}: {
+  mode: LeakHunterMode;
+  report: LeakHunterReport;
+  onChange: (mode: LeakHunterMode) => void;
+}) {
+  const counts: Record<LeakHunterMode, number> = {
+    full:
+      report.sections.activeLeaks.length +
+      report.sections.stoppedLeaks.length +
+      report.sections.priceCreep.length +
+      report.sections.recentHabits.length +
+      report.sections.needsReview.length,
+    active: report.sections.activeLeaks.length + report.sections.needsReview.length,
+    stopped: report.sections.stoppedLeaks.length,
+    price_creep: report.sections.priceCreep.length,
+    recent_habits: report.sections.recentHabits.length,
+  };
+
+  return (
+    <motion.div
+      className="leak-hunter-modes"
+      role="group"
+      aria-label="Leak Hunter report modes"
+      variants={fadeUp}
+      initial="hidden"
+      animate="visible"
+      custom={2}
+      data-testid="leak-hunter-modes"
+    >
+      {MODE_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={`leak-hunter-mode ${mode === option.value ? "leak-hunter-mode--active" : ""}`}
+          onClick={() => onChange(option.value)}
+          aria-pressed={mode === option.value}
+          aria-label={`${option.label}, ${counts[option.value]} ${
+            counts[option.value] === 1 ? "finding" : "findings"
+          }`}
+          data-testid={`leak-mode-${option.value}`}
+        >
+          <span>{option.label}</span>
+          <strong aria-hidden="true">{counts[option.value]}</strong>
+        </button>
+      ))}
+    </motion.div>
+  );
+}
+
+function SummaryGrid({ report }: { report: LeakHunterReport }) {
+  const cards = [
+    ["Active leaks", String(report.summary.activeCount)],
+    ["Stopped leaks", String(report.summary.inactiveCount)],
+    ["Price creep", String(report.summary.priceCreepCount)],
+    ["Recent habits", String(report.summary.recentHabitCount)],
+    ["Active monthly", fmtShort(report.summary.estimatedActiveMonthly)],
+  ];
+
+  return (
+    <motion.div
+      className="leak-hunter-summary"
+      variants={fadeUp}
+      initial="hidden"
+      animate="visible"
+      custom={3}
+      data-testid="leak-hunter-summary"
+    >
+      {cards.map(([label, value]) => (
+        <div className="leak-hunter-summary-card" key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </motion.div>
+  );
+}
+
+function FindingCard({
+  finding,
+  index,
+  accountId,
+}: {
+  finding: LeakHunterFinding;
+  index: number;
+  accountId?: string | null;
+}) {
+  const priceChange =
+    finding.priceChangePct === undefined
+      ? null
+      : `${finding.priceChangePct > 0 ? "+" : ""}${Math.round(finding.priceChangePct)}%`;
+
+  return (
+    <motion.article
+      className={`leak-hunter-card leak-hunter-card--${finding.status}`}
+      variants={fadeUp}
+      initial="hidden"
+      animate="visible"
+      custom={index}
+      data-testid={`leak-hunter-card-${finding.merchantKey.replace(/\W+/g, "-")}`}
+    >
+      <div className="leak-hunter-card-head">
+        <div>
+          <h3>{finding.merchant}</h3>
+          <p>
+            Seen {finding.occurrences} times from {formatDate(finding.firstSeen)} to{" "}
+            {formatDate(finding.lastSeen)}
+          </p>
+        </div>
+        <span className={`leak-hunter-status leak-hunter-status--${finding.status}`}>
+          {sentenceCase(finding.status)}
+        </span>
+      </div>
+
+      <div className="leak-hunter-metrics">
+        <span>
+          Latest <strong>{fmt(finding.latestAmount)}</strong>
+        </span>
+        <span>
+          Est. <strong>{fmt(finding.monthlyEquivalent)}/mo</strong>
+        </span>
+        <span>
+          Cadence <strong>{finding.cadence ? sentenceCase(finding.cadence) : "Review"}</strong>
+        </span>
+        {priceChange && (
+          <span>
+            Change <strong>{priceChange}</strong>
+          </span>
+        )}
+      </div>
+
+      <ul className="leak-hunter-evidence">
+        {finding.evidence.slice(0, 3).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+        {finding.expectedNextDate && (
+          <li>Expected again around {formatDate(finding.expectedNextDate)}.</li>
+        )}
+      </ul>
+
+      <div className="leak-hunter-actions">
+        <span>{findingCostLabel(finding)}</span>
+        <a href={ledgerHref(finding.ledgerQuery, accountId)} data-testid={`link-ledger-${finding.merchantKey}`}>
+          Review transactions
+        </a>
+      </div>
+    </motion.article>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  findings,
+  startIndex,
+  accountId,
+}: {
+  title: string;
+  subtitle: string;
+  findings: LeakHunterFinding[];
+  startIndex: number;
+  accountId?: string | null;
+}) {
+  if (findings.length === 0) return null;
+
+  return (
+    <section className="leak-hunter-section" data-testid={`section-${title.toLowerCase().replace(/\W+/g, "-")}`}>
+      <div className="leak-hunter-section-head">
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </div>
+      <div className="leak-hunter-list">
+        {findings.map((finding, i) => (
+          <FindingCard
+            key={finding.id}
+            finding={finding}
+            index={startIndex + i}
+            accountId={accountId}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function Leaks() {
-  // Read URL params once — used as the initial month hint from Dashboard card links.
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlStart = urlParams.get("startDate");
-  const urlInitial = urlStart ? monthFromIso(urlStart) : null;
+  const [mode, setMode] = useState<LeakHunterMode>(initialMode);
+  const queryString = reportParams(mode).toString();
+  const selectedAccountId = new URLSearchParams(window.location.search).get("accountId");
 
-  // Available months from the server (same source as Dashboard month selector).
-  const { data: availableMonths = [], isLoading: monthsLoading } =
-    useAvailableMonths();
-
-  // Selected month state.
-  // Priority: URL param → most recent available month (set via effect) → current month.
-  const [selectedMonth, setSelectedMonth] = useState<string>(
-    urlInitial ?? currentMonthStr(),
-  );
-
-  // Once available months load, default to the most recent one if the URL
-  // didn't specify a month and the current calendar month has no data.
-  useEffect(() => {
-    if (urlInitial) return; // URL param takes precedence — don't override.
-    if (availableMonths.length === 0) return;
-    const mostRecent = availableMonths[0].month;
-    // Only switch if the current selection isn't in the available months list.
-    const isKnown = availableMonths.some((m) => m.month === selectedMonth);
-    if (!isKnown) setSelectedMonth(mostRecent);
-  }, [availableMonths, urlInitial]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const { startDate, endDate } = monthToDateRange(selectedMonth);
-  const monthLabelStr = new Date(
-    parseInt(selectedMonth.split("-")[0]),
-    parseInt(selectedMonth.split("-")[1]) - 1,
-    1,
-  ).toLocaleString("en-US", { month: "long", year: "numeric" });
-
-  const {
-    data: leaks = [],
-    isLoading,
-    error,
-  } = useQuery<LeakItem[]>({
-    queryKey: ["/api/leaks", startDate, endDate],
+  const { data, isLoading, error } = useQuery<LeakHunterReport>({
+    queryKey: ["/api/leak-hunter/report", queryString],
     queryFn: async () => {
-      const res = await fetch(
-        `/api/leaks?startDate=${startDate}&endDate=${endDate}`,
-      );
-      if (!res.ok) throw new Error("Failed to load leak data");
-      return res.json();
+      const res = await fetch(`/api/leak-hunter/report?${queryString}`);
+      if (!res.ok) throw new Error("Failed to load leak hunter report");
+      return res.json() as Promise<LeakHunterReport>;
     },
     staleTime: 60_000,
   });
 
-  const totals = leaks.reduce(
-    (acc, l) => {
-      acc.flagged += l.recentSpend;
-      acc.count += 1;
-      return acc;
-    },
-    { flagged: 0, count: 0 },
-  );
+  const handleModeChange = (nextMode: LeakHunterMode) => {
+    updateModeUrl(nextMode);
+    setMode(nextMode);
+  };
 
-  const sortedLeaks = [...leaks].sort((a, b) => {
-    const aNew =
-      typeof a.firstDate === "string" && a.firstDate >= startDate ? 1 : 0;
-    const bNew =
-      typeof b.firstDate === "string" && b.firstDate >= startDate ? 1 : 0;
-    if (aNew !== bNew) return bNew - aNew;
-    return b.recentSpend - a.recentSpend;
-  });
+  const visibleSections = useMemo(() => {
+    if (!data) return [];
+    const sections = [
+      {
+        key: "active" as const,
+        title: "Active leaks",
+        subtitle: "Recurring charges that look active or close enough to check.",
+        findings: data.sections.activeLeaks,
+      },
+      {
+        key: "stopped" as const,
+        title: "Stopped leaks",
+        subtitle: "Historical patterns that appear to have ended before the latest upload.",
+        findings: data.sections.stoppedLeaks,
+      },
+      {
+        key: "price_creep" as const,
+        title: "Price creep",
+        subtitle: "Recurring charges where the latest amount rose meaningfully.",
+        findings: data.sections.priceCreep,
+      },
+      {
+        key: "recent_habits" as const,
+        title: "Recent habits",
+        subtitle: "Repeat discretionary spending from the current import window.",
+        findings: data.sections.recentHabits,
+      },
+      {
+        key: "needs_review" as const,
+        title: "Needs review",
+        subtitle: "Signals with thinner history or lower confidence.",
+        findings: data.sections.needsReview,
+      },
+    ];
 
-  const pageHeader = (
+    if (mode === "full") return sections;
+    if (mode === "active") return sections.filter((section) => section.key === "active" || section.key === "needs_review");
+    if (mode === "stopped") return sections.filter((section) => section.key === "stopped");
+    if (mode === "price_creep") return sections.filter((section) => section.key === "price_creep");
+    return sections.filter((section) => section.key === "recent_habits");
+  }, [data, mode]);
+
+  const hasFindings = visibleSections.some((section) => section.findings.length > 0);
+  const emptyState = data ? emptyGuidance(data.coverage, mode) : null;
+
+  const header = (
     <motion.div
       className="mb-4"
       variants={fadeUp}
@@ -393,112 +567,91 @@ export function Leaks() {
           <path d="M10 3C10 3 4 9.5 4 13a6 6 0 0012 0c0-3.5-6-10-6-10z" />
           <path d="M7.5 14.5a2.5 2.5 0 004.5-1.5" strokeWidth="1.4" />
         </svg>
-        Leak Detection
+        Leak Hunter
       </h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Automatically detected discretionary spending patterns · no review
-        required.
+        Private CSV-based review for recurring charges, stopped subscriptions,
+        price creep, and repeat spending.
       </p>
     </motion.div>
-  );
-
-  const monthSelector = monthsLoading ? null : (
-    <motion.div
-      className="mb-5"
-      variants={fadeUp}
-      initial="hidden"
-      animate="visible"
-      custom={1}
-    >
-      <MonthSelector
-        months={availableMonths}
-        selected={selectedMonth}
-        onSelect={setSelectedMonth}
-      />
-    </motion.div>
-  );
-
-  const summaryLine = !isLoading && !error && leaks.length > 0 && (
-    <motion.p
-      className="text-sm text-slate-600 dark:text-slate-300 mb-4 font-medium"
-      data-testid="leaks-summary-inline"
-      variants={fadeUp}
-      initial="hidden"
-      animate="visible"
-      custom={2}
-    >
-      {totals.count} leak{totals.count !== 1 ? "s" : ""} detected in{" "}
-      <span className="text-slate-700 dark:text-slate-200">
-        {monthLabelStr}
-      </span>{" "}
-      · <span className="text-red-500">{fmt(totals.flagged)} flagged</span>
-    </motion.p>
   );
 
   if (error)
     return (
       <div>
-        {pageHeader}
-        {monthSelector}
+        {header}
         <p className="leaks-error" data-testid="leaks-error">
-          Failed to load leak data.
+          Failed to load Leak Hunter.
         </p>
       </div>
     );
 
-  if (isLoading)
+  if (isLoading || !data)
     return (
       <div>
-        {pageHeader}
-        {monthSelector}
+        {header}
         <p className="leaks-loading" data-testid="leaks-loading">
-          Analyzing spending patterns…
+          Building leak hunt report...
         </p>
-      </div>
-    );
-
-  if (leaks.length === 0)
-    return (
-      <div>
-        {pageHeader}
-        {monthSelector}
-        <motion.div
-          className="glass-card text-center py-10"
-          variants={fadeUp}
-          initial="hidden"
-          animate="visible"
-          custom={2}
-          data-testid="leaks-empty"
-        >
-          <p className="text-2xl mb-2">✓</p>
-          <p className="font-semibold text-slate-700 dark:text-slate-100 mb-1">
-            No leaks detected
-          </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            No discretionary spending patterns detected for {monthLabelStr}.
-            <br />
-            Upload more statements or select a different month.
-          </p>
-        </motion.div>
       </div>
     );
 
   return (
     <div>
-      {pageHeader}
-      {monthSelector}
-      {summaryLine}
-      <div className="flex flex-col gap-3">
-        {sortedLeaks.map((l, i) => (
-          <LeakCard
-            key={l.merchantKey}
-            leak={l}
-            index={i + 3}
-            startDate={startDate}
-            endDate={endDate}
+      {header}
+      <CoverageStrip coverage={data.coverage} />
+      {data.coverage.limitations.length > 0 && (
+        <motion.div
+          className="leak-hunter-limitations"
+          role="list"
+          aria-label="Leak Hunter coverage limitations"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          custom={2}
+          data-testid="leak-hunter-limitations"
+        >
+          {data.coverage.limitations.map((limitation) => (
+            <span key={limitation} role="listitem">
+              {limitation}
+            </span>
+          ))}
+        </motion.div>
+      )}
+      <ModeControl mode={mode} report={data} onChange={handleModeChange} />
+      <SummaryGrid report={data} />
+
+      {!hasFindings ? (
+        <motion.div
+          className="glass-card text-center py-10"
+          variants={fadeUp}
+          initial="hidden"
+          animate="visible"
+          custom={4}
+          data-testid="leaks-empty"
+        >
+          <p className="font-semibold text-slate-700 dark:text-slate-100 mb-1">
+            {emptyState?.title}
+          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xl mx-auto">
+            {emptyState?.body}
+          </p>
+          <a className="leak-hunter-empty-action" href="/upload">
+            {emptyState?.action}
+          </a>
+        </motion.div>
+      ) : (
+        visibleSections.map((section, sectionIndex) => (
+          <Section
+            key={section.key}
+            title={section.title}
+            subtitle={section.subtitle}
+            findings={section.findings}
+            startIndex={5 + sectionIndex * 5}
+            accountId={selectedAccountId}
           />
-        ))}
-      </div>
+        ))
+      )}
     </div>
   );
 }

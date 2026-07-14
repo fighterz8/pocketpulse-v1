@@ -60,6 +60,23 @@ export class DuplicateEmailError extends Error {
   }
 }
 
+function postgresErrorCode(error: unknown): string | undefined {
+  const seen = new Set<unknown>();
+  let current = error;
+
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof DatabaseError) return current.code;
+    if (typeof current !== "object") return undefined;
+
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (typeof candidate.code === "string") return candidate.code;
+    current = candidate.cause;
+  }
+
+  return undefined;
+}
+
 export type CreateUserInput = {
   email: string;
   /** Bcrypt (or other) hash — never store plaintext in `users.password`. */
@@ -102,7 +119,7 @@ export async function createUser(input: CreateUserInput): Promise<PublicUser> {
       return toPublicUser(user);
     });
   } catch (e) {
-    if (e instanceof DatabaseError && e.code === "23505") {
+    if (postgresErrorCode(e) === "23505") {
       throw new DuplicateEmailError();
     }
     throw e;
@@ -1989,7 +2006,7 @@ export async function addWaitlistEmail(email: string): Promise<void> {
   try {
     await db.insert(waitlist).values({ email });
   } catch (err) {
-    if (err instanceof DatabaseError && err.code === "23505") {
+    if (postgresErrorCode(err) === "23505") {
       throw new DuplicateWaitlistEmailError("Email already registered");
     }
     throw err;

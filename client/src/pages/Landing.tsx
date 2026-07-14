@@ -70,7 +70,7 @@ function DashboardPreview() {
           <span className="landing-dash-badge-mini landing-warning">Leak watch</span>
           <strong>No major leaks yet</strong>
           <p>Recurring charges are separated from one-time purchases for quick review.</p>
-          <a href="/leaks">Review Leak Detection</a>
+          <a href="/leaks">Review Leak Hunter</a>
         </div>
       </div>
 
@@ -103,7 +103,7 @@ export function Landing() {
           <a href="#features">Features</a>
           <a href="#how">How it works</a>
           <a href="#privacy">Privacy</a>
-          <a className="landing-nav-cta" href="/">Get started</a>
+          <a className="landing-nav-cta" href="/auth">Get started</a>
         </nav>
       </header>
 
@@ -113,7 +113,7 @@ export function Landing() {
           <h1>See where your money actually goes.</h1>
           <p className="landing-lede">Pocket Pulse turns bank statement CSVs into clean categories, recurring-charge detection, and money-leak insights — without connecting your bank account.</p>
           <div className="landing-cta-row">
-            <a className="landing-primary" href="/">Get started</a>
+            <a className="landing-primary" href="/auth">Get started</a>
             <a className="landing-secondary" href="#how">See how it works</a>
           </div>
           <p className="landing-trust">CSV upload only · No bank login required · You stay in control</p>
@@ -160,7 +160,7 @@ export function Landing() {
       <section className="landing-final-cta" id="demo">
         <p className="landing-eyebrow">Ready when you are</p>
         <h2>Start with a CSV. Leave with a clearer month.</h2>
-        <div className="landing-cta-row landing-center"><a className="landing-primary" href="/">Try Pocket Pulse</a><a className="landing-secondary" href="/privacy">Read privacy policy</a></div>
+        <div className="landing-cta-row landing-center"><a className="landing-primary" href="/auth">Try Pocket Pulse</a><a className="landing-secondary" href="/privacy">Read privacy policy</a></div>
       </section>
     </main>
   );

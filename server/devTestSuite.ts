@@ -2,9 +2,9 @@
  * Dev Test Suite — server route module (PR1: classification sampler + team view).
  *
  * All routes mounted here are gated by `requireDev`, which combines:
- *   1. DEV_MODE_ENABLED  (the hard off-switch from shared/devConfig)
- *   2. session auth      (must be logged in)
- *   3. users.isDev flag  (per-user opt-in)
+ *   1. POCKETPULSE_DEV_TOOLS=1
+ *   2. session auth
+ *   3. users.isDev OR POCKETPULSE_DEV_EMAILS allowlist
  *
  * Any failure of those gates returns **404 Not Found** — the spec is explicit
  * (§7) that we must not signal the feature's existence with 403.
@@ -15,7 +15,6 @@
 import type { Request, RequestHandler, Router } from "express";
 import { Router as createRouter } from "express";
 
-import { DEV_MODE_ENABLED } from "../shared/devConfig.js";
 import {
   CLASSIFICATION_CLASS_VALUES,
   CLASSIFICATION_LEGIBILITY_VALUES,
@@ -24,6 +23,7 @@ import {
   V1_CATEGORIES,
   type ClassificationVerdict,
 } from "../shared/schema.js";
+import { hasDevToolsAccess } from "./devAccess.js";
 import {
   completeClassificationSample,
   createClassificationSample,
@@ -51,16 +51,15 @@ function notFound(res: Parameters<RequestHandler>[1]): void {
 }
 
 /**
- * Combined gate: DEV_MODE_ENABLED + session.userId + users.isDev = true.
+ * Combined gate: dev tools env + session.userId + allowed dev user.
  * Returns 404 (not 403) on any failure.
  */
 export const requireDev: RequestHandler = async (req, res, next) => {
   try {
-    if (!DEV_MODE_ENABLED) return notFound(res);
     const userId = req.session.userId;
     if (userId == null) return notFound(res);
     const user = await getUserById(userId);
-    if (!user || user.isDev !== true) return notFound(res);
+    if (!user || !hasDevToolsAccess(user)) return notFound(res);
     next();
   } catch (e) {
     next(e);

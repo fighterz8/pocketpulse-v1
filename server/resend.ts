@@ -9,6 +9,11 @@ import { Resend } from "resend";
 
 let connectionSettings: any;
 
+export function formatFromEmail(fromEmail: string): string {
+  const trimmed = fromEmail.trim();
+  return trimmed.includes("<") ? trimmed : `PocketPulse <${trimmed}>`;
+}
+
 async function getCredentials(): Promise<{ apiKey: string; fromEmail: string }> {
   const envApiKey = process.env.RESEND_API_KEY;
   const envFromEmail = process.env.RESEND_FROM_EMAIL;

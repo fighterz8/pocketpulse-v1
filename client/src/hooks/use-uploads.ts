@@ -24,6 +24,11 @@ export type UploadFileResult = {
   uploadId: number | null;
   status: string;
   rowCount: number;
+  coverage?: {
+    startDate: string;
+    endDate: string;
+    coverageDays: number;
+  };
   /** Rows skipped because they already existed in the DB from a prior upload. */
   previouslyImported?: number;
   /** Rows skipped because the same row appeared more than once within this upload batch. */

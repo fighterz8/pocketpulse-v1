@@ -627,7 +627,7 @@ function DashboardImpl() {
           <p className="kpi-drill mt-4">View all transactions →</p>
         </GlassCard>
 
-        {/* Leak Detection — links to /leaks page with selected month */}
+        {/* Leak Hunter — links to /leaks page with selected month */}
         {(() => {
           const leaksHref = dateRange
             ? `/leaks?startDate=${dateRange.dateFrom}&endDate=${dateRange.dateTo}`
@@ -640,9 +640,9 @@ function DashboardImpl() {
             >
               <div>
                 <p className="kpi-label">
-                  Leak Detection
+                  Leak Hunter
                   <HintIcon
-                    label="About Leak Detection"
+                    label="About Leak Hunter"
                     content="A 'leak' is recurring or high-frequency discretionary spending we've flagged for review — think coffee, delivery, or unused subscriptions."
                     data-testid="hint-leak-detection"
                   />

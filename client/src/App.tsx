@@ -8,7 +8,6 @@ import { useInactivityLogout } from "./hooks/use-inactivity-logout";
 import { useTheme } from "./hooks/use-theme";
 import { AccountSetup } from "./pages/AccountSetup";
 import { Auth } from "./pages/Auth";
-import { ComingSoon } from "./pages/ComingSoon";
 import { Dashboard } from "./pages/Dashboard";
 import { Landing } from "./pages/Landing";
 import { Ledger } from "./pages/Ledger";
@@ -23,11 +22,10 @@ import { TeamSummary } from "./pages/dev/TeamSummary";
 import { TestSuiteIndex } from "./pages/dev/TestSuiteIndex";
 import { createQueryClient } from "./lib/queryClient";
 import { cn } from "./lib/utils";
-import { DEV_MODE_ENABLED } from "@shared/devConfig";
 
 function AppAuthenticated() {
   const { logout, user } = useAuth();
-  const canAccessDev = DEV_MODE_ENABLED && user?.isDev === true;
+  const canAccessDev = user?.devToolsEnabled === true && user.isDev === true;
 
   return (
     <AppLayout
@@ -64,20 +62,20 @@ function AppAuthenticated() {
   );
 }
 
-const BETA_FLAG = "pp_beta_access";
 // Per-session onboarding state. Lives in sessionStorage so it dies with
 // the tab — users with no accounts always see Step 1 again on next login.
 const ONBOARDING_SKIP_FLAG = "pp_onboarding_skipped";
 const ONBOARDING_STEP2_FLAG = "pp_onboarding_step2_pending";
 const WELCOME_SEEN_FLAG = "pp_welcome_seen";
 
-export function AppGate() {
+type AppGateProps = {
+  unauthenticatedView?: "auth" | "landing";
+};
+
+export function AppGate({ unauthenticatedView = "auth" }: AppGateProps) {
   const auth = useAuth();
   const [, setLocation] = useLocation();
   const [inactivityLogout, setInactivityLogout] = useState(false);
-  const [betaUnlocked, setBetaUnlocked] = useState(
-    () => localStorage.getItem(BETA_FLAG) === "1",
-  );
   const [onboardingSkipped, setOnboardingSkipped] = useState(
     () => sessionStorage.getItem(ONBOARDING_SKIP_FLAG) === "1",
   );
@@ -88,11 +86,6 @@ export function AppGate() {
   // guess via `accounts[0]` — keeps the contract sturdy if a user with
   // multiple accounts ever ends up in Step 2 down the road.
   const [step2Account, setStep2Account] = useState<AuthAccount | null>(null);
-
-  function handleUnlock() {
-    localStorage.setItem(BETA_FLAG, "1");
-    setBetaUnlocked(true);
-  }
 
   function handleStep1Created(account: AuthAccount) {
     sessionStorage.setItem(ONBOARDING_STEP2_FLAG, "1");
@@ -181,10 +174,11 @@ export function AppGate() {
   }
 
   if (!auth.isAuthenticated) {
-    if (!betaUnlocked) {
-      return <ComingSoon onUnlock={handleUnlock} />;
-    }
-    return <Auth inactivityLogout={inactivityLogout} />;
+    return unauthenticatedView === "landing" ? (
+      <Landing />
+    ) : (
+      <Auth inactivityLogout={inactivityLogout} />
+    );
   }
 
   if (auth.accountsLoading) {
@@ -256,13 +250,16 @@ export function App() {
           {/*
            * /reset-password is reached from an emailed link by
            * definition-not-signed-in users (often on a fresh device), so
-           * it must render OUTSIDE the auth/beta gates. Declared as a
-           * top-level <Route> so that wouter's <Switch> short-circuits
-           * before AppGate runs any of its auth/beta logic.
+           * it must render outside the authenticated app shell. Declared
+           * as a top-level <Route> so wouter's <Switch> short-circuits
+           * before AppGate runs auth/onboarding logic.
            */}
           <Switch>
             <Route path="/reset-password">
               <ResetPassword />
+            </Route>
+            <Route path="/auth">
+              <AppGate />
             </Route>
             <Route path="/landing">
               <Landing />
@@ -272,6 +269,9 @@ export function App() {
             </Route>
             <Route path="/terms">
               <TermsOfService />
+            </Route>
+            <Route path="/">
+              <AppGate unauthenticatedView="landing" />
             </Route>
             <Route>
               <AppGate />

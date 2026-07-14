@@ -172,7 +172,7 @@ export function AccountSetup({ onCreated, onSkip }: AccountSetupProps) {
 
         <button
           type="button"
-          className="auth-beta-reset onboarding-back-to-login"
+          className="auth-secondary-link onboarding-back-to-login"
           onClick={handleBackToLogin}
           disabled={busy || logout.isPending}
           data-testid="link-back-to-login"

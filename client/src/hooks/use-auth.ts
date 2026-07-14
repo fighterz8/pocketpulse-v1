@@ -39,6 +39,7 @@ export type AuthUser = {
   displayName: string;
   companyName: string | null;
   isDev: boolean;
+  devToolsEnabled: boolean;
 };
 
 /** API shape for `GET /api/auth/me` — never includes password fields. */
@@ -53,7 +54,6 @@ export type RegisterInput = {
   password: string;
   displayName: string;
   companyName?: string;
-  isDev?: boolean;
 };
 
 /** Shape returned by POST /api/auth/login and POST /api/auth/register */
@@ -168,7 +168,6 @@ export function useAuth(): UseAuthReturn {
           ...(input.companyName !== undefined && input.companyName !== ""
             ? { companyName: input.companyName }
             : {}),
-          ...(input.isDev === true ? { isDev: true } : {}),
         }),
       });
       if (!res.ok) throw new Error(await readJsonError(res));

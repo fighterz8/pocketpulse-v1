@@ -17,6 +17,8 @@ describe.skipIf(!runRouteIntegrationTests)("Dev Test Suite routes (/api/dev/*)",
 
   // Each test seeds its own user; this keeps DEV_TEAM_USER_IDS predictable too.
   const origTeamIds = process.env.DEV_TEAM_USER_IDS;
+  const origDevTools = process.env.POCKETPULSE_DEV_TOOLS;
+  const origDevEmails = process.env.POCKETPULSE_DEV_EMAILS;
 
   beforeAll(async () => {
     const mod = await import("./routes.js");
@@ -26,6 +28,10 @@ describe.skipIf(!runRouteIntegrationTests)("Dev Test Suite routes (/api/dev/*)",
   afterAll(() => {
     if (origTeamIds === undefined) delete process.env.DEV_TEAM_USER_IDS;
     else process.env.DEV_TEAM_USER_IDS = origTeamIds;
+    if (origDevTools === undefined) delete process.env.POCKETPULSE_DEV_TOOLS;
+    else process.env.POCKETPULSE_DEV_TOOLS = origDevTools;
+    if (origDevEmails === undefined) delete process.env.POCKETPULSE_DEV_EMAILS;
+    else process.env.POCKETPULSE_DEV_EMAILS = origDevEmails;
   });
 
   function testApp() {
@@ -37,7 +43,7 @@ describe.skipIf(!runRouteIntegrationTests)("Dev Test Suite routes (/api/dev/*)",
     return res.body.token as string;
   }
 
-  /** Register a new user; pass isDev=true to flip the dev flag at creation time. */
+  /** Register a new user; pass isDev=true to include the email in the dev allowlist. */
   async function registerUser(
     app: ReturnType<typeof testApp>,
     opts: { isDev: boolean },
@@ -45,11 +51,12 @@ describe.skipIf(!runRouteIntegrationTests)("Dev Test Suite routes (/api/dev/*)",
     const agent = request.agent(app);
     const csrf = await csrfToken(agent);
     const email = `dev-suite-${crypto.randomUUID()}@example.com`;
+    process.env.POCKETPULSE_DEV_TOOLS = "1";
+    process.env.POCKETPULSE_DEV_EMAILS = opts.isDev ? email : "";
     const res = await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
       email,
       password: "long-enough-pw",
       displayName: "Dev Suite Tester",
-      isDev: opts.isDev,
     });
     expect(res.status).toBe(201);
     return { agent, userId: res.body.user.id as number, csrf };
