@@ -3,7 +3,7 @@
  *
  * When the heuristic parser in csvParser.ts cannot identify the column layout
  * of a bank's CSV export, this module sends the header row + a handful of
- * ANONYMIZED sample data rows to GPT-4o-mini and asks it to identify the
+ * ANONYMIZED sample data rows to the configured OpenAI model and asks it to identify the
  * column roles.
  *
  * Privacy: only column headers and type-classified sample values are sent.
@@ -98,6 +98,22 @@ Rules:
   YYYY-MM-DD, MM-DD-YYYY, MM/DD/YY) — because those don't need special handling.
   For all other formats (month names, ordinals, non-US ordering), provide the token string.
 - Return only valid JSON with no markdown fences, no commentary.`;
+
+/**
+ * GPT-5 reasoning tokens count against the completion ceiling. Keep reasoning
+ * minimal while leaving enough headroom for a complete structured format spec.
+ */
+export function _csvFormatGenerationOptions(model: string) {
+  return model.startsWith("gpt-5")
+    ? {
+        reasoning_effort: "minimal" as const,
+        max_completion_tokens: 4000,
+      }
+    : {
+        temperature: 0 as const,
+        max_tokens: 350,
+      };
+}
 
 /**
  * Determine if a cell value looks like a date.
@@ -246,7 +262,7 @@ function isValidSpec(raw: RawSpec): raw is {
 }
 
 /**
- * Ask GPT-4o-mini to identify the column layout of a CSV.
+ * Ask the configured OpenAI model to identify the column layout of a CSV.
  *
  * @param allRows  The first N raw parsed rows (header + preamble + a few data rows),
  *                 already split into cells by csv-parse. Max 12 rows.
@@ -266,7 +282,6 @@ export async function detectCsvFormat(
   let raw: string | null = null;
   try {
     const model = process.env.OPENAI_CSV_FORMAT_MODEL ?? "gpt-5-nano";
-    const isGpt5Family = model.startsWith("gpt-5");
     const request = {
       model,
       response_format: CSV_FORMAT_RESPONSE_FORMAT,
@@ -277,9 +292,7 @@ export async function detectCsvFormat(
           content: `Identify the column layout and date format from these CSV rows:\n\n${sampleText}`,
         },
       ],
-      ...(isGpt5Family
-        ? { max_completion_tokens: 350 }
-        : { temperature: 0, max_tokens: 350 }),
+      ..._csvFormatGenerationOptions(model),
     } as const;
 
     const response = await client.chat.completions.create(request as any);

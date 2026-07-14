@@ -1,5 +1,5 @@
 /**
- * AI-powered transaction classifier using GPT-4o-mini.
+ * AI-powered transaction classifier using the configured OpenAI model.
  *
  * Used as a fallback when the rules-based classifier produces low confidence
  * or falls through to "other". Batches requests, deduplicates by merchant
@@ -96,6 +96,23 @@ Output requirements:
 
 /** Exported solely for drift-prevention tests — do not use elsewhere. */
 export const _AI_SYSTEM_PROMPT = SYSTEM_PROMPT;
+
+/**
+ * GPT-5 reasoning tokens count against the completion ceiling. Classification
+ * needs very little reasoning, but it does need enough room to emit the full
+ * structured result for a 25-merchant batch.
+ */
+export function _aiGenerationOptions(model: string) {
+  return model.startsWith("gpt-5")
+    ? {
+        reasoning_effort: "minimal" as const,
+        max_completion_tokens: 8000,
+      }
+    : {
+        temperature: 0 as const,
+        max_tokens: 1500,
+      };
+}
 
 type RawAiRow = {
   index: number;
@@ -210,7 +227,7 @@ function buildSystemPrompt(
 }
 
 /**
- * Call GPT-4o-mini with a batch of up to 25 transactions and return typed
+ * Call the configured model with a batch of up to 25 transactions and return typed
  * results. Returns null if the API is unavailable or the response is malformed.
  */
 async function callAiBatch(
@@ -238,7 +255,6 @@ async function callAiBatch(
   );
 
   const model = process.env.OPENAI_CLASSIFIER_MODEL ?? "gpt-5-nano";
-  const isGpt5Family = model.startsWith("gpt-5");
   const request = {
     model,
     response_format: AI_BATCH_RESPONSE_FORMAT,
@@ -249,9 +265,7 @@ async function callAiBatch(
         content: `Classify these transactions and respond with JSON matching this schema: { "results": [ { "index": number, "category": string, "transactionClass": string, "recurrenceType": string, "labelConfidence": number, "labelReason": string } ] }\n\n${userContent}`,
       },
     ],
-    ...(isGpt5Family
-      ? { max_completion_tokens: 1500 }
-      : { temperature: 0, max_tokens: 1500 }),
+    ..._aiGenerationOptions(model),
   } as const;
 
   const response = await client.chat.completions.create(request as any);
@@ -307,7 +321,7 @@ async function callAiBatch(
 }
 
 /**
- * Classify a batch of transactions using GPT-4o-mini.
+ * Classify a batch of transactions using the configured OpenAI model.
  *
  * - Deduplicates by normalized merchant name to reduce API calls.
  * - Splits into chunks of 25 per API call.

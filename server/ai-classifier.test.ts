@@ -9,7 +9,10 @@
  */
 import { describe, it, expect } from "vitest";
 import { V1_CATEGORIES } from "../shared/schema.js";
-import { _AI_SYSTEM_PROMPT } from "./ai-classifier.js";
+import {
+  _AI_SYSTEM_PROMPT,
+  _aiGenerationOptions,
+} from "./ai-classifier.js";
 
 const VALID_TRANSACTION_CLASSES = new Set(["income", "expense", "transfer", "refund"]);
 
@@ -166,5 +169,21 @@ describe("AI classifier SYSTEM_PROMPT drift prevention", () => {
 
     expect(listItems.length).toBeGreaterThan(0);
     expect(new Set(listItems)).toEqual(new Set(V1_CATEGORIES));
+  });
+});
+
+describe("AI classifier generation options", () => {
+  it("uses minimal reasoning and enough structured-output headroom for GPT-5", () => {
+    expect(_aiGenerationOptions("gpt-5-nano")).toEqual({
+      reasoning_effort: "minimal",
+      max_completion_tokens: 8000,
+    });
+  });
+
+  it("keeps deterministic legacy-model settings", () => {
+    expect(_aiGenerationOptions("gpt-4o-mini")).toEqual({
+      temperature: 0,
+      max_tokens: 1500,
+    });
   });
 });
