@@ -242,7 +242,10 @@ import {
 // continues to exercise the same end-to-end flow without modification.
 import { BrandPulse as AiEnhancementBadge } from "./BrandPulse";
 import { useTransactions } from "../../hooks/use-transactions";
-import { useAiEnhancementStatus } from "../../hooks/use-ai-enhancement-status";
+import {
+  aiEnhancementStatusKey,
+  useAiEnhancementStatus,
+} from "../../hooks/use-ai-enhancement-status";
 import { useUploads } from "../../hooks/use-uploads";
 
 // ── Supertest agent + fetch shim ────────────────────────────────────────
@@ -558,8 +561,12 @@ describe("AI enhancement badge end-to-end", () => {
         aiError: null,
       },
     ]);
+    // Refetch without advancing through the completion toast's own 2s
+    // dismissal timer. Advancing one large fake-timer window can otherwise
+    // both discover completion and dismiss it before this assertion observes
+    // the intermediate state, depending on suite scheduling load.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3100);
+      await queryClient.invalidateQueries({ queryKey: aiEnhancementStatusKey });
     });
 
     await waitFor(() => {
