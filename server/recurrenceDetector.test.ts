@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   recurrenceKey,
@@ -6,6 +6,17 @@ import {
   detectRecurringCandidates,
   type RecurringCandidate,
 } from "./recurrenceDetector.js";
+
+beforeAll(() => {
+  // Recurrence detection intentionally ignores data older than 18 months.
+  // Freeze the clock so fixed historical fixtures do not decay over time.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-01T12:00:00Z"));
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 function makeTxn(overrides: Partial<{
   id: number;
