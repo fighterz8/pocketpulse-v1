@@ -42,8 +42,18 @@ vi.mock("./csrf.js", () => ({
   invalidCsrfTokenError: new Error("invalid csrf"),
 }));
 
-const sendMock = vi.fn().mockResolvedValue({ id: "msg_1" });
+const sendMock = vi
+  .fn()
+  .mockResolvedValue({ data: { id: "msg_1" }, error: null });
 vi.mock("./resend.js", () => ({
+  assertResendSendSucceeded: (result: {
+    data: { id: string } | null;
+    error: { message: string } | null;
+  }) => {
+    if (result.error) throw new Error(result.error.message);
+    if (!result.data) throw new Error("missing email data");
+    return result.data;
+  },
   formatFromEmail: (fromEmail: string) =>
     fromEmail.includes("<") ? fromEmail : `PocketPulse <${fromEmail}>`,
   getUncachableResendClient: vi.fn(async () => ({
@@ -81,7 +91,7 @@ describe("POST /api/auth/forgot-password", () => {
     vi.clearAllMocks();
     mockedCleanup.mockResolvedValue(undefined);
     sendMock.mockClear();
-    sendMock.mockResolvedValue({ id: "msg_1" });
+    sendMock.mockResolvedValue({ data: { id: "msg_1" }, error: null });
     delete process.env.PUBLIC_APP_URL;
   });
 
@@ -240,6 +250,32 @@ describe("POST /api/auth/forgot-password", () => {
     const res = await request(app)
       .post("/api/auth/forgot-password")
       .send({ email: "bob@example.com" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+  });
+
+  it("still returns ok when Resend resolves with an API error", async () => {
+    mockedGetUser.mockResolvedValueOnce({
+      id: 8,
+      email: "carol@example.com",
+      passwordHash: "hash",
+    });
+    mockedIssue.mockResolvedValueOnce({
+      id: 3,
+      userId: 8,
+      tokenHash: "x",
+      expiresAt: new Date(),
+      usedAt: null,
+      createdAt: new Date(),
+    });
+    sendMock.mockResolvedValueOnce({
+      data: null,
+      error: { message: "Domain not verified" },
+    });
+    const app = buildApp();
+    const res = await request(app)
+      .post("/api/auth/forgot-password")
+      .send({ email: "carol@example.com" });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
   });

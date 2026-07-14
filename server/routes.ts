@@ -79,6 +79,7 @@ import {
   toAuthUserPayload,
 } from "./devAccess.js";
 import {
+  assertResendSendSucceeded,
   formatFromEmail,
   getUncachableResendClient,
 } from "./resend.js";
@@ -558,7 +559,7 @@ export function createApp(options?: CreateAppOptions) {
         await Promise.all(
           batch.map(async ({ email }) => {
             try {
-              await client.emails.send({
+              const result = await client.emails.send({
                 from: formatFromEmail(fromEmail),
                 to: email,
                 subject:
@@ -566,6 +567,7 @@ export function createApp(options?: CreateAppOptions) {
                 html,
                 text,
               });
+              assertResendSendSucceeded(result);
               sent++;
             } catch (err) {
               console.error(`[launch-email] Failed to send to ${email}:`, err);
@@ -917,13 +919,14 @@ export function createApp(options?: CreateAppOptions) {
 
         try {
           const { client, fromEmail } = await getUncachableResendClient();
-          await client.emails.send({
+          const result = await client.emails.send({
             from: formatFromEmail(fromEmail),
             to: normalized,
             subject: "Reset your PocketPulse password",
             html: buildPasswordResetEmailHtml(resetUrl),
             text: buildPasswordResetEmailText(resetUrl),
           });
+          assertResendSendSucceeded(result);
         } catch (err) {
           // Email failure is logged but not surfaced — we still return the
           // generic OK so the response shape is identical to the no-user

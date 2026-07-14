@@ -5,13 +5,38 @@
  * fall back to its connector service so the live app keeps working before DNS
  * cutover.
  */
-import { Resend } from "resend";
+import {
+  Resend,
+  type CreateEmailResponse,
+  type CreateEmailResponseSuccess,
+} from "resend";
 
 let connectionSettings: any;
 
 export function formatFromEmail(fromEmail: string): string {
   const trimmed = fromEmail.trim();
   return trimmed.includes("<") ? trimmed : `PocketPulse <${trimmed}>`;
+}
+
+/**
+ * Resend reports API validation/delivery-submission failures in the resolved
+ * response instead of rejecting the promise. Convert that shape into a thrown
+ * error so callers cannot accidentally count a rejected email as sent.
+ */
+export function assertResendSendSucceeded(
+  result: CreateEmailResponse,
+): CreateEmailResponseSuccess {
+  if (result.error) {
+    throw new Error(
+      `Resend email send failed: ${result.error.name}: ${result.error.message}`,
+    );
+  }
+
+  if (!result.data) {
+    throw new Error("Resend email send failed: response contained no message id");
+  }
+
+  return result.data;
 }
 
 async function getCredentials(): Promise<{ apiKey: string; fromEmail: string }> {
