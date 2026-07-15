@@ -7,7 +7,7 @@
  * regardless of how many categories its transactions span.
  */
 
-import { AUTO_ESSENTIAL_CATEGORIES } from "../shared/schema.js";
+import { LEAK_EXCLUDED_CATEGORIES } from "../shared/schema.js";
 import type { V1Category } from "../shared/schema.js";
 import { recurrenceKey } from "./recurrenceDetector.js";
 
@@ -25,46 +25,6 @@ const DISCRETIONARY_CATEGORIES = new Set<string>([
   "shopping",
   "entertainment",
   "other",
-]);
-
-/**
- * Categories that are NEVER flagged as leaks.
- * Combines AUTO_ESSENTIAL_CATEGORIES (housing, utilities, insurance, medical, debt)
- * with other obligatory / non-discretionary spend.
- *
- * NOTE: "software" was intentionally removed. Software merchants that ARE
- * recurring (e.g. Netflix, iCloud) are excluded by the recurring mutual-exclusion
- * rule. Software merchants that are NOT recurring (e.g. a one-off tool purchase
- * repeated a few times) correctly appear as leaks.
- */
-const ESSENTIAL_LEAK_EXCLUSIONS = new Set<string>([
-  ...AUTO_ESSENTIAL_CATEGORIES,
-  "income",
-  "groceries",
-  "gas",
-  "auto",
-  "parking",
-  "travel",
-  "fees",
-]);
-
-/**
- * Categories that are excluded from the catch-all repeat-purchase rule.
- * These are non-negotiable financial obligations that should never be flagged
- * as "leaks" regardless of frequency or amount.
- */
-const CATCH_ALL_HARD_EXCLUSIONS = new Set<string>([
-  "housing",
-  "utilities",
-  "insurance",
-  "medical",
-  "debt",
-  "income",
-  "groceries",
-  "gas",
-  "auto",
-  "parking",
-  "travel",
 ]);
 
 const CREDIT_CARD_PAYMENT_PATTERNS: RegExp[] = [
@@ -241,7 +201,7 @@ export function detectLeaks(
   const candidates = txns.filter(
     (tx) =>
       tx.transactionClass === "expense" &&
-      !ESSENTIAL_LEAK_EXCLUSIONS.has(tx.category) &&
+      !LEAK_EXCLUDED_CATEGORIES.has(tx.category) &&
       !tx.excludedFromAnalysis,
   );
 
@@ -350,7 +310,7 @@ export function detectLeaks(
       amounts.length >= 3 &&
       avgAmount >= 25 &&
       totalSpend >= 75 &&
-      !CATCH_ALL_HARD_EXCLUSIONS.has(dominantCategory);
+      !LEAK_EXCLUDED_CATEGORIES.has(dominantCategory);
 
     // isRecurring boosts confidence and adjusts bucket metadata, but does NOT
     // independently qualify a group as a leak — one of the behavioral

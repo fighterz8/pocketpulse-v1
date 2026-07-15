@@ -98,6 +98,22 @@ export const AUTO_ESSENTIAL_CATEGORIES: ReadonlySet<string> = new Set([
   "debt",       // loan payments, credit card minimums
 ]);
 
+/**
+ * Categories that must never appear as Leak Hunter findings. This extends the
+ * recurring-obligation set with ordinary necessary spending that can repeat
+ * frequently without being waste (groceries, transportation, travel, fees).
+ */
+export const LEAK_EXCLUDED_CATEGORIES: ReadonlySet<string> = new Set([
+  ...AUTO_ESSENTIAL_CATEGORIES,
+  "income",
+  "groceries",
+  "gas",
+  "auto",
+  "parking",
+  "travel",
+  "fees",
+]);
+
 /** V1 category set — used by classifier and ledger UI. */
 export const V1_CATEGORIES = [
   "income",

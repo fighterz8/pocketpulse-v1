@@ -1,5 +1,6 @@
 import { detectLeaks } from "./cashflow.js";
 import { recurrenceKey } from "./recurrenceDetector.js";
+import { LEAK_EXCLUDED_CATEGORIES } from "../shared/schema.js";
 
 export type LeakHunterCoverageQuality =
   | "empty"
@@ -140,6 +141,12 @@ const LIFESTYLE_CATEGORIES = new Set([
   "shopping",
 ]);
 
+const ACTIONABLE_SUBSCRIPTION_CATEGORIES = new Set([
+  "software",
+  "entertainment",
+  "fitness",
+]);
+
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isValidIsoDate(value: unknown): value is string {
@@ -275,6 +282,8 @@ function normalizeLeakTransactions(
     if (!merchant) return [];
     const amount = Math.abs(Number(txn.amount));
     if (!Number.isFinite(amount) || amount <= 0) return [];
+    const category = txn.category ?? "other";
+    if (LEAK_EXCLUDED_CATEGORIES.has(category)) return [];
     const isExpense =
       txn.flowType === "outflow" ||
       txn.transactionClass === "expense" ||
@@ -290,7 +299,7 @@ function normalizeLeakTransactions(
         amount,
         merchant,
         merchantKey,
-        category: txn.category ?? "other",
+        category,
         recurrenceType: txn.recurrenceType ?? "one-time",
       },
     ];
@@ -374,14 +383,18 @@ function kindFor(group: RecurringGroup): LeakHunterFinding["kind"] {
   if (category === "utilities" || category === "insurance" || category === "housing" || category === "debt") {
     return "bill";
   }
-  if (
-    category === "software" ||
-    category === "entertainment" ||
-    group.transactions.some((txn) => txn.recurrenceType === "recurring")
-  ) {
+  if (ACTIONABLE_SUBSCRIPTION_CATEGORIES.has(category)) {
     return "subscription";
   }
   return "unknown";
+}
+
+function isActionableRecurringLeak(finding: LeakHunterFinding): boolean {
+  return (
+    finding.kind === "subscription" &&
+    finding.confidence !== "low" &&
+    finding.status !== "insufficient_history"
+  );
 }
 
 function shouldConsiderRecurring(group: RecurringGroup): boolean {
@@ -606,16 +619,23 @@ export function buildLeakHunterReport(
     asOfDate: coverage.asOfDate ?? undefined,
     coverageDays: analysisCoverage.coverageDays,
   });
-  const activeLeaks = recurringFindings.filter((finding) =>
+  const actionableRecurringFindings = recurringFindings.filter(
+    isActionableRecurringLeak,
+  );
+  const activeLeaks = actionableRecurringFindings.filter((finding) =>
     ["active", "possibly_active", "overdue"].includes(finding.status),
   );
-  const stoppedLeaks = recurringFindings.filter((finding) =>
+  const stoppedLeaks = actionableRecurringFindings.filter((finding) =>
     ["inactive", "historical"].includes(finding.status),
   );
   const activeRecurringKeys = new Set(
-    activeLeaks.map((finding) => finding.merchantKey),
+    recurringFindings
+      .filter((finding) =>
+        ["active", "possibly_active", "overdue"].includes(finding.status),
+      )
+      .map((finding) => finding.merchantKey),
   );
-  const priceCreep = recurringFindings
+  const priceCreep = actionableRecurringFindings
     .filter(
       (finding) =>
         finding.priceChangePct !== undefined &&
@@ -624,8 +644,19 @@ export function buildLeakHunterReport(
     )
     .map((finding) => ({ ...finding, kind: "price_creep" as const }));
   const needsReview = recurringFindings.filter(
-    (finding) =>
-      finding.status === "insufficient_history" || finding.confidence === "low",
+    (finding) => {
+      const isCurrentUncertainty = [
+        "active",
+        "possibly_active",
+        "overdue",
+        "insufficient_history",
+      ].includes(finding.status);
+      if (finding.kind === "unknown") return isCurrentUncertainty;
+      return (
+        finding.kind === "subscription" &&
+        (finding.status === "insufficient_history" || finding.confidence === "low")
+      );
+    },
   );
   const recentHabits = detectRecentHabitFindings(analysisTransactions, {
     asOfDate: coverage.asOfDate ?? undefined,

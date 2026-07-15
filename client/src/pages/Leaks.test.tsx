@@ -164,6 +164,61 @@ describe("Leaks page", () => {
     });
   });
 
+  it("keeps uncertain recurring patterns out of active leak counts and savings language", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeMockFetch({
+        ...MOCK_REPORT,
+        sections: {
+          ...MOCK_REPORT.sections,
+          needsReview: [
+            {
+              id: "review-unknown",
+              merchantKey: "unknown-pattern",
+              merchant: "Recurring pattern",
+              status: "possibly_active",
+              kind: "unknown",
+              firstSeen: "2025-08-01",
+              lastSeen: "2026-01-01",
+              expectedNextDate: "2026-02-01",
+              cadence: "monthly",
+              occurrences: 6,
+              averageAmount: 100,
+              latestAmount: 100,
+              monthlyEquivalent: 100,
+              historicalTotal: 600,
+              confidence: "medium",
+              evidence: ["Recurring pattern needs classification."],
+              ledgerQuery: { search: "unknown pattern", transactionClass: "expense" },
+            },
+          ],
+        },
+      }),
+    );
+
+    renderLeaks();
+
+    expect(await screen.findByText("Recurring pattern")).toBeInTheDocument();
+    expect(screen.getByText("$600.00 seen · not counted as a leak")).toBeInTheDocument();
+    expect(screen.getByText(/not counted as leaks or savings/i)).toBeInTheDocument();
+    expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
+      "aria-label",
+      "Full hunt, 3 findings",
+    );
+    expect(screen.getByTestId("leak-mode-active")).toHaveAttribute(
+      "aria-label",
+      "Active, 1 finding",
+    );
+
+    fireEvent.click(screen.getByTestId("leak-mode-active"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Spotify")).toBeInTheDocument();
+      expect(screen.queryByText("Recurring pattern")).not.toBeInTheDocument();
+      expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
+    });
+  });
+
   it("preserves report query filters and writes selected mode to the URL", async () => {
     window.history.replaceState(
       {},

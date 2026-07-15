@@ -324,6 +324,97 @@ describe("detectRecentHabitFindings", () => {
 });
 
 describe("detectRecurringLifecycleFindings", () => {
+  it("never treats expected recurring obligations as leaks", () => {
+    const obligations = [
+      ["Mortgage Payment", "housing", 2400],
+      ["Electric Bill", "utilities", 180],
+      ["Insurance Premium", "insurance", 140],
+      ["Loan Payment", "debt", 450],
+      ["Medical Payment Plan", "medical", 90],
+    ] as const;
+    const txns = obligations.flatMap(([merchant, category, amount], group) =>
+      ["2026-01-05", "2026-02-05", "2026-03-05"].map((date, index) =>
+        expense(group * 10 + index + 1, date, amount + index * 10, merchant, {
+          category,
+          recurrenceType: "recurring",
+        }),
+      ),
+    );
+
+    const report = buildLeakHunterReport(txns, {
+      asOfDate: "2026-03-25",
+      today: "2026-03-25",
+    });
+
+    expect(report.summary).toMatchObject({
+      activeCount: 0,
+      inactiveCount: 0,
+      priceCreepCount: 0,
+      estimatedActiveMonthly: 0,
+      estimatedHistoricalTotal: 0,
+    });
+    expect(Object.values(report.sections).flat()).toEqual([]);
+  });
+
+  it("routes uncategorized recurring patterns to review instead of calling them leaks", () => {
+    const report = buildLeakHunterReport(
+      [
+        expense(1, "2026-01-05", 125, "Unknown Regular Payment", {
+          category: "other",
+          recurrenceType: "recurring",
+        }),
+        expense(2, "2026-02-05", 125, "Unknown Regular Payment", {
+          category: "other",
+          recurrenceType: "recurring",
+        }),
+        expense(3, "2026-03-05", 125, "Unknown Regular Payment", {
+          category: "other",
+          recurrenceType: "recurring",
+        }),
+      ],
+      { asOfDate: "2026-03-25", today: "2026-03-25" },
+    );
+
+    expect(report.summary).toMatchObject({
+      activeCount: 0,
+      inactiveCount: 0,
+      priceCreepCount: 0,
+      estimatedActiveMonthly: 0,
+      estimatedHistoricalTotal: 0,
+    });
+    expect(report.sections.activeLeaks).toEqual([]);
+    expect(report.sections.stoppedLeaks).toEqual([]);
+    expect(report.sections.priceCreep).toEqual([]);
+    expect(report.sections.needsReview[0]).toMatchObject({
+      merchant: "Unknown Regular Payment",
+      kind: "unknown",
+    });
+  });
+
+  it("does not clutter review with unknown patterns that already ended", () => {
+    const report = buildLeakHunterReport(
+      [
+        expense(1, "2025-01-05", 125, "Old Unknown Payment", {
+          category: "other",
+          recurrenceType: "recurring",
+        }),
+        expense(2, "2025-02-05", 125, "Old Unknown Payment", {
+          category: "other",
+          recurrenceType: "recurring",
+        }),
+        expense(3, "2025-03-05", 125, "Old Unknown Payment", {
+          category: "other",
+          recurrenceType: "recurring",
+        }),
+      ],
+      { asOfDate: "2026-03-25", today: "2026-03-25" },
+    );
+
+    expect(report.sections.needsReview).toEqual([]);
+    expect(report.sections.stoppedLeaks).toEqual([]);
+    expect(report.summary.inactiveCount).toBe(0);
+  });
+
   it("classifies current monthly charges as active", () => {
     const findings = detectRecurringLifecycleFindings(
       [

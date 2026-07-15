@@ -130,6 +130,9 @@ function ledgerHref(query: Record<string, string>, accountId?: string | null): s
 }
 
 function findingCostLabel(finding: LeakHunterFinding): string {
+  if (finding.kind === "unknown") {
+    return `${fmt(finding.historicalTotal)} seen · not counted as a leak`;
+  }
   if (finding.status === "inactive" || finding.status === "historical") {
     return `${fmt(finding.historicalTotal)} tracked historically`;
   }
@@ -308,7 +311,7 @@ function ModeControl({
       report.sections.priceCreep.length +
       report.sections.recentHabits.length +
       report.sections.needsReview.length,
-    active: report.sections.activeLeaks.length + report.sections.needsReview.length,
+    active: report.sections.activeLeaks.length,
     stopped: report.sections.stoppedLeaks.length,
     price_creep: report.sections.priceCreep.length,
     recent_habits: report.sections.recentHabits.length,
@@ -530,13 +533,14 @@ export function Leaks() {
       {
         key: "needs_review" as const,
         title: "Needs review",
-        subtitle: "Signals with thinner history or lower confidence.",
+        subtitle:
+          "Current recurring patterns PocketPulse cannot classify confidently. These are not counted as leaks or savings.",
         findings: data.sections.needsReview,
       },
     ];
 
     if (mode === "full") return sections;
-    if (mode === "active") return sections.filter((section) => section.key === "active" || section.key === "needs_review");
+    if (mode === "active") return sections.filter((section) => section.key === "active");
     if (mode === "stopped") return sections.filter((section) => section.key === "stopped");
     if (mode === "price_creep") return sections.filter((section) => section.key === "price_creep");
     return sections.filter((section) => section.key === "recent_habits");
