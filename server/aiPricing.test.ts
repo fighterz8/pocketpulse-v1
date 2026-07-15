@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  AI_PROVIDER_TOKEN_CEILINGS,
   InvalidProviderUsageError,
   UnknownPricedModelError,
+  calculateMaximumRequestCostMicrousd,
   calculateUsageCostMicrousd,
   getModelPricing,
   normalizeChatCompletionUsage,
+  validateNormalizedTokenUsage,
 } from "./aiPricing.js";
 
 describe("AI usage normalization", () => {
@@ -104,5 +107,37 @@ describe("versioned AI pricing", () => {
     expect(
       calculateUsageCostMicrousd("gpt-5-nano", usage).costMicrousd,
     ).toBe(1);
+  });
+
+  it("derives conservative reservation costs from fixed operation ceilings", () => {
+    expect(AI_PROVIDER_TOKEN_CEILINGS).toEqual({
+      transaction_classification: { inputTokens: 20_000, outputTokens: 2_000 },
+      csv_format_detection: { inputTokens: 4_000, outputTokens: 600 },
+    });
+    expect(
+      calculateMaximumRequestCostMicrousd(
+        "gpt-5-nano",
+        "transaction_classification",
+      ).costMicrousd,
+    ).toBe(1800);
+    expect(
+      calculateMaximumRequestCostMicrousd(
+        "gpt-5-nano",
+        "csv_format_detection",
+      ).costMicrousd,
+    ).toBe(440);
+  });
+
+  it("rejects inconsistent normalized usage before calculating cost", () => {
+    expect(() =>
+      validateNormalizedTokenUsage({
+        inputTokens: 1_000,
+        cachedInputTokens: 100,
+        uncachedInputTokens: 0,
+        outputTokens: 20,
+        reasoningOutputTokens: 0,
+        totalTokens: 1_020,
+      }),
+    ).toThrow(InvalidProviderUsageError);
   });
 });

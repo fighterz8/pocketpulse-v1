@@ -46,28 +46,21 @@ describeDatabase("AI usage aggregate queries", () => {
   it("reconciles app, user, financial-account, upload, and operation totals", async () => {
     const first = await createOwner("first");
     const second = await createOwner("second");
-    const year = 2300 + Math.floor(Math.random() * 6000);
-    const now = new Date(Date.UTC(year, 7, 12, 12));
-    const from = new Date(Date.UTC(year, 7, 12));
-    const to = new Date(Date.UTC(year, 7, 13));
-    const limits = {
-      userDayMicrousd: 10_000,
-      userMonthMicrousd: 10_000,
-      appDayMicrousd: 10_000,
-      appMonthMicrousd: 10_000,
-    };
+    const jobId = 1 + Math.floor(Math.random() * 1_000_000_000);
+    const clock = await pool.query<{ now: Date }>(
+      `SELECT clock_timestamp() AS now`,
+    );
+    const now = clock.rows[0]!.now;
+    const from = new Date(now.getTime() - 60_000);
+    const to = new Date(now.getTime() + 60_000);
 
     const actualReservation = `summary-actual-${first.userId}`;
     await accounting.reserveAiBudget({
       reservationId: actualReservation,
       ...first,
+      jobId,
       operation: "transaction_classification",
-      provider: "openai",
       model: "gpt-5-nano",
-      pricingVersion: "openai-standard-2026-07-15",
-      reservedCostMicrousd: 200,
-      limits,
-      now,
     });
     await accounting.reconcileAiBudgetReservation({
       reservationId: actualReservation,
@@ -85,28 +78,22 @@ describeDatabase("AI usage aggregate queries", () => {
           totalTokens: 1_200,
         },
       },
-      now: new Date(now.getTime() + 1_000),
     });
 
     const unknownReservation = `summary-unknown-${second.userId}`;
     await accounting.reserveAiBudget({
       reservationId: unknownReservation,
       ...second,
+      jobId,
       operation: "csv_format_detection",
-      provider: "openai",
       model: "gpt-5-nano",
-      pricingVersion: "openai-standard-2026-07-15",
-      reservedCostMicrousd: 75,
-      limits,
-      now,
     });
     await accounting.reconcileAiBudgetReservation({
       reservationId: unknownReservation,
       outcome: { type: "reserved_unknown", errorCode: "PROVIDER_TIMEOUT" },
-      now: new Date(now.getTime() + 2_000),
     });
 
-    const app = await queries.getAiUsageSummary({ from, to });
+    const app = await queries.getAiUsageSummary({ from, to, jobId });
     expect(app).toEqual({
       requestCount: 2,
       succeededCount: 1,
@@ -118,32 +105,36 @@ describeDatabase("AI usage aggregate queries", () => {
       outputTokens: 200,
       reasoningTokens: 75,
       totalTokens: 1_200,
-      reservedCostMicrousd: 275,
-      finalCostMicrousd: 187,
+      reservedCostMicrousd: 2240,
+      finalCostMicrousd: 552,
       actualCostMicrousd: 112,
       estimatedCostMicrousd: 0,
-      reservedUnknownCostMicrousd: 75,
+      reservedUnknownCostMicrousd: 440,
     });
 
     const byUser = await queries.getAiUsageSummary({
       from,
       to,
       userId: first.userId,
+      jobId,
     });
     const byAccount = await queries.getAiUsageSummary({
       from,
       to,
       accountId: first.accountId,
+      jobId,
     });
     const byUpload = await queries.getAiUsageSummary({
       from,
       to,
       uploadId: first.uploadId,
+      jobId,
     });
     const byOperation = await queries.getAiUsageSummary({
       from,
       to,
       operation: "transaction_classification",
+      jobId,
     });
 
     for (const summary of [byUser, byAccount, byUpload, byOperation]) {
@@ -151,6 +142,47 @@ describeDatabase("AI usage aggregate queries", () => {
       expect(summary.finalCostMicrousd).toBe(112);
       expect(summary.totalTokens).toBe(1_200);
     }
+  });
+
+  it("attributes time windows to request start rather than later reconciliation", async () => {
+    const suffix = `${Date.now()}-${Math.random()}`;
+    const jobId = 1 + Math.floor(Math.random() * 1_000_000_000);
+    const reservationId = `request-time-${suffix}`;
+    const requestStartedAt = new Date("2098-06-30T23:59:59.000Z");
+    const finalizedAt = new Date("2098-07-01T00:00:01.000Z");
+    await pool.query(
+      `INSERT INTO ai_budget_reservations (
+         id, job_id, operation, provider, model, pricing_version,
+         reserved_cost_microusd, final_cost_microusd, status, created_at,
+         reconciled_at
+       ) VALUES ($1, $4, 'csv_format_detection', 'openai', 'gpt-5-nano',
+         'openai-standard-2026-07-15', 440, 0, 'released', $2, $3)`,
+      [reservationId, requestStartedAt, finalizedAt, jobId],
+    );
+    await pool.query(
+      `INSERT INTO ai_usage_events (
+         reservation_id, job_id, operation, provider, model, pricing_version,
+         attempt_status, input_tokens, cached_input_tokens, output_tokens,
+         reasoning_tokens, total_tokens, reserved_cost_microusd,
+         final_cost_microusd, usage_source, request_started_at, created_at
+       ) VALUES ($1, $4, 'csv_format_detection', 'openai', 'gpt-5-nano',
+         'openai-standard-2026-07-15', 'released', 0, 0, 0, 0, 0, 440, 0,
+         'estimated', $2, $3)`,
+      [reservationId, requestStartedAt, finalizedAt, jobId],
+    );
+
+    const june = await queries.getAiUsageSummary({
+      from: new Date("2098-06-01T00:00:00.000Z"),
+      to: new Date("2098-07-01T00:00:00.000Z"),
+      jobId,
+    });
+    const july = await queries.getAiUsageSummary({
+      from: new Date("2098-07-01T00:00:00.000Z"),
+      to: new Date("2098-08-01T00:00:00.000Z"),
+      jobId,
+    });
+    expect(june.requestCount).toBe(1);
+    expect(july.requestCount).toBe(0);
   });
 
   it("rejects invalid date ranges before querying", async () => {

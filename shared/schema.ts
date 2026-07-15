@@ -261,7 +261,7 @@ export const aiBudgetReservations = pgTable(
     ),
     check(
       "ai_budget_reservations_cost_check",
-      sql`${t.reservedCostMicrousd} >= 0 AND (${t.finalCostMicrousd} IS NULL OR ${t.finalCostMicrousd} >= 0)`,
+      sql`${t.reservedCostMicrousd} > 0 AND (${t.finalCostMicrousd} IS NULL OR (${t.finalCostMicrousd} >= 0 AND ${t.finalCostMicrousd} <= ${t.reservedCostMicrousd}))`,
     ),
   ],
 );
@@ -317,6 +317,10 @@ export const aiUsageEvents = pgTable(
       .notNull(),
     usageSource: text("usage_source").$type<AiUsageSource>().notNull(),
     errorCode: text("error_code"),
+    requestStartedAt: timestamp("request_started_at", {
+      mode: "date",
+      withTimezone: true,
+    }).notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -329,6 +333,7 @@ export const aiUsageEvents = pgTable(
     index("ai_usage_events_user_id_idx").on(t.userId),
     index("ai_usage_events_account_id_idx").on(t.accountId),
     index("ai_usage_events_upload_id_idx").on(t.uploadId),
+    index("ai_usage_events_request_started_at_idx").on(t.requestStartedAt),
     index("ai_usage_events_created_at_idx").on(t.createdAt),
     check(
       "ai_usage_events_operation_check",
@@ -348,7 +353,7 @@ export const aiUsageEvents = pgTable(
     ),
     check(
       "ai_usage_events_cost_check",
-      sql`${t.reservedCostMicrousd} >= 0 AND ${t.finalCostMicrousd} >= 0`,
+      sql`${t.reservedCostMicrousd} > 0 AND ${t.finalCostMicrousd} >= 0 AND ${t.finalCostMicrousd} <= ${t.reservedCostMicrousd}`,
     ),
   ],
 );

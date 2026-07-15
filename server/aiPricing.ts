@@ -24,6 +24,23 @@ export type ModelPricing = {
   outputMicrousdPerMillionTokens: number;
 };
 
+export type PricedAiOperation =
+  | "transaction_classification"
+  | "csv_format_detection";
+
+/**
+ * Conservative per-request ceilings used before a paid request is authorized.
+ * Input is charged entirely at the uncached rate because cache eligibility is
+ * unknowable before the provider responds.
+ */
+export const AI_PROVIDER_TOKEN_CEILINGS: Record<
+  PricedAiOperation,
+  { inputTokens: number; outputTokens: number }
+> = {
+  transaction_classification: { inputTokens: 20_000, outputTokens: 2_000 },
+  csv_format_detection: { inputTokens: 4_000, outputTokens: 600 },
+};
+
 const PRICING_CATALOG = {
   "gpt-5-nano": {
     model: "gpt-5-nano",
@@ -134,10 +151,55 @@ export function getModelPricing(model: string): ModelPricing {
   return { ...pricing };
 }
 
+export function validateNormalizedTokenUsage(
+  usage: NormalizedTokenUsage,
+): NormalizedTokenUsage {
+  for (const [field, value] of Object.entries(usage)) {
+    asTokenCount(value, field);
+  }
+  if (usage.cachedInputTokens > usage.inputTokens) {
+    throw new InvalidProviderUsageError(
+      "cached input tokens cannot exceed total input tokens",
+    );
+  }
+  if (usage.uncachedInputTokens !== usage.inputTokens - usage.cachedInputTokens) {
+    throw new InvalidProviderUsageError(
+      "uncached input tokens must equal input tokens minus cached input tokens",
+    );
+  }
+  if (usage.reasoningOutputTokens > usage.outputTokens) {
+    throw new InvalidProviderUsageError(
+      "reasoning output tokens cannot exceed total output tokens",
+    );
+  }
+  if (usage.totalTokens !== usage.inputTokens + usage.outputTokens) {
+    throw new InvalidProviderUsageError(
+      "total tokens must equal input tokens plus output tokens",
+    );
+  }
+  return { ...usage };
+}
+
+export function calculateMaximumRequestCostMicrousd(
+  model: string,
+  operation: PricedAiOperation,
+): { model: string; pricingVersion: string; costMicrousd: number } {
+  const ceiling = AI_PROVIDER_TOKEN_CEILINGS[operation];
+  return calculateUsageCostMicrousd(model, {
+    inputTokens: ceiling.inputTokens,
+    cachedInputTokens: 0,
+    uncachedInputTokens: ceiling.inputTokens,
+    outputTokens: ceiling.outputTokens,
+    reasoningOutputTokens: 0,
+    totalTokens: ceiling.inputTokens + ceiling.outputTokens,
+  });
+}
+
 export function calculateUsageCostMicrousd(
   model: string,
   usage: NormalizedTokenUsage,
 ): { model: string; pricingVersion: string; costMicrousd: number } {
+  validateNormalizedTokenUsage(usage);
   const pricing = getModelPricing(model);
   const numerator =
     BigInt(usage.uncachedInputTokens) *

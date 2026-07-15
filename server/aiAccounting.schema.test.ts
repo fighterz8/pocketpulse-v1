@@ -74,10 +74,10 @@ describeDatabase("AI accounting schema", () => {
          model, pricing_version, provider_request_id, attempt_status,
          latency_ms, input_tokens, cached_input_tokens, output_tokens,
          reasoning_tokens, total_tokens, reserved_cost_microusd,
-         final_cost_microusd, usage_source
+         final_cost_microusd, usage_source, request_started_at
        ) VALUES ($1, $2, $3, $4, 'transaction_classification', 'openai',
          'gpt-5-nano', 'openai-standard-2026-07-15', $5, 'succeeded',
-         25, 1000, 400, 200, 75, 1200, 200, 112, 'actual')`,
+         25, 1000, 400, 200, 75, 1200, 200, 112, 'actual', clock_timestamp())`,
       [reservationId, userId, accountId, uploadId, `req-${suffix}`],
     );
     await pool.query(
@@ -134,10 +134,10 @@ describeDatabase("AI accounting schema", () => {
          reservation_id, operation, provider, model, pricing_version,
          attempt_status, input_tokens, cached_input_tokens, output_tokens,
          reasoning_tokens, total_tokens, reserved_cost_microusd,
-         final_cost_microusd, usage_source
+         final_cost_microusd, usage_source, request_started_at
        ) VALUES ($1, 'csv_format_detection', 'openai', 'gpt-5-nano',
          'openai-standard-2026-07-15', 'released', 0, 0, 0, 0, 0, 10, 0,
-         'estimated')`,
+         'estimated', clock_timestamp())`,
       [reservationId],
     );
 
@@ -153,6 +153,47 @@ describeDatabase("AI accounting schema", () => {
         reservationId,
       ]),
     ).rejects.toMatchObject({ code: "P0001" });
+  });
+
+  it("rejects direct attribution erasure while permitting referential deletion", async () => {
+    const suffix = `${Date.now()}-${Math.random()}`;
+    const user = await pool.query<{ id: number }>(
+      `INSERT INTO users (email, password, display_name)
+       VALUES ($1, 'hash', 'Immutable Attribution') RETURNING id`,
+      [`immutable-attribution-${suffix}@example.test`],
+    );
+    const userId = user.rows[0]!.id;
+    const reservationId = `immutable-attribution-${suffix}`;
+    await pool.query(
+      `INSERT INTO ai_budget_reservations (
+         id, user_id, operation, provider, model, pricing_version,
+         reserved_cost_microusd, final_cost_microusd, status
+       ) VALUES ($1, $2, 'csv_format_detection', 'openai', 'gpt-5-nano',
+         'openai-standard-2026-07-15', 10, 0, 'released')`,
+      [reservationId, userId],
+    );
+    await pool.query(
+      `INSERT INTO ai_usage_events (
+         reservation_id, user_id, operation, provider, model, pricing_version,
+         attempt_status, reserved_cost_microusd, final_cost_microusd,
+         usage_source, request_started_at
+       ) VALUES ($1, $2, 'csv_format_detection', 'openai', 'gpt-5-nano',
+         'openai-standard-2026-07-15', 'released', 10, 0, 'estimated',
+         clock_timestamp())`,
+      [reservationId, userId],
+    );
+
+    await expect(
+      pool.query(`UPDATE ai_usage_events SET user_id = NULL WHERE reservation_id = $1`, [
+        reservationId,
+      ]),
+    ).rejects.toMatchObject({ code: "P0001" });
+    await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    const event = await pool.query<{ user_id: number | null }>(
+      `SELECT user_id FROM ai_usage_events WHERE reservation_id = $1`,
+      [reservationId],
+    );
+    expect(event.rows[0]!.user_id).toBeNull();
   });
 
   it("enforces non-negative budget accounting", async () => {

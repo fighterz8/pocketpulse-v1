@@ -73,7 +73,7 @@ export async function getAiUsageSummary(
   }
 
   const values: unknown[] = [filters.from, filters.to];
-  const clauses = ["created_at >= $1", "created_at < $2"];
+  const clauses = ["request_started_at >= $1", "request_started_at < $2"];
   const addFilter = (column: string, value: unknown) => {
     values.push(value);
     clauses.push(`${column} = $${values.length}`);

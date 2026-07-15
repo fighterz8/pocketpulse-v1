@@ -6,7 +6,10 @@ import type {
   AiReservationStatus,
 } from "../shared/schema.js";
 import {
+  AI_PROVIDER_TOKEN_CEILINGS,
+  calculateMaximumRequestCostMicrousd,
   calculateUsageCostMicrousd,
+  validateNormalizedTokenUsage,
   type NormalizedTokenUsage,
 } from "./aiPricing.js";
 import { pool } from "./db.js";
@@ -25,12 +28,7 @@ export type ReserveAiBudgetInput = {
   uploadId?: number;
   jobId?: number;
   operation: AiOperation;
-  provider: string;
   model: string;
-  pricingVersion: string;
-  reservedCostMicrousd: number;
-  limits: AiBudgetLimits;
-  now?: Date;
 };
 
 export type ReserveAiBudgetResult = {
@@ -38,8 +36,15 @@ export type ReserveAiBudgetResult = {
   status: AiReservationStatus;
   reservedCostMicrousd: number;
   finalCostMicrousd: number | null;
-  alreadyExisted: boolean;
 };
+
+/** Approved beta ceilings. Request callers cannot override these values. */
+export const AI_BUDGET_LIMITS: Readonly<AiBudgetLimits> = Object.freeze({
+  userDayMicrousd: 50_000,
+  userMonthMicrousd: 250_000,
+  appDayMicrousd: 500_000,
+  appMonthMicrousd: 5_000_000,
+});
 
 export type AiReconciliationOutcome =
   | {
@@ -73,12 +78,14 @@ export class AiBudgetExceededError extends Error {
   }
 }
 
-export class AiReservationConflictError extends Error {
-  readonly code = "AI_RESERVATION_CONFLICT" as const;
+export class AiReservationAlreadyExistsError extends Error {
+  readonly code = "AI_RESERVATION_ALREADY_EXISTS" as const;
 
   constructor(reservationId: string) {
-    super(`AI reservation ${JSON.stringify(reservationId)} already has different terms`);
-    this.name = "AiReservationConflictError";
+    super(
+      `AI reservation ${JSON.stringify(reservationId)} was already authorized`,
+    );
+    this.name = "AiReservationAlreadyExistsError";
   }
 }
 
@@ -151,12 +158,6 @@ function assertMicrousd(value: number, field: string): void {
   }
 }
 
-function assertDate(value: Date): void {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
-    throw new RangeError("now must be a valid Date");
-  }
-}
-
 function parseMicrousd(value: string | null, field: string): number | null {
   if (value === null) return null;
   const parsed = Number(value);
@@ -209,37 +210,26 @@ function bucketSpecs(
   ];
 }
 
-function validateReservationInput(input: ReserveAiBudgetInput): Date {
+function validateReservationInput(input: ReserveAiBudgetInput): void {
   assertNonEmpty(input.reservationId, "reservationId");
   assertPositiveId(input.userId, "userId");
   assertPositiveId(input.accountId, "accountId");
   assertPositiveId(input.uploadId, "uploadId");
   assertPositiveId(input.jobId, "jobId");
-  assertNonEmpty(input.provider, "provider", 60);
   assertNonEmpty(input.model, "model", 100);
-  assertNonEmpty(input.pricingVersion, "pricingVersion", 120);
-  assertMicrousd(input.reservedCostMicrousd, "reservedCostMicrousd");
-  for (const [field, value] of Object.entries(input.limits)) {
+  if (!Object.hasOwn(AI_PROVIDER_TOKEN_CEILINGS, input.operation)) {
+    throw new RangeError("operation is not supported for paid AI accounting");
+  }
+  for (const [field, value] of Object.entries(AI_BUDGET_LIMITS)) {
     assertMicrousd(value, `limits.${field}`);
   }
-  const now = input.now ?? new Date();
-  assertDate(now);
-  return now;
 }
 
-function reservationMatches(row: ReservationRow, input: ReserveAiBudgetInput): boolean {
-  return (
-    row.user_id === input.userId &&
-    row.account_id === (input.accountId ?? null) &&
-    row.upload_id === (input.uploadId ?? null) &&
-    row.job_id === (input.jobId ?? null) &&
-    row.operation === input.operation &&
-    row.provider === input.provider &&
-    row.model === input.model &&
-    row.pricing_version === input.pricingVersion &&
-    parseMicrousd(row.reserved_cost_microusd, "reserved cost") ===
-      input.reservedCostMicrousd
+async function databaseNow(client: pg.PoolClient): Promise<Date> {
+  const result = await client.query<{ now: Date }>(
+    `SELECT clock_timestamp() AS now`,
   );
+  return result.rows[0]!.now;
 }
 
 async function insertBucket(client: pg.PoolClient, spec: BucketSpec): Promise<void> {
@@ -290,25 +280,35 @@ async function assertAttributionOwnership(
   client: pg.PoolClient,
   input: ReserveAiBudgetInput,
 ): Promise<void> {
-  if (input.accountId !== undefined) {
-    const account = await client.query<{ user_id: number }>(
-      `SELECT user_id FROM accounts WHERE id = $1`,
-      [input.accountId],
-    );
-    if (account.rows[0]?.user_id !== input.userId) {
-      throw new AiAttributionMismatchError();
-    }
-  }
   if (input.uploadId !== undefined) {
-    const upload = await client.query<{ user_id: number; account_id: number }>(
-      `SELECT user_id, account_id FROM uploads WHERE id = $1`,
+    const upload = await client.query<{
+      user_id: number;
+      account_id: number;
+      account_user_id: number;
+    }>(
+      `SELECT u.user_id, u.account_id, a.user_id AS account_user_id
+       FROM uploads u
+       JOIN accounts a ON a.id = u.account_id
+       WHERE u.id = $1
+       FOR UPDATE OF u, a`,
       [input.uploadId],
     );
     const row = upload.rows[0];
     if (
       row?.user_id !== input.userId ||
+      row.account_user_id !== input.userId ||
       (input.accountId !== undefined && row.account_id !== input.accountId)
     ) {
+      throw new AiAttributionMismatchError();
+    }
+    return;
+  }
+  if (input.accountId !== undefined) {
+    const account = await client.query<{ user_id: number }>(
+      `SELECT user_id FROM accounts WHERE id = $1 FOR UPDATE`,
+      [input.accountId],
+    );
+    if (account.rows[0]?.user_id !== input.userId) {
       throw new AiAttributionMismatchError();
     }
   }
@@ -317,11 +317,16 @@ async function assertAttributionOwnership(
 export async function reserveAiBudget(
   input: ReserveAiBudgetInput,
 ): Promise<ReserveAiBudgetResult> {
-  const now = validateReservationInput(input);
-  const specs = bucketSpecs(input.userId, now, input.limits);
+  validateReservationInput(input);
+  const reservationPrice = calculateMaximumRequestCostMicrousd(
+    input.model,
+    input.operation,
+  );
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const now = await databaseNow(client);
+    const specs = bucketSpecs(input.userId, now, AI_BUDGET_LIMITS);
     await assertAttributionOwnership(client, input);
     const inserted = await client.query<ReservationRow>(
       `INSERT INTO ai_budget_reservations (
@@ -337,31 +342,16 @@ export async function reserveAiBudget(
         input.uploadId ?? null,
         input.jobId ?? null,
         input.operation,
-        input.provider,
+        "openai",
         input.model,
-        input.pricingVersion,
-        input.reservedCostMicrousd,
+        reservationPrice.pricingVersion,
+        reservationPrice.costMicrousd,
         now,
       ],
     );
 
     if (inserted.rows.length === 0) {
-      const existing = await client.query<ReservationRow>(
-        `SELECT * FROM ai_budget_reservations WHERE id = $1`,
-        [input.reservationId],
-      );
-      const row = existing.rows[0];
-      if (!row || !reservationMatches(row, input)) {
-        throw new AiReservationConflictError(input.reservationId);
-      }
-      await client.query("COMMIT");
-      return {
-        reservationId: row.id,
-        status: row.status,
-        reservedCostMicrousd: input.reservedCostMicrousd,
-        finalCostMicrousd: parseMicrousd(row.final_cost_microusd, "final cost"),
-        alreadyExisted: true,
-      };
+      throw new AiReservationAlreadyExistsError(input.reservationId);
     }
 
     for (const spec of specs) await insertBucket(client, spec);
@@ -377,7 +367,7 @@ export async function reserveAiBudget(
       }
       const reserved = parseMicrousd(row.reserved_cost_microusd, "reserved spend")!;
       const committed = parseMicrousd(row.committed_cost_microusd, "committed spend")!;
-      if (reserved + committed + input.reservedCostMicrousd > limit) {
+      if (reserved + committed + reservationPrice.costMicrousd > limit) {
         throw new AiBudgetExceededError(spec.scope, spec.period);
       }
     }
@@ -388,16 +378,15 @@ export async function reserveAiBudget(
          SET reserved_cost_microusd = reserved_cost_microusd + $1,
              updated_at = $2
          WHERE id = $3`,
-        [input.reservedCostMicrousd, now, row.id],
+        [reservationPrice.costMicrousd, now, row.id],
       );
     }
     await client.query("COMMIT");
     return {
       reservationId: input.reservationId,
       status: "active",
-      reservedCostMicrousd: input.reservedCostMicrousd,
+      reservedCostMicrousd: reservationPrice.costMicrousd,
       finalCostMicrousd: null,
-      alreadyExisted: false,
     };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -418,11 +407,8 @@ function validateErrorCode(value: string | null | undefined): string | null {
 export async function reconcileAiBudgetReservation(input: {
   reservationId: string;
   outcome: AiReconciliationOutcome;
-  now?: Date;
 }): Promise<ReconcileAiBudgetResult> {
   assertNonEmpty(input.reservationId, "reservationId");
-  const now = input.now ?? new Date();
-  assertDate(now);
   const errorCode = validateErrorCode(input.outcome.errorCode);
   if (input.outcome.type === "actual") {
     if (
@@ -437,6 +423,7 @@ export async function reconcileAiBudgetReservation(input: {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const now = await databaseNow(client);
     const selected = await client.query<ReservationRow>(
       `SELECT * FROM ai_budget_reservations WHERE id = $1 FOR UPDATE`,
       [input.reservationId],
@@ -474,10 +461,21 @@ export async function reconcileAiBudgetReservation(input: {
       reservation.reserved_cost_microusd,
       "reserved cost",
     )!;
-    const actualCost =
-      input.outcome.type === "actual"
-        ? calculateUsageCostMicrousd(reservation.model, input.outcome.usage)
-        : null;
+    if (input.outcome.type === "actual") {
+      validateNormalizedTokenUsage(input.outcome.usage);
+      const ceiling = AI_PROVIDER_TOKEN_CEILINGS[reservation.operation];
+      if (
+        input.outcome.usage.inputTokens > ceiling.inputTokens ||
+        input.outcome.usage.outputTokens > ceiling.outputTokens
+      ) {
+        throw new AiAccountingInvariantError(
+          "provider usage exceeds the cost reserved before the request",
+        );
+      }
+    }
+    const actualCost = input.outcome.type === "actual"
+      ? calculateUsageCostMicrousd(reservation.model, input.outcome.usage)
+      : null;
     if (actualCost && actualCost.pricingVersion !== reservation.pricing_version) {
       throw new AiAccountingInvariantError(
         "reservation pricing version no longer matches the reviewed model rate",
@@ -490,6 +488,11 @@ export async function reconcileAiBudgetReservation(input: {
         : input.outcome.type === "reserved_unknown"
           ? reservedCost
           : 0;
+    if (finalCost > reservedCost) {
+      throw new AiAccountingInvariantError(
+        "final provider cost exceeds the authorized reservation",
+      );
+    }
     const nextStatus: AiReservationStatus =
       input.outcome.type === "actual"
         ? "committed"
@@ -550,6 +553,7 @@ export async function reconcileAiBudgetReservation(input: {
              committed_cost_microusd = committed_cost_microusd + $2,
              updated_at = $3
          WHERE id = $4 AND reserved_cost_microusd >= $1
+           AND committed_cost_microusd + $2 <= configured_limit_microusd
          RETURNING id`,
         [reservedCost, finalCost, now, bucket.id],
       );
@@ -566,10 +570,11 @@ export async function reconcileAiBudgetReservation(input: {
          provider, model, pricing_version, provider_request_id, attempt_status,
          latency_ms, input_tokens, cached_input_tokens, output_tokens,
          reasoning_tokens, total_tokens, reserved_cost_microusd,
-         final_cost_microusd, usage_source, error_code, created_at
+         final_cost_microusd, usage_source, error_code, request_started_at,
+         created_at
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-         $15, $16, $17, $18, $19, $20, $21, $22
+         $15, $16, $17, $18, $19, $20, $21, $22, $23
        ) RETURNING id`,
       [
         reservation.id,
@@ -595,6 +600,7 @@ export async function reconcileAiBudgetReservation(input: {
         finalCost,
         usageSource,
         errorCode,
+        reservation.created_at,
         now,
       ],
     );

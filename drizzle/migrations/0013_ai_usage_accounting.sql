@@ -21,8 +21,10 @@ CREATE TABLE "ai_budget_reservations" (
   CONSTRAINT "ai_budget_reservations_status_check"
     CHECK ("status" IN ('active', 'committed', 'reserved_unknown', 'released')),
   CONSTRAINT "ai_budget_reservations_cost_check"
-    CHECK ("reserved_cost_microusd" >= 0 AND
-      ("final_cost_microusd" IS NULL OR "final_cost_microusd" >= 0))
+    CHECK ("reserved_cost_microusd" > 0 AND
+      ("final_cost_microusd" IS NULL OR
+        ("final_cost_microusd" >= 0 AND
+         "final_cost_microusd" <= "reserved_cost_microusd")))
 );
 
 CREATE INDEX "ai_budget_reservations_user_id_idx"
@@ -55,6 +57,7 @@ CREATE TABLE "ai_usage_events" (
   "final_cost_microusd" bigint NOT NULL,
   "usage_source" text NOT NULL,
   "error_code" text,
+  "request_started_at" timestamptz NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT "ai_usage_events_operation_check"
     CHECK ("operation" IN ('transaction_classification', 'csv_format_detection')),
@@ -71,7 +74,8 @@ CREATE TABLE "ai_usage_events" (
       "total_tokens" = "input_tokens" + "output_tokens"
     ),
   CONSTRAINT "ai_usage_events_cost_check"
-    CHECK ("reserved_cost_microusd" >= 0 AND "final_cost_microusd" >= 0)
+    CHECK ("reserved_cost_microusd" > 0 AND "final_cost_microusd" >= 0 AND
+      "final_cost_microusd" <= "reserved_cost_microusd")
 );
 
 CREATE UNIQUE INDEX "ai_usage_events_reservation_id_unique"
@@ -82,6 +86,8 @@ CREATE UNIQUE INDEX "ai_usage_events_provider_request_unique"
 CREATE INDEX "ai_usage_events_user_id_idx" ON "ai_usage_events" ("user_id");
 CREATE INDEX "ai_usage_events_account_id_idx" ON "ai_usage_events" ("account_id");
 CREATE INDEX "ai_usage_events_upload_id_idx" ON "ai_usage_events" ("upload_id");
+CREATE INDEX "ai_usage_events_request_started_at_idx"
+  ON "ai_usage_events" ("request_started_at");
 CREATE INDEX "ai_usage_events_created_at_idx" ON "ai_usage_events" ("created_at");
 
 CREATE TABLE "ai_budget_buckets" (
@@ -124,9 +130,10 @@ CREATE UNIQUE INDEX "ai_concurrency_leases_holder_key_unique"
 CREATE INDEX "ai_concurrency_leases_expires_at_idx"
   ON "ai_concurrency_leases" ("expires_at");
 
--- Finalized usage rows are append-only. Referential SET NULL updates are the
--- sole exception so deleting a user/account removes personal attribution while
--- preserving anonymous application spend totals.
+-- Finalized usage rows are append-only. Nested foreign-key SET NULL actions are
+-- the sole exception so deleting an owner removes attribution while preserving
+-- anonymous application spend totals. A direct UPDATE always runs at trigger
+-- depth 1 and is rejected, including attempts to erase the non-FK job ID.
 CREATE OR REPLACE FUNCTION protect_ai_usage_event_immutability()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -134,13 +141,13 @@ BEGIN
     RAISE EXCEPTION 'ai_usage_events rows are immutable';
   END IF;
 
-  IF (to_jsonb(NEW) - ARRAY['user_id', 'account_id', 'upload_id', 'job_id'])
+  IF pg_trigger_depth() <= 1
+     OR (to_jsonb(NEW) - ARRAY['user_id', 'account_id', 'upload_id'])
        IS DISTINCT FROM
-     (to_jsonb(OLD) - ARRAY['user_id', 'account_id', 'upload_id', 'job_id'])
+     (to_jsonb(OLD) - ARRAY['user_id', 'account_id', 'upload_id'])
      OR NOT (NEW.user_id IS NOT DISTINCT FROM OLD.user_id OR NEW.user_id IS NULL)
      OR NOT (NEW.account_id IS NOT DISTINCT FROM OLD.account_id OR NEW.account_id IS NULL)
      OR NOT (NEW.upload_id IS NOT DISTINCT FROM OLD.upload_id OR NEW.upload_id IS NULL)
-     OR NOT (NEW.job_id IS NOT DISTINCT FROM OLD.job_id OR NEW.job_id IS NULL)
   THEN
     RAISE EXCEPTION 'ai_usage_events rows are immutable';
   END IF;

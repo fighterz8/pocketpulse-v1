@@ -4,6 +4,7 @@ import {
   OPENAI_PROVIDER_MAX_OUTPUT_TOKENS,
   ProviderAbortedError,
   ProviderDisabledError,
+  ProviderInputTooLargeError,
   ProviderResponseValidationError,
   ProviderTimeoutError,
   createOpenAiChatTransport,
@@ -187,6 +188,34 @@ describe("OpenAI structured provider boundary", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("rejects input larger than the pre-authorized cost ceiling", async () => {
+    const transport = vi.fn(async () => validResponse());
+    const oversized = request();
+    oversized.messages = [
+      { role: "user", content: "x".repeat(25_000) },
+    ];
+
+    await expect(
+      executeOpenAiStructuredRequest(oversized, {
+        isEnabled: true,
+        transport,
+      }),
+    ).rejects.toBeInstanceOf(ProviderInputTooLargeError);
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a timeout that could outlive the global provider lease", async () => {
+    const transport = vi.fn(async () => validResponse());
+    await expect(
+      executeOpenAiStructuredRequest(request(), {
+        isEnabled: true,
+        transport,
+        timeoutMs: OPENAI_PROVIDER_TIMEOUT_MS + 1,
+      }),
+    ).rejects.toThrow(/timeout must be an integer/i);
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it("rejects an already-aborted caller signal before transport", async () => {

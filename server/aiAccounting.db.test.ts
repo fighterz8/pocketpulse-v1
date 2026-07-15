@@ -11,7 +11,7 @@ describeDatabase("AI budget accounting", () => {
   let accounting: typeof import("./aiAccounting.js");
 
   beforeAll(async () => {
-    pool = new pg.Pool({ connectionString: databaseUrl, max: 12 });
+    pool = new pg.Pool({ connectionString: databaseUrl, max: 36 });
     await migrate(drizzle(pool), { migrationsFolder: "./drizzle/migrations" });
     accounting = await import("./aiAccounting.js");
   });
@@ -29,155 +29,157 @@ describeDatabase("AI budget accounting", () => {
     return result.rows[0]!.id;
   }
 
-  function uniqueAccountingDate(): Date {
-    const year = 2200 + Math.floor(Math.random() * 7000);
-    const month = Math.floor(Math.random() * 12);
-    const day = 1 + Math.floor(Math.random() * 25);
-    return new Date(Date.UTC(year, month, day, 12));
-  }
-
-  function periodStarts(now: Date): [string, string] {
-    const iso = now.toISOString();
-    return [iso.slice(0, 10), `${iso.slice(0, 7)}-01`];
+  function reservationInput(
+    reservationId: string,
+    userId: number,
+    operation: "transaction_classification" | "csv_format_detection" =
+      "transaction_classification",
+  ) {
+    return {
+      reservationId,
+      userId,
+      operation,
+      model: "gpt-5-nano",
+    } as const;
   }
 
   it("atomically prevents concurrent reservations from overspending", async () => {
     const userId = await createUser("concurrent");
-    const now = uniqueAccountingDate();
-    const limits = {
-      userDayMicrousd: 100,
-      userMonthMicrousd: 100,
-      appDayMicrousd: 100,
-      appMonthMicrousd: 100,
-    };
-
     const attempts = await Promise.allSettled(
-      Array.from({ length: 10 }, (_, index) =>
-        accounting.reserveAiBudget({
-          reservationId: `concurrent-${userId}-${index}`,
-          userId,
-          operation: "transaction_classification",
-          provider: "openai",
-          model: "gpt-5-nano",
-          pricingVersion: "openai-standard-2026-07-15",
-          reservedCostMicrousd: 20,
-          limits,
-          now,
-        }),
+      Array.from({ length: 28 }, (_, index) =>
+        accounting.reserveAiBudget(
+          reservationInput(`concurrent-${userId}-${index}`, userId),
+        ),
       ),
     );
 
     const fulfilled = attempts.filter((result) => result.status === "fulfilled");
     const rejected = attempts.filter((result) => result.status === "rejected");
-    expect(fulfilled).toHaveLength(5);
-    expect(rejected).toHaveLength(5);
-    for (const result of rejected) {
-      expect((result as PromiseRejectedResult).reason).toBeInstanceOf(
-        accounting.AiBudgetExceededError,
-      );
-    }
+    expect(fulfilled).toHaveLength(27);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+      accounting.AiBudgetExceededError,
+    );
 
-    const buckets = await pool.query<{
-      reserved: string;
-      committed: string;
-    }>(
-      `SELECT reserved_cost_microusd AS reserved,
-              committed_cost_microusd AS committed
+    const buckets = await pool.query<{ reserved: string }>(
+      `SELECT reserved_cost_microusd AS reserved
        FROM ai_budget_buckets
-       WHERE period_start = ANY($1::date[])
-         AND (scope = 'app' OR user_id = $2)
-       ORDER BY scope, period`,
-      [periodStarts(now), userId],
+       WHERE scope = 'user' AND user_id = $1
+       ORDER BY period`,
+      [userId],
     );
-    expect(buckets.rows).toHaveLength(4);
-    expect(buckets.rows).toEqual(
-      Array.from({ length: 4 }, () => ({ reserved: "100", committed: "0" })),
-    );
+    expect(buckets.rows).toEqual([{ reserved: "48600" }, { reserved: "48600" }]);
   });
 
-  it("rolls every scope back when any budget scope rejects", async () => {
+  it("rolls every scope back when one scope rejects", async () => {
     const userId = await createUser("rollback");
+    await pool.query(
+      `INSERT INTO ai_budget_buckets (
+         scope, user_id, period, period_start, configured_limit_microusd,
+         reserved_cost_microusd, committed_cost_microusd
+       ) VALUES ('user', $1, 'day', CURRENT_DATE, 50000, 49000, 0)`,
+      [userId],
+    );
 
-    const now = uniqueAccountingDate();
     await expect(
-      accounting.reserveAiBudget({
-        reservationId: `rollback-${userId}`,
-        userId,
-        operation: "transaction_classification",
-        provider: "openai",
-        model: "gpt-5-nano",
-        pricingVersion: "openai-standard-2026-07-15",
-        reservedCostMicrousd: 20,
-        limits: {
-          userDayMicrousd: 10,
-          userMonthMicrousd: 10,
-          appDayMicrousd: 1_000,
-          appMonthMicrousd: 1_000,
-        },
-        now,
-      }),
+      accounting.reserveAiBudget(reservationInput(`rollback-${userId}`, userId)),
     ).rejects.toBeInstanceOf(accounting.AiBudgetExceededError);
 
-    const result = await pool.query<{ reserved: string }>(
-      `SELECT COALESCE(SUM(reserved_cost_microusd), 0)::text AS reserved
-       FROM ai_budget_buckets
-       WHERE period_start = ANY($1::date[])
-         AND (scope = 'app' OR user_id = $2)`,
-      [periodStarts(now), userId],
+    const reservation = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM ai_budget_reservations WHERE user_id = $1`,
+      [userId],
     );
-    expect(result.rows[0]!.reserved).toBe("0");
+    const buckets = await pool.query<{ period: string; reserved: string }>(
+      `SELECT period, reserved_cost_microusd AS reserved
+       FROM ai_budget_buckets WHERE scope = 'user' AND user_id = $1`,
+      [userId],
+    );
+    expect(reservation.rows[0]!.count).toBe("0");
+    expect(buckets.rows).toEqual([{ period: "day", reserved: "49000" }]);
   });
 
-  it("rejects financial-account attribution owned by another user", async () => {
+  it("fails closed for unknown pricing before creating a reservation", async () => {
+    const userId = await createUser("unknown-model");
+    const reservationId = `unknown-model-${userId}`;
+    await expect(
+      accounting.reserveAiBudget({
+        ...reservationInput(reservationId, userId),
+        model: "future-unpriced-model",
+      }),
+    ).rejects.toThrow(/no reviewed pricing/i);
+    const row = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM ai_budget_reservations WHERE id = $1`,
+      [reservationId],
+    );
+    expect(row.rows[0]!.count).toBe("0");
+  });
+
+  it("authorizes a reservation ID only once", async () => {
+    const userId = await createUser("single-use");
+    const reservationId = `single-use-${userId}`;
+    await accounting.reserveAiBudget(reservationInput(reservationId, userId));
+    await expect(
+      accounting.reserveAiBudget(reservationInput(reservationId, userId)),
+    ).rejects.toBeInstanceOf(accounting.AiReservationAlreadyExistsError);
+
+    const bucket = await pool.query<{ reserved: string }>(
+      `SELECT reserved_cost_microusd AS reserved FROM ai_budget_buckets
+       WHERE scope = 'user' AND user_id = $1 AND period = 'day'`,
+      [userId],
+    );
+    expect(bucket.rows[0]!.reserved).toBe("1800");
+  });
+
+  it("uses the database clock rather than a caller-supplied timestamp", async () => {
+    const userId = await createUser("clock");
+    const reservationId = `clock-${userId}`;
+    await accounting.reserveAiBudget({
+      ...reservationInput(reservationId, userId),
+      now: new Date("1999-01-01T00:00:00Z"),
+    } as Parameters<typeof accounting.reserveAiBudget>[0]);
+    const row = await pool.query<{ recent: boolean }>(
+      `SELECT created_at > clock_timestamp() - interval '1 minute' AS recent
+       FROM ai_budget_reservations WHERE id = $1`,
+      [reservationId],
+    );
+    expect(row.rows[0]!.recent).toBe(true);
+  });
+
+  it("rejects account and upload attribution that does not belong to the user", async () => {
     const userId = await createUser("owner");
     const otherUserId = await createUser("other-owner");
-    const account = await pool.query<{ id: number }>(
-      `INSERT INTO accounts (user_id, label) VALUES ($1, 'Other Account') RETURNING id`,
+    const otherAccount = await pool.query<{ id: number }>(
+      `INSERT INTO accounts (user_id, label) VALUES ($1, 'Other') RETURNING id`,
       [otherUserId],
     );
 
     await expect(
       accounting.reserveAiBudget({
-        reservationId: `wrong-owner-${userId}`,
-        userId,
-        accountId: account.rows[0]!.id,
-        operation: "transaction_classification",
-        provider: "openai",
-        model: "gpt-5-nano",
-        pricingVersion: "openai-standard-2026-07-15",
-        reservedCostMicrousd: 20,
-        limits: {
-          userDayMicrousd: 100,
-          userMonthMicrousd: 100,
-          appDayMicrousd: 100,
-          appMonthMicrousd: 100,
-        },
-        now: uniqueAccountingDate(),
+        ...reservationInput(`wrong-account-${userId}`, userId),
+        accountId: otherAccount.rows[0]!.id,
+      }),
+    ).rejects.toBeInstanceOf(accounting.AiAttributionMismatchError);
+
+    const inconsistentUpload = await pool.query<{ id: number }>(
+      `INSERT INTO uploads (user_id, account_id, filename, status)
+       VALUES ($1, $2, 'inconsistent.csv', 'complete') RETURNING id`,
+      [userId, otherAccount.rows[0]!.id],
+    );
+    await expect(
+      accounting.reserveAiBudget({
+        ...reservationInput(`wrong-upload-${userId}`, userId),
+        uploadId: inconsistentUpload.rows[0]!.id,
       }),
     ).rejects.toBeInstanceOf(accounting.AiAttributionMismatchError);
   });
 
-  it("reconciles actual usage exactly and is idempotent", async () => {
+  it("reconciles valid actual usage exactly and only once", async () => {
     const userId = await createUser("actual");
     const reservationId = `actual-${userId}`;
-    const now = uniqueAccountingDate();
-    const limits = {
-      userDayMicrousd: 1_000,
-      userMonthMicrousd: 1_000,
-      appDayMicrousd: 1_000,
-      appMonthMicrousd: 1_000,
-    };
-    await accounting.reserveAiBudget({
-      reservationId,
-      userId,
-      operation: "transaction_classification",
-      provider: "openai",
-      model: "gpt-5-nano",
-      pricingVersion: "openai-standard-2026-07-15",
-      reservedCostMicrousd: 200,
-      limits,
-      now,
-    });
+    const reservation = await accounting.reserveAiBudget(
+      reservationInput(reservationId, userId),
+    );
+    expect(reservation.reservedCostMicrousd).toBe(1800);
 
     const first = await accounting.reconcileAiBudgetReservation({
       reservationId,
@@ -195,14 +197,11 @@ describeDatabase("AI budget accounting", () => {
           totalTokens: 1_200,
         },
       },
-      now: new Date(now.getTime() + 1_000),
     });
     const second = await accounting.reconcileAiBudgetReservation({
       reservationId,
       outcome: { type: "reserved_unknown", errorCode: "SHOULD_NOT_REPLACE" },
-      now: new Date(now.getTime() + 2_000),
     });
-
     expect(first).toMatchObject({
       status: "committed",
       finalCostMicrousd: 112,
@@ -218,67 +217,85 @@ describeDatabase("AI budget accounting", () => {
       `SELECT reserved_cost_microusd AS reserved,
               committed_cost_microusd AS committed
        FROM ai_budget_buckets
-       WHERE period_start = ANY($1::date[])
-         AND (scope = 'app' OR user_id = $2)
-       ORDER BY scope, period`,
-      [periodStarts(now), userId],
+       WHERE scope = 'user' AND user_id = $1 ORDER BY period`,
+      [userId],
     );
-    expect(buckets.rows).toEqual(
-      Array.from({ length: 4 }, () => ({ reserved: "0", committed: "112" })),
-    );
-    const events = await pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM ai_usage_events
-       WHERE reservation_id = $1`,
+    expect(buckets.rows).toEqual([
+      { reserved: "0", committed: "112" },
+      { reserved: "0", committed: "112" },
+    ]);
+  });
+
+  it("rejects internally inconsistent usage without mutating the reservation", async () => {
+    const userId = await createUser("invalid-usage");
+    const reservationId = `invalid-usage-${userId}`;
+    await accounting.reserveAiBudget(reservationInput(reservationId, userId));
+
+    await expect(
+      accounting.reconcileAiBudgetReservation({
+        reservationId,
+        outcome: {
+          type: "actual",
+          attemptStatus: "succeeded",
+          usage: {
+            inputTokens: 1_000_000,
+            cachedInputTokens: 0,
+            uncachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 1_000_000,
+          },
+        },
+      }),
+    ).rejects.toThrow(/uncached input tokens/i);
+
+    const row = await pool.query<{ status: string; events: string }>(
+      `SELECT r.status,
+              (SELECT COUNT(*) FROM ai_usage_events e WHERE e.reservation_id = r.id)::text AS events
+       FROM ai_budget_reservations r WHERE r.id = $1`,
       [reservationId],
     );
-    expect(events.rows[0]!.count).toBe("1");
+    expect(row.rows[0]).toEqual({ status: "active", events: "0" });
+  });
+
+  it("rejects provider usage above the reserved operation ceiling", async () => {
+    const userId = await createUser("over-ceiling");
+    const reservationId = `over-ceiling-${userId}`;
+    await accounting.reserveAiBudget(reservationInput(reservationId, userId));
+    await expect(
+      accounting.reconcileAiBudgetReservation({
+        reservationId,
+        outcome: {
+          type: "actual",
+          attemptStatus: "succeeded",
+          usage: {
+            inputTokens: 20_001,
+            cachedInputTokens: 0,
+            uncachedInputTokens: 20_001,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            totalTokens: 20_001,
+          },
+        },
+      }),
+    ).rejects.toBeInstanceOf(accounting.AiAccountingInvariantError);
   });
 
   it("conservatively commits the full reservation when billing is unknown", async () => {
     const userId = await createUser("unknown");
     const reservationId = `unknown-${userId}`;
-    const now = uniqueAccountingDate();
-    await accounting.reserveAiBudget({
-      reservationId,
-      userId,
-      operation: "csv_format_detection",
-      provider: "openai",
-      model: "gpt-5-nano",
-      pricingVersion: "openai-standard-2026-07-15",
-      reservedCostMicrousd: 75,
-      limits: {
-        userDayMicrousd: 500,
-        userMonthMicrousd: 500,
-        appDayMicrousd: 500,
-        appMonthMicrousd: 500,
-      },
-      now,
-    });
+    const reservation = await accounting.reserveAiBudget(
+      reservationInput(reservationId, userId, "csv_format_detection"),
+    );
+    expect(reservation.reservedCostMicrousd).toBe(440);
 
     const result = await accounting.reconcileAiBudgetReservation({
       reservationId,
       outcome: { type: "reserved_unknown", errorCode: "PROVIDER_TIMEOUT" },
-      now: new Date(now.getTime() + 60_000),
     });
-
     expect(result).toMatchObject({
       status: "reserved_unknown",
-      finalCostMicrousd: 75,
-    });
-    const event = await pool.query<{
-      source: string;
-      final_cost: string;
-      error_code: string;
-    }>(
-      `SELECT usage_source AS source, final_cost_microusd AS final_cost,
-              error_code
-       FROM ai_usage_events WHERE reservation_id = $1`,
-      [reservationId],
-    );
-    expect(event.rows[0]).toEqual({
-      source: "reserved_unknown",
-      final_cost: "75",
-      error_code: "PROVIDER_TIMEOUT",
+      finalCostMicrousd: 440,
     });
   });
 });

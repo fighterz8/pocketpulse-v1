@@ -24,59 +24,27 @@ describeDatabase("AI provider concurrency leases", () => {
     await pool?.end();
   });
 
-  it("enforces the app-wide limit across concurrent acquisitions", async () => {
-    const now = new Date();
+  it("enforces the fixed app-wide limit across concurrent acquisitions", async () => {
+    expect(leases.AI_PROVIDER_MAX_CONCURRENT).toBe(2);
+    expect(leases.AI_PROVIDER_LEASE_TTL_MS).toBeGreaterThan(40_000);
     const attempts = await Promise.all(
       Array.from({ length: 10 }, (_, index) =>
-        leases.acquireAiConcurrencyLease({
-          leaseId: `lease-${index}`,
-          holderKey: `holder-${index}`,
-          maxConcurrent: 2,
-          ttlMs: 45_000,
-          now,
-        }),
+        leases.acquireAiConcurrencyLease({ holderKey: `holder-${index}` }),
       ),
     );
-
     expect(attempts.filter((attempt) => attempt.acquired)).toHaveLength(2);
     expect(attempts.filter((attempt) => !attempt.acquired)).toHaveLength(8);
-    const count = await pool.query<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM ai_concurrency_leases",
-    );
-    expect(count.rows[0]!.count).toBe("2");
   });
 
-  it("recovers expired leases before enforcing the limit", async () => {
-    const now = new Date();
-    await leases.acquireAiConcurrencyLease({
-      leaseId: "expired-a",
-      holderKey: "expired-holder-a",
-      maxConcurrent: 2,
-      ttlMs: 1_000,
-      now,
-    });
-    await leases.acquireAiConcurrencyLease({
-      leaseId: "expired-b",
-      holderKey: "expired-holder-b",
-      maxConcurrent: 2,
-      ttlMs: 1_000,
-      now,
-    });
-    const blocked = await leases.acquireAiConcurrencyLease({
-      leaseId: "blocked",
-      holderKey: "blocked-holder",
-      maxConcurrent: 2,
-      ttlMs: 1_000,
-      now,
-    });
-    expect(blocked.acquired).toBe(false);
-
+  it("recovers expired leases using the database clock", async () => {
+    await pool.query(
+      `INSERT INTO ai_concurrency_leases (id, holder_key, acquired_at, expires_at)
+       VALUES
+         ('expired-a', 'expired-holder-a', clock_timestamp() - interval '2 minutes', clock_timestamp() - interval '1 minute'),
+         ('expired-b', 'expired-holder-b', clock_timestamp() - interval '2 minutes', clock_timestamp() - interval '1 minute')`,
+    );
     const recovered = await leases.acquireAiConcurrencyLease({
-      leaseId: "recovered",
       holderKey: "recovered-holder",
-      maxConcurrent: 2,
-      ttlMs: 1_000,
-      now: new Date(now.getTime() + 1_001),
     });
     expect(recovered).toMatchObject({ acquired: true, alreadyHeld: false });
     const rows = await pool.query<{ holder_key: string }>(
@@ -85,36 +53,50 @@ describeDatabase("AI provider concurrency leases", () => {
     expect(rows.rows).toEqual([{ holder_key: "recovered-holder" }]);
   });
 
-  it("is idempotent for the same holder and requires both keys to release", async () => {
-    const now = new Date();
-    const first = await leases.acquireAiConcurrencyLease({
-      leaseId: "same-lease",
-      holderKey: "same-holder",
-      maxConcurrent: 1,
-      ttlMs: 45_000,
-      now,
-    });
-    const second = await leases.acquireAiConcurrencyLease({
-      leaseId: "same-lease",
-      holderKey: "same-holder",
-      maxConcurrent: 1,
-      ttlMs: 45_000,
-      now: new Date(now.getTime() + 10),
-    });
+  it("is idempotent for a live holder and requires its generated lease ID to release", async () => {
+    const first = await leases.acquireAiConcurrencyLease({ holderKey: "same-holder" });
+    const second = await leases.acquireAiConcurrencyLease({ holderKey: "same-holder" });
     expect(first).toMatchObject({ acquired: true, alreadyHeld: false });
-    expect(second).toMatchObject({ acquired: true, alreadyHeld: true });
+    expect(second).toMatchObject({
+      acquired: false,
+      alreadyHeld: true,
+      leaseId: first.leaseId,
+    });
 
     expect(
       await leases.releaseAiConcurrencyLease({
-        leaseId: "wrong-lease",
+        leaseId: "wrong-generation",
         holderKey: "same-holder",
       }),
     ).toBe(false);
     expect(
       await leases.releaseAiConcurrencyLease({
-        leaseId: "same-lease",
+        leaseId: first.leaseId!,
         holderKey: "same-holder",
       }),
     ).toBe(true);
+  });
+
+  it("prevents a stale release from deleting a replacement lease", async () => {
+    const first = await leases.acquireAiConcurrencyLease({ holderKey: "aba-holder" });
+    await pool.query(
+      `UPDATE ai_concurrency_leases SET expires_at = clock_timestamp() - interval '1 second'
+       WHERE id = $1`,
+      [first.leaseId],
+    );
+    const replacement = await leases.acquireAiConcurrencyLease({
+      holderKey: "aba-holder",
+    });
+    expect(replacement.leaseId).not.toBe(first.leaseId);
+    expect(
+      await leases.releaseAiConcurrencyLease({
+        leaseId: first.leaseId!,
+        holderKey: "aba-holder",
+      }),
+    ).toBe(false);
+    const live = await pool.query<{ id: string }>(
+      `SELECT id FROM ai_concurrency_leases WHERE holder_key = 'aba-holder'`,
+    );
+    expect(live.rows[0]!.id).toBe(replacement.leaseId);
   });
 });

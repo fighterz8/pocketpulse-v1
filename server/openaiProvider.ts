@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import {
+  AI_PROVIDER_TOKEN_CEILINGS,
   InvalidProviderUsageError,
   calculateUsageCostMicrousd,
   getModelPricing,
@@ -14,8 +15,10 @@ export type OpenAiOperation =
 
 export const OPENAI_PROVIDER_TIMEOUT_MS = 40_000;
 export const OPENAI_PROVIDER_MAX_OUTPUT_TOKENS: Record<OpenAiOperation, number> = {
-  transaction_classification: 2_000,
-  csv_format_detection: 600,
+  transaction_classification:
+    AI_PROVIDER_TOKEN_CEILINGS.transaction_classification.outputTokens,
+  csv_format_detection:
+    AI_PROVIDER_TOKEN_CEILINGS.csv_format_detection.outputTokens,
 };
 
 type OpenAiMessage = {
@@ -87,6 +90,15 @@ export class ProviderTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`AI provider request exceeded its ${timeoutMs}ms time limit`);
     this.name = "ProviderTimeoutError";
+  }
+}
+
+export class ProviderInputTooLargeError extends Error {
+  readonly code = "PROVIDER_INPUT_TOO_LARGE" as const;
+
+  constructor(operation: OpenAiOperation) {
+    super(`AI ${operation} request exceeds its reserved input ceiling`);
+    this.name = "ProviderInputTooLargeError";
   }
 }
 
@@ -243,8 +255,32 @@ export async function executeOpenAiStructuredRequest<T>(
   if (options.signal?.aborted) throw new ProviderAbortedError();
 
   const timeoutMs = options.timeoutMs ?? OPENAI_PROVIDER_TIMEOUT_MS;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new RangeError("provider timeout must be a positive safe integer");
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > OPENAI_PROVIDER_TIMEOUT_MS
+  ) {
+    throw new RangeError(
+      `provider timeout must be an integer from 1 through ${OPENAI_PROVIDER_TIMEOUT_MS}`,
+    );
+  }
+
+  const body: OpenAiChatRequestBody = {
+    model: request.model,
+    messages: request.messages,
+    response_format: request.responseFormat,
+    reasoning_effort: "minimal",
+    max_completion_tokens:
+      OPENAI_PROVIDER_MAX_OUTPUT_TOKENS[request.operation],
+  };
+  // A token represents at least one encoded byte. Keeping the complete request
+  // body below the reserved token ceiling is deliberately conservative and
+  // guarantees the pre-call cost reservation cannot be under-sized.
+  if (
+    Buffer.byteLength(JSON.stringify(body), "utf8") >
+    AI_PROVIDER_TOKEN_CEILINGS[request.operation].inputTokens
+  ) {
+    throw new ProviderInputTooLargeError(request.operation);
   }
 
   const now = options.now ?? Date.now;
@@ -261,14 +297,7 @@ export async function executeOpenAiStructuredRequest<T>(
   let rawResponse: unknown;
   try {
     rawResponse = await options.transport(
-      {
-        model: request.model,
-        messages: request.messages,
-        response_format: request.responseFormat,
-        reasoning_effort: "minimal",
-        max_completion_tokens:
-          OPENAI_PROVIDER_MAX_OUTPUT_TOKENS[request.operation],
-      },
+      body,
       { maxRetries: 0, timeout: timeoutMs, signal: controller.signal },
     );
   } catch (cause) {
