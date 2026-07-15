@@ -45,8 +45,8 @@ export function Landing() {
         <section className="landing-hero">
           <div className="landing-container">
             <div className="landing-hero-copy">
-              <p className="landing-eyebrow">Private beta · CSV-powered spending clarity</p>
-              <h1>Your bank statements should tell you more.</h1>
+              <p className="landing-eyebrow"><span /> Private beta · CSV-powered spending clarity</p>
+              <h1>Your bank statements should <em>tell you more.</em></h1>
               <p className="landing-lede">
                 Pocket Pulse turns exported transactions into a clean ledger, a monthly cash-flow view,
                 recurring-expense review, and evidence-backed spending patterns—without connecting your bank account.
@@ -60,6 +60,10 @@ export function Landing() {
                 <li><CheckMark /> Every finding stays reviewable</li>
                 <li><CheckMark /> Your labels remain editable</li>
               </ul>
+              <p className="landing-hero-note">
+                <span>Designed for deliberate review</span>
+                Your transactions remain the source of truth.
+              </p>
             </div>
             <ProductPreview />
           </div>

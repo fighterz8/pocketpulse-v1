@@ -33,7 +33,13 @@ export function ProductPreview() {
       className="landing-product-preview"
       aria-label="Pocket Pulse dashboard showing monthly cash flow, recurring expenses, a Leak Hunter finding, and its matching transactions"
     >
+      <div className="landing-product-aura" aria-hidden="true" />
       <div className="landing-product-window" aria-hidden="true">
+        <div className="landing-product-chrome">
+          <span className="landing-window-controls"><i /><i /><i /></span>
+          <span>pocket-pulse.com</span>
+          <span className="landing-window-state"><i /> Private workspace</span>
+        </div>
         <div className="landing-product-topbar">
           <div className="landing-product-brand">
             <span><PulseMark /></span>
@@ -142,6 +148,14 @@ export function ProductPreview() {
             </div>
           </section>
         </div>
+      </div>
+      <div className="landing-product-callout is-evidence" aria-hidden="true">
+        <span>Evidence attached</span>
+        <strong>6 matching transactions</strong>
+      </div>
+      <div className="landing-product-callout is-private" aria-hidden="true">
+        <span>Connection</span>
+        <strong>CSV only · No bank login</strong>
       </div>
       <figcaption className="sr-only">
         A sample Pocket Pulse workspace where dashboard totals, recurring expenses,
