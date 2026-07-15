@@ -153,6 +153,23 @@ describe("classifyPipeline — skipAi option", () => {
     expect(out!.labelSource).not.toBe("ai");
   });
 
+  it("queues an uncategorized refund for category enrichment without losing its class", async () => {
+    const [out] = await classifyPipeline(
+      [{ rawDescription: "AMAZON REFUND", amount: 40, ambiguous: false }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      flowType: "inflow",
+      transactionClass: "refund",
+      category: "other",
+      aiAssisted: true,
+      needsAi: true,
+      labelSource: "rule",
+    });
+    expect(aiSpy).not.toHaveBeenCalled();
+  });
+
   it("clears needsAi for rows resolved by a confident structural rule", async () => {
     // "RESTAURANT" is a structural keyword (dining, 0.80 confidence) — above
     // the 0.5 threshold and not "other", so the rule pass alone resolves it.
@@ -235,7 +252,23 @@ describe("classifyPipeline — skipAi option", () => {
 
     expect(out!.fromCache).toBe(true);
     expect(out!.labelSource).toBe("cache");
+    expect(out!.aiAssisted).toBe(true);
     expect(out!.needsAi).toBe(true);
+    expect(aiSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not send a structurally identified transfer to AI just because its category is other", async () => {
+    const [out] = await classifyPipeline(
+      [{ rawDescription: "ZELLE TRANSFER TO SAVINGS", amount: -500 }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      transactionClass: "transfer",
+      category: "other",
+      aiAssisted: false,
+      needsAi: false,
+    });
     expect(aiSpy).not.toHaveBeenCalled();
   });
 

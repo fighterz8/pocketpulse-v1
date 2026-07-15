@@ -78,6 +78,8 @@ describe("classifyTransaction", () => {
   it("classifies refunds", () => {
     const result = classifyTransaction("REFUND FROM AMAZON", 29.99);
     expect(result.transactionClass).toBe("refund");
+    expect(result.category).toBe("other");
+    expect(result.aiAssisted).toBe(true);
   });
 
   it("defaults unknown merchants to 'other'", () => {

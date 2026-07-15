@@ -189,7 +189,17 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
   // Pass 11: income lock
   if (tc === "income") { category = "income"; flowType = "inflow"; }
 
-  const aiAssisted = !matchedRule && recurrenceType === "one-time" && !directionHint && tc !== "transfer" && tc !== "refund";
+  // A refund is an inflow that reverses a prior expense, not income. Until a
+  // merchant rule/cache/AI can recover the original spending category, keep
+  // the category explicitly unresolved so the pipeline queues enrichment.
+  if (tc === "refund" && category === "income") category = "other";
+
+  const unresolvedCategory = category === "other" && tc !== "transfer";
+  const aiAssisted =
+    !matchedRule &&
+    tc !== "transfer" &&
+    (unresolvedCategory ||
+      (recurrenceType === "one-time" && !directionHint));
   if (!matchedRule) {
     labelConfidence = aiAssisted ? 0.55 : 0.75;
     labelReason = aiAssisted ? "no keyword matched" : `amount-sign → ${category}`;

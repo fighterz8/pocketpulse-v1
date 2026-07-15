@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isClassCompatibleWithFlow,
+  reconcileAiTransactionClassification,
   reconcileTransactionDirection,
 } from "./transactionDirection.js";
 
@@ -41,5 +42,29 @@ describe("transaction direction invariants", () => {
         proposedCategory: "shopping",
       }),
     ).toEqual({ transactionClass: "refund", category: "shopping" });
+  });
+
+  it("lets AI enrich a refund category without rewriting the refund class", () => {
+    expect(
+      reconcileAiTransactionClassification({
+        flowType: "inflow",
+        currentClass: "refund",
+        currentCategory: "other",
+        proposedClass: "income",
+        proposedCategory: "shopping",
+      }),
+    ).toEqual({ transactionClass: "refund", category: "shopping" });
+  });
+
+  it("rejects an income category when AI reviews a known refund", () => {
+    expect(
+      reconcileAiTransactionClassification({
+        flowType: "inflow",
+        currentClass: "refund",
+        currentCategory: "other",
+        proposedClass: "income",
+        proposedCategory: "income",
+      }),
+    ).toEqual({ transactionClass: "refund", category: "other" });
   });
 });

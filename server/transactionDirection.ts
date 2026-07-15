@@ -70,3 +70,35 @@ export function reconcileTransactionDirection(input: {
 
   return { transactionClass, category };
 }
+
+/**
+ * Apply an AI suggestion without allowing it to erase a structurally detected
+ * refund. The model may enrich the original spending category, but an explicit
+ * refund/reversal signal remains stronger evidence for class than the model.
+ */
+export function reconcileAiTransactionClassification(input: {
+  flowType: TransactionFlow;
+  currentClass: string;
+  currentCategory: string;
+  proposedClass: string;
+  proposedCategory: string;
+}): DirectionalClassification {
+  if (input.flowType === "inflow" && input.currentClass === "refund") {
+    const category =
+      input.proposedCategory === "income"
+        ? input.currentCategory
+        : input.proposedCategory;
+    return {
+      transactionClass: "refund",
+      category: category === "income" ? "other" : category,
+    };
+  }
+
+  return reconcileTransactionDirection({
+    flowType: input.flowType,
+    proposedClass: input.proposedClass,
+    proposedCategory: input.proposedCategory,
+    fallbackClass: input.currentClass,
+    fallbackCategory: input.currentCategory,
+  });
+}

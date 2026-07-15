@@ -182,6 +182,31 @@ describe("runUploadAiWorker", () => {
     });
   });
 
+  it("preserves an explicit refund class while AI enriches its category", async () => {
+    mockedCount.mockResolvedValue(1);
+    mockedList.mockResolvedValue([
+      makeRow({
+        id: 14,
+        amount: "40.00",
+        flowType: "inflow",
+        transactionClass: "refund",
+        category: "other",
+      }),
+    ]);
+    mockedAi.mockResolvedValue(
+      new Map([[0, makeAiResult(0, { transactionClass: "income", category: "shopping" })]]) as never,
+    );
+
+    const out = await runUploadAiWorker(7, 302);
+
+    expect(out.status).toBe("complete");
+    expect(mockedBulkUpdate.mock.calls[0]![1][0]).toMatchObject({
+      id: 14,
+      transactionClass: "refund",
+      category: "shopping",
+    });
+  });
+
   it("flips status to failed when every chunk returns no AI results", async () => {
     mockedCount.mockResolvedValue(1);
     mockedList.mockResolvedValue([makeRow()]);

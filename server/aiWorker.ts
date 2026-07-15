@@ -44,7 +44,7 @@ import {
   type BulkTransactionUpdate,
 } from "./storage.js";
 import type { MerchantClassification } from "../shared/schema.js";
-import { reconcileTransactionDirection } from "./transactionDirection.js";
+import { reconcileAiTransactionClassification } from "./transactionDirection.js";
 
 /** Rows per AI batch call. Matches the chunk size in ai-classifier.ts. */
 const WORKER_CHUNK_SIZE = 25;
@@ -240,12 +240,12 @@ export async function runUploadAiWorker(
         const aiResult = aiResults.get(i);
         if (!aiResult) continue;
         const flowType = row.flowType === "inflow" ? "inflow" : "outflow";
-        const directionalClassification = reconcileTransactionDirection({
+        const directionalClassification = reconcileAiTransactionClassification({
           flowType,
+          currentClass: row.transactionClass,
+          currentCategory: row.category,
           proposedClass: aiResult.transactionClass,
           proposedCategory: aiResult.category,
-          fallbackClass: row.transactionClass,
-          fallbackCategory: row.category,
         });
 
         updates.push({

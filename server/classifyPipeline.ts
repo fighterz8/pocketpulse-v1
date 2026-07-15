@@ -30,7 +30,10 @@ import {
 } from "./storage.js";
 import { recurrenceKey } from "./recurrenceDetector.js";
 import { inferFlowType } from "./transactionUtils.js";
-import { reconcileTransactionDirection } from "./transactionDirection.js";
+import {
+  reconcileAiTransactionClassification,
+  reconcileTransactionDirection,
+} from "./transactionDirection.js";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -206,11 +209,17 @@ export async function classifyPipeline(
     //   - classification.aiAssisted: classifier flagged the row as uncertain
     //   - row.ambiguous: CSV parsing could not determine amount direction
     //   - labelConfidence < threshold OR category === "other"
-    const aiAssisted = classification.aiAssisted || (row.ambiguous ?? false);
+    const categoryNeedsAi =
+      directionalClassification.category === "other" &&
+      directionalClassification.transactionClass !== "transfer";
+    const aiAssisted =
+      classification.aiAssisted ||
+      (row.ambiguous ?? false) ||
+      categoryNeedsAi;
     const needsAi =
       aiAssisted ||
       classification.labelConfidence < opts.aiConfidenceThreshold ||
-      classification.category === "other";
+      categoryNeedsAi;
 
     return {
       index,
@@ -290,13 +299,15 @@ export async function classifyPipeline(
         row.labelConfidence = hit.labelConfidence;
         row.labelReason = `cache hit: ${key} (${hit.source})`;
         row.labelSource = "cache";
-        row.aiAssisted = false;
+        const categoryNeedsAi =
+          row.category === "other" && row.transactionClass !== "transfer";
+        row.aiAssisted = categoryNeedsAi;
         row.fromCache = true;
         // Cache hits resolve the row only when the cached category is
         // confident; "other" is the classifier's fallback for "we don't
         // know" — promote it to AI for a real answer instead of letting a
         // stale low-signal cache entry suppress AI for the rest of time.
-        row.needsAi = hit.category === "other";
+        row.needsAi = categoryNeedsAi;
         hitKeys.push(key);
       }
 
@@ -340,11 +351,13 @@ export async function classifyPipeline(
           row.labelConfidence = hit.labelConfidence;
           row.labelReason = `global seed hit: ${key}`;
           row.labelSource = "cache";
-          row.aiAssisted = false;
+          const categoryNeedsAi =
+            row.category === "other" && row.transactionClass !== "transfer";
+          row.aiAssisted = categoryNeedsAi;
           row.fromCache = true;
           // Same logic as Phase 1.7: only suppress AI when the global seed
           // produced a real category. "other" still needs AI.
-          row.needsAi = hit.category === "other";
+          row.needsAi = categoryNeedsAi;
           hitKeys.push(key);
         }
 
@@ -428,7 +441,15 @@ export async function classifyPipeline(
       const aiResult = aiResults.get(aiIdx);
       if (!aiResult) continue;
       const row = internal[internalIdx]!;
-      applyDirectionalOverride(row, aiResult.transactionClass, aiResult.category);
+      const reconciled = reconcileAiTransactionClassification({
+        flowType: row.flowType,
+        currentClass: row.transactionClass,
+        currentCategory: row.category,
+        proposedClass: aiResult.transactionClass,
+        proposedCategory: aiResult.category,
+      });
+      row.transactionClass = reconciled.transactionClass;
+      row.category = reconciled.category;
       row.recurrenceType = aiResult.recurrenceType;
       row.recurrenceSource = "none";
       row.labelConfidence = aiResult.labelConfidence;
