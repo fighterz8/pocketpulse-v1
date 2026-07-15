@@ -6043,6 +6043,7 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
 .landing-primary {
   color: #fff !important;
   background: linear-gradient(180deg, #2b6ff1, var(--landing-blue));
+  background-color: var(--landing-blue);
   box-shadow: 0 0.9rem 2rem rgb(31 99 233 / 0.22), inset 0 1px 0 rgb(255 255 255 / 0.28);
 }
 
@@ -6255,6 +6256,7 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
   background:
     radial-gradient(circle at 10% 0%, rgb(31 99 233 / 0.24), transparent 22rem),
     linear-gradient(110deg, #071426, #0c2138 62%, #0a2836);
+  background-color: #071426;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), inset 0 -1px 0 rgb(255 255 255 / 0.04);
 }
 .landing-proof-strip > .landing-container { display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -6296,7 +6298,7 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
   position: absolute;
   top: -0.1rem;
   left: 0;
-  color: #8493a5;
+  color: #65768b;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   font-size: 1rem;
   font-style: italic;
@@ -6337,6 +6339,7 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
   border-color: rgb(76 107 137 / 0.5);
   color: #eaf2fa;
   background: radial-gradient(circle at 100% 0%, rgb(11 159 145 / 0.2), transparent 18rem), linear-gradient(145deg, #0b1d31, #102c42);
+  background-color: #0b1d31;
   box-shadow: 0 1.75rem 4rem rgb(7 20 38 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.07);
 }
 .landing-visual-head { align-items: baseline; margin-bottom: 1.4rem; }
@@ -6413,6 +6416,7 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
     radial-gradient(circle at 15% 85%, rgb(31 99 233 / 0.2), transparent 27rem),
     radial-gradient(circle at 95% 5%, rgb(11 159 145 / 0.14), transparent 24rem),
     #081729;
+  background-color: #081729;
 }
 .landing-privacy::before {
   content: "";
@@ -6455,6 +6459,7 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
     radial-gradient(circle at 85% 10%, rgb(31 99 233 / 0.38), transparent 22rem),
     radial-gradient(circle at 10% 100%, rgb(11 159 145 / 0.16), transparent 20rem),
     linear-gradient(135deg, #08182b, #0c2a43);
+  background-color: #08182b;
   box-shadow: 0 2.5rem 5rem rgb(7 20 38 / 0.18), inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 .landing-final-cta > .landing-container::after {
