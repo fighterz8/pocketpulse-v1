@@ -730,6 +730,10 @@ export function buildLeakHunterReport(
     asOfDate: coverage.asOfDate ?? undefined,
     rangeDays: 90,
     recurringMerchantKeys: activeRecurringKeys,
+  }).sort((a, b) => {
+    const aPriority = a.kind === "habit" ? 0 : 1;
+    const bPriority = b.kind === "habit" ? 0 : 1;
+    return aPriority - bPriority || b.monthlyEquivalent - a.monthlyEquivalent;
   });
 
   return {
@@ -739,7 +743,8 @@ export function buildLeakHunterReport(
       activeCount: activeLeaks.length,
       inactiveCount: stoppedLeaks.length,
       priceCreepCount: priceCreep.length,
-      recentHabitCount: recentHabits.length,
+      recentHabitCount: recentHabits.filter((finding) => finding.kind === "habit")
+        .length,
       estimatedActiveMonthly: roundMoney(
         activeLeaks.reduce((sum, finding) => sum + finding.monthlyEquivalent, 0),
       ),

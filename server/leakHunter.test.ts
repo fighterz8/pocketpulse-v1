@@ -390,6 +390,26 @@ describe("buildLeakHunterReport", () => {
     });
     expect(report.sections.recentHabits[0]?.transactions).toHaveLength(4);
   });
+
+  it("labels subscription-like repeats without counting them as discretionary leaks", () => {
+    const report = buildLeakHunterReport(
+      [
+        expense(1, "2026-02-01", 80, "Streaming Store", {
+          category: "entertainment",
+        }),
+        expense(2, "2026-03-18", 100, "Streaming Store", {
+          category: "entertainment",
+        }),
+      ],
+      { asOfDate: "2026-03-31", today: "2026-03-31" },
+    );
+
+    expect(report.sections.recentHabits[0]).toMatchObject({
+      merchant: "Streaming Store",
+      kind: "subscription",
+    });
+    expect(report.summary.recentHabitCount).toBe(0);
+  });
 });
 
 describe("detectRecentHabitFindings", () => {
