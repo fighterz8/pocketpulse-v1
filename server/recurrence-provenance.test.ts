@@ -18,7 +18,10 @@
 
 import { describe, expect, it } from "vitest";
 import { classifyTransaction } from "./classifier.js";
-import { detectRecurringCandidates } from "./recurrenceDetector.js";
+import {
+  collectRecurringTransactionIds,
+  detectRecurringCandidates,
+} from "./recurrenceDetector.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -98,6 +101,17 @@ describe("recurrenceSource backfill semantics", () => {
 // ─── 2. Detector promotion semantics ─────────────────────────────────────────
 
 describe("detector promotion: hint/recurring → detected/recurring or detected/one-time", () => {
+  it("marks ordinary expense candidates recurring, not only transfer candidates", () => {
+    const expenseTxns = monthlyTxns("Netflix.com", 15.99, "entertainment", 6);
+    const candidates = detectRecurringCandidates(expenseTxns);
+    const recurringIds = collectRecurringTransactionIds(candidates);
+
+    expect(candidates.length).toBeGreaterThan(0);
+    expect([...recurringIds].sort((a, b) => a - b)).toEqual(
+      expenseTxns.map((transaction) => transaction.id),
+    );
+  });
+
   it("a multi-month outflow pattern is confirmed as recurring by the detector (→ detected/recurring)", () => {
     // 6 months of Netflix at ~$15.99: should be detected as recurring
     const txns = monthlyTxns("Netflix.com", 15.99, "entertainment", 6);

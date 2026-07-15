@@ -56,6 +56,21 @@ export type RecurringCandidate = {
   isSubscriptionLike: boolean;
 };
 
+/**
+ * Canonical set of transaction rows that a recurrence sync must mark recurring.
+ * This intentionally includes already-expense-classified rows as well as
+ * transfer rows that may need a separate class promotion.
+ */
+export function collectRecurringTransactionIds(
+  candidates: ReadonlyArray<Pick<RecurringCandidate, "transactionIds">>,
+): Set<number> {
+  const ids = new Set<number>();
+  for (const candidate of candidates) {
+    for (const id of candidate.transactionIds) ids.add(id);
+  }
+  return ids;
+}
+
 type TransactionLike = {
   id: number;
   date: string;

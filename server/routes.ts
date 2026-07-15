@@ -66,6 +66,7 @@ import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
 import { scheduleBackgroundTask } from "./background.js";
 import {
+  collectRecurringTransactionIds,
   detectRecurringCandidates,
   recurrenceKey,
 } from "./recurrenceDetector.js";
@@ -338,10 +339,7 @@ async function syncRecurringCandidates(
   const allTxns = await listAllTransactionsForExport({ userId });
   const candidates = detectRecurringCandidates(allTxns as any);
 
-  const recurringIds = new Set<number>();
-  for (const c of candidates) {
-    for (const id of c.transactionIds) recurringIds.add(id);
-  }
+  const recurringIds = collectRecurringTransactionIds(candidates);
 
   const txnsById = new Map((allTxns as any[]).map((t) => [t.id, t]));
   const recurringTransferExpenseIds = new Set<number>(
@@ -396,8 +394,8 @@ async function syncRecurringCandidates(
   // Step 2: mark detected IDs as "recurring" / "detected". Same user-edit guard
   // as Step 1 — a manually-set "one-time" on a recurring-looking transaction
   // stays "one-time".
-  if (recurringTransferExpenseIds.size > 0) {
-    const ids = [...recurringTransferExpenseIds];
+  if (recurringIds.size > 0) {
+    const ids = [...recurringIds];
     for (let i = 0; i < ids.length; i += 500) {
       await db
         .update(txnTable)
@@ -428,8 +426,8 @@ async function syncRecurringCandidates(
   //
   // We store labelSource="recurring-transfer" so Step 1b can cleanly undo
   // the promotion on the next sync if the pattern stops.
-  if (recurringIds.size > 0) {
-    const ids = [...recurringIds];
+  if (recurringTransferExpenseIds.size > 0) {
+    const ids = [...recurringTransferExpenseIds];
     for (let i = 0; i < ids.length; i += 500) {
       await db
         .update(txnTable)

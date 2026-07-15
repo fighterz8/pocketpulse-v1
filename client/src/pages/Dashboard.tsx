@@ -731,7 +731,7 @@ function DashboardImpl() {
         <KpiCard
           label="Recurring Expenses"
           value={currencyShort(totals.recurringExpenses)}
-          sub="Recurring outflows · this period"
+          sub={`Actual recurring charges · ${periodLabel}`}
           accent="red"
           data-testid="kpi-recurring-expenses"
           index={6}

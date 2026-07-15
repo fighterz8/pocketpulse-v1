@@ -221,6 +221,35 @@ describe("Dashboard", () => {
     );
   });
 
+  it("shows the actual recurring expense total for the selected month", async () => {
+    const februarySummary = {
+      ...fullSummary,
+      isAllTime: false,
+      totals: { ...fullSummary.totals, recurringExpenses: 243.19 },
+    };
+    const fetchSpy = vi.fn((url: string) => {
+      if (url === "/api/dashboard/months") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ month: "2026-02", transactionCount: 42 }]),
+        });
+      }
+      if (url.startsWith("/api/leak-hunter/report")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(emptyLeakReport) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(februarySummary) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderDashboard();
+
+    expect(await screen.findByTestId("kpi-recurring-expenses")).toHaveTextContent("$243");
+    expect(screen.getByText("Actual recurring charges · Feb 26")).toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/dashboard-summary?dateFrom=2026-02-01&dateTo=2026-02-28",
+    );
+  });
+
   it("renders category breakdown after data loads", async () => {
     vi.stubGlobal("fetch", makeSuccessFetch(fullSummary));
     renderDashboard();
