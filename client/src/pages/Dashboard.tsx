@@ -13,9 +13,16 @@ import { Hint, HintIcon } from "../components/ui/tooltip";
 import { WelcomeOverlay } from "../components/ui/welcome-overlay";
 import { ONBOARDING_UPLOAD_SUCCESS_FLAG } from "./OnboardingUpload";
 
-interface LeakItem {
-  monthlyAmount: number;
-  recentSpend: number;
+interface DashboardLeakFinding {
+  kind: "subscription" | "bill" | "habit" | "price_creep" | "unknown";
+  monthlyEquivalent: number;
+}
+
+interface DashboardLeakReport {
+  sections: {
+    activeLeaks: DashboardLeakFinding[];
+    recentHabits: DashboardLeakFinding[];
+  };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -362,39 +369,33 @@ function DashboardImpl() {
   // Date range for ledger deep-links
   const dateRange = selectedMonth ? monthToDateRange(selectedMonth) : undefined;
 
-  // Automatic leak detection — fetched independently so the Dashboard card
-  // always shows live data from the selected month without depending on the
-  // review workflow.
-  const leaksQueryParams = dateRange
-    ? `startDate=${dateRange.dateFrom}&endDate=${dateRange.dateTo}`
-    : (() => {
-        const now = new Date();
-        const y = now.getFullYear();
-        const m = now.getMonth() + 1;
-        const pad = (n: number) => String(n).padStart(2, "0");
-        const s = `${y}-${pad(m)}-01`;
-        const e = `${y}-${pad(m)}-${pad(new Date(y, m, 0).getDate())}`;
-        return `startDate=${s}&endDate=${e}`;
-      })();
-
-  // Parse the actual dates from leaksQueryParams so the cache key matches
-  // exactly what the Leaks page uses — prevents stale cross-page mismatches.
-  const _leaksParamObj = Object.fromEntries(
-    new URLSearchParams(leaksQueryParams),
-  );
-  const { data: detectedLeaks = [] } = useQuery<LeakItem[]>({
-    queryKey: ["/api/leaks", _leaksParamObj.startDate, _leaksParamObj.endDate],
+  // Use the same recent-window report as the Leak Hunter page. When a dashboard
+  // month is selected, its end date becomes the report snapshot date so both
+  // surfaces describe the same findings.
+  const leaksAsOf = dateRange?.dateTo;
+  const { data: leakReport } = useQuery<DashboardLeakReport>({
+    queryKey: ["/api/leak-hunter/report", leaksAsOf ?? "latest"],
     queryFn: async () => {
-      const res = await fetch(`/api/leaks?${leaksQueryParams}`);
-      if (!res.ok) throw new Error("Failed to fetch leaks");
+      const url = leaksAsOf
+        ? `/api/leak-hunter/report?asOf=${leaksAsOf}`
+        : "/api/leak-hunter/report";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch Leak Hunter report");
       return res.json();
     },
     staleTime: 60_000,
   });
 
-  const leakCount = detectedLeaks.length;
+  const recentFindings = leakReport?.sections.recentHabits ?? [];
+  const priorityLeaks = recentFindings.filter((finding) => finding.kind === "habit");
+  const subscriptionReviewCount =
+    (leakReport?.sections.activeLeaks.length ?? 0) +
+    recentFindings.filter((finding) => finding.kind === "subscription").length;
+  const leakCount = priorityLeaks.length;
   const leakMonthly =
-    Math.round(detectedLeaks.reduce((s, l) => s + l.monthlyAmount, 0) * 100) /
+    Math.round(
+      priorityLeaks.reduce((sum, finding) => sum + finding.monthlyEquivalent, 0) * 100,
+    ) /
     100;
 
   const periodLabel = selectedMonth
@@ -627,10 +628,10 @@ function DashboardImpl() {
           <p className="kpi-drill mt-4">View all transactions →</p>
         </GlassCard>
 
-        {/* Leak Hunter — links to /leaks page with selected month */}
+        {/* Leak Hunter — uses the same as-of snapshot as the full report */}
         {(() => {
-          const leaksHref = dateRange
-            ? `/leaks?startDate=${dateRange.dateFrom}&endDate=${dateRange.dateTo}`
+          const leaksHref = leaksAsOf
+            ? `/leaks?asOf=${leaksAsOf}`
             : "/leaks";
           return (
             <GlassCard
@@ -643,7 +644,7 @@ function DashboardImpl() {
                   Leak Hunter
                   <HintIcon
                     label="About Leak Hunter"
-                    content="A 'leak' is recurring or high-frequency discretionary spending we've flagged for review — think coffee, delivery, or unused subscriptions."
+                    content="Leak Hunter prioritizes repeated discretionary spending from the recent window. Subscriptions are shown separately so ordinary recurring charges are not presented as the same kind of leak."
                     data-testid="hint-leak-detection"
                   />
                 </p>
@@ -656,12 +657,12 @@ function DashboardImpl() {
                       {leakCount}
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-300 mt-1">
-                      leak{leakCount !== 1 ? "s" : ""} detected — discretionary
-                      spending to review
+                      spending leak{leakCount !== 1 ? "s" : ""} detected — repeated
+                      discretionary purchases to review
                     </p>
                     {leakMonthly > 0 && (
                       <p className="text-sm text-red-500 dark:text-red-400 font-semibold mt-1">
-                        ~{currency(leakMonthly)}/mo flagged spend
+                        ~{currency(leakMonthly)}/mo recent repeat spend
                       </p>
                     )}
                   </>
@@ -671,12 +672,18 @@ function DashboardImpl() {
                       data-testid="leak-count"
                       className="dash-hero-value text-slate-500 dark:text-slate-300 text-3xl leading-tight mt-1"
                     >
-                      None flagged
+                      No spending leaks
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                      No spending leaks detected this period.
+                      No repeated discretionary leaks found in the recent analysis window.
                     </p>
                   </>
+                )}
+                {subscriptionReviewCount > 0 && (
+                  <p className="text-sm text-sky-700 dark:text-sky-300 font-semibold mt-2">
+                    {subscriptionReviewCount} subscription
+                    {subscriptionReviewCount === 1 ? "" : "s"} to review separately
+                  </p>
                 )}
               </div>
               <p className="kpi-drill">

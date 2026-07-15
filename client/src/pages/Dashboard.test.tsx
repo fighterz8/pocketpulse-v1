@@ -65,16 +65,23 @@ const fullSummary = {
   accountCount: 1,
 };
 
+const emptyLeakReport = {
+  sections: {
+    activeLeaks: [],
+    recentHabits: [],
+  },
+};
+
 /**
  * URL-aware fetch mock:
- * - /api/leaks            → empty array (avoids .reduce-on-object crash)
+ * - /api/leak-hunter/report → empty canonical Leak Hunter report
  * - /api/dashboard/months → empty array (MonthSelector expects an array)
  * - everything else       → summaryData
  */
-function makeSuccessFetch(summaryData: unknown) {
+function makeSuccessFetch(summaryData: unknown, leakReport: unknown = emptyLeakReport) {
   return vi.fn((url: string) => {
-    if ((url as string).startsWith("/api/leaks")) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    if ((url as string).startsWith("/api/leak-hunter/report")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(leakReport) });
     }
     if ((url as string).startsWith("/api/dashboard/months")) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
@@ -140,8 +147,8 @@ describe("Dashboard", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
-        if ((url as string).startsWith("/api/leaks")) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+        if ((url as string).startsWith("/api/leak-hunter/report")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(emptyLeakReport) });
         }
         if ((url as string).startsWith("/api/dashboard/months")) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
@@ -166,6 +173,52 @@ describe("Dashboard", () => {
     expect(screen.getByText("$1,200.50")).toBeInTheDocument();
     // $3,799.50 is the safeToSpend hero value.
     expect(screen.getByText("$3,799.50")).toBeInTheDocument();
+  });
+
+  it("uses the canonical report for spending leaks and separates subscriptions", async () => {
+    const fetchSpy = makeSuccessFetch(fullSummary, {
+      sections: {
+        activeLeaks: [
+          { merchant: "Spotify", kind: "subscription", monthlyEquivalent: 17.99 },
+        ],
+        recentHabits: [
+          { merchant: "Corner Coffee", kind: "habit", monthlyEquivalent: 42.5 },
+          { merchant: "Cloud Storage", kind: "subscription", monthlyEquivalent: 9.99 },
+        ],
+      },
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderDashboard();
+
+    expect(await screen.findByTestId("leak-count")).toHaveTextContent("1");
+    expect(screen.getByText(/spending leak detected/i)).toBeInTheDocument();
+    expect(screen.getByText(/~\$42\.50\/mo recent repeat spend/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 subscriptions? to review/i)).toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledWith("/api/leak-hunter/report");
+  });
+
+  it("uses the selected month end as the Leak Hunter snapshot date", async () => {
+    const fetchSpy = vi.fn((url: string) => {
+      if (url === "/api/dashboard/months") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([{ month: "2026-02", transactionCount: 42 }]),
+        });
+      }
+      if (url.startsWith("/api/leak-hunter/report")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(emptyLeakReport) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(fullSummary) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderDashboard();
+
+    await screen.findByText("February 2026");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/leak-hunter/report?asOf=2026-02-28",
+    );
   });
 
   it("renders category breakdown after data loads", async () => {
