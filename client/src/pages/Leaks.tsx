@@ -7,7 +7,8 @@ type LeakHunterMode =
   | "active"
   | "stopped"
   | "price_creep"
-  | "recent_habits";
+  | "recent_habits"
+  | "needs_review";
 
 type LeakHunterCoverage = {
   startDate: string | null;
@@ -81,12 +82,15 @@ type LeakHunterReport = {
 };
 
 const MODE_OPTIONS: Array<{ value: LeakHunterMode; label: string }> = [
-  { value: "full", label: "Full hunt" },
-  { value: "active", label: "Active" },
+  { value: "full", label: "Overview" },
+  { value: "recent_habits", label: "Spending leaks" },
+  { value: "active", label: "Subscriptions" },
   { value: "stopped", label: "Stopped" },
-  { value: "price_creep", label: "Price creep" },
-  { value: "recent_habits", label: "Recent habits" },
+  { value: "price_creep", label: "Price changes" },
+  { value: "needs_review", label: "Needs review" },
 ];
+
+const FINDINGS_PER_PAGE = 3;
 
 const fadeUp = {
   hidden: { opacity: 0, y: 14 },
@@ -136,8 +140,14 @@ function isBackdatedAnalysis(coverage: LeakHunterCoverage): boolean {
   return coverage.asOfDate < coverage.endDate;
 }
 
-function ledgerHref(query: Record<string, string>, accountId?: string | null): string {
-  const params = new URLSearchParams({ excluded: "false", ...query });
+function ledgerHref(finding: LeakHunterFinding, accountId?: string | null): string {
+  const transactionIds = (finding.transactions ?? []).map((transaction) => transaction.id);
+  const params = new URLSearchParams({ excluded: "false", source: "leak-hunter" });
+  if (transactionIds.length > 0) {
+    params.set("ids", transactionIds.join(","));
+  } else {
+    Object.entries(finding.ledgerQuery).forEach(([key, value]) => params.set(key, value));
+  }
   if (accountId) params.set("accountId", accountId);
   return `/transactions?${params.toString()}`;
 }
@@ -248,6 +258,14 @@ function emptyGuidance(
     };
   }
 
+  if (mode === "needs_review") {
+    return {
+      title: "No uncertain recurring patterns",
+      body: "PocketPulse did not find a current recurring pattern that still needs classification in this analysis window.",
+      action: "Upload more history",
+    };
+  }
+
   return {
     title: "No findings in this mode",
     body: "Your current history did not surface a clear pattern here. More account coverage can improve confidence, especially for card subscriptions and annual renewals.",
@@ -347,6 +365,7 @@ function ModeControl({
     stopped: report.sections.stoppedLeaks.length,
     price_creep: report.sections.priceCreep.length,
     recent_habits: report.sections.recentHabits.length,
+    needs_review: report.sections.needsReview.length,
   };
 
   return (
@@ -503,7 +522,7 @@ function FindingCard({
 
       <div className="leak-hunter-actions">
         <span>{findingCostLabel(finding)}</span>
-        <a href={ledgerHref(finding.ledgerQuery, accountId)} data-testid={`link-ledger-${finding.merchantKey}`}>
+        <a href={ledgerHref(finding, accountId)} data-testid={`link-ledger-${finding.merchantKey}`}>
           Review transactions
         </a>
       </div>
@@ -524,24 +543,52 @@ function Section({
   startIndex: number;
   accountId?: string | null;
 }) {
+  const [page, setPage] = useState(1);
   if (findings.length === 0) return null;
+
+  const totalPages = Math.ceil(findings.length / FINDINGS_PER_PAGE);
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * FINDINGS_PER_PAGE;
+  const pageFindings = findings.slice(pageStart, pageStart + FINDINGS_PER_PAGE);
 
   return (
     <section className="leak-hunter-section" data-testid={`section-${title.toLowerCase().replace(/\W+/g, "-")}`}>
       <div className="leak-hunter-section-head">
-        <h2>{title}</h2>
+        <div>
+          <h2>{title}</h2>
+          <span>{findings.length} finding{findings.length === 1 ? "" : "s"}</span>
+        </div>
         <p>{subtitle}</p>
       </div>
       <div className="leak-hunter-list">
-        {findings.map((finding, i) => (
+        {pageFindings.map((finding, i) => (
           <FindingCard
             key={finding.id}
             finding={finding}
-            index={startIndex + i}
+            index={startIndex + pageStart + i}
             accountId={accountId}
           />
         ))}
       </div>
+      {totalPages > 1 && (
+        <nav className="leak-hunter-pagination" aria-label={`${title} pages`}>
+          <button
+            type="button"
+            disabled={currentPage === 1}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+          >
+            Previous
+          </button>
+          <span>Page {currentPage} of {totalPages}</span>
+          <button
+            type="button"
+            disabled={currentPage === totalPages}
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+          >
+            Next
+          </button>
+        </nav>
+      )}
     </section>
   );
 }
@@ -604,11 +651,18 @@ export function Leaks() {
       },
     ];
 
-    if (mode === "full") return sections;
+    if (mode === "full") {
+      // Overview is intentionally compact: surface the highest-priority
+      // non-empty queue and let the section tabs expose every other group.
+      return sections.filter((section) => section.findings.length > 0).slice(0, 1);
+    }
     if (mode === "active") return sections.filter((section) => section.key === "active");
     if (mode === "stopped") return sections.filter((section) => section.key === "stopped");
     if (mode === "price_creep") return sections.filter((section) => section.key === "price_creep");
-    return sections.filter((section) => section.key === "recent_habits");
+    if (mode === "recent_habits") {
+      return sections.filter((section) => section.key === "recent_habits");
+    }
+    return sections.filter((section) => section.key === "needs_review");
   }, [data, mode]);
 
   const hasFindings = visibleSections.some((section) => section.findings.length > 0);

@@ -129,6 +129,23 @@ describe("Ledger page", () => {
     });
   });
 
+  it("shows only the exact Leak Hunter transaction selection from the URL", async () => {
+    window.history.replaceState({}, "", "/transactions?ids=13,12&source=leak-hunter");
+    const fetchSpy = vi.fn(mockFetch);
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderLedger();
+
+    expect(await screen.findByTestId("ledger-leak-filter")).toHaveTextContent(
+      "Showing only 2 associated transactions",
+    );
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("ids=13%2C12"),
+      );
+    });
+  });
+
   it("reveals the Export CSV tooltip when the button is focused", async () => {
     renderLedger();
     const exportBtn = await screen.findByTestId("btn-export-csv");

@@ -34,6 +34,7 @@ export type Transaction = {
 export type TransactionFilters = {
   page?: number;
   limit?: number;
+  transactionIds?: number[];
   accountId?: number;
   search?: string;
   category?: string;
@@ -86,6 +87,7 @@ function buildQueryString(filters: TransactionFilters): string {
   const params = new URLSearchParams();
   if (filters.page) params.set("page", String(filters.page));
   if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.transactionIds?.length) params.set("ids", filters.transactionIds.join(","));
   if (filters.accountId) params.set("accountId", String(filters.accountId));
   if (filters.search) params.set("search", filters.search);
   if (filters.category) params.set("category", filters.category);
@@ -188,4 +190,3 @@ export function useTransactions(
     reclassify: reclassifyMutation,
   };
 }
-

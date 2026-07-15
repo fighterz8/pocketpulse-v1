@@ -14,6 +14,11 @@ describe("buildTransactionFilters", () => {
     expect(conditions).toHaveLength(2);
   });
 
+  it("adds an exact transaction ID filter", () => {
+    const conditions = buildTransactionFilters({ ...base, transactionIds: [13, 12] });
+    expect(conditions).toHaveLength(2);
+  });
+
   it("adds search filter (merchant + rawDescription)", () => {
     const conditions = buildTransactionFilters({ ...base, search: "coffee" });
     expect(conditions).toHaveLength(2);
@@ -62,6 +67,7 @@ describe("buildTransactionFilters", () => {
   it("combines all filters", () => {
     const conditions = buildTransactionFilters({
       ...base,
+      transactionIds: [13, 12],
       accountId: 2,
       search: "test",
       category: "groceries",
@@ -71,6 +77,6 @@ describe("buildTransactionFilters", () => {
       dateTo: "2026-06-30",
       excluded: "false",
     });
-    expect(conditions).toHaveLength(9);
+    expect(conditions).toHaveLength(10);
   });
 });

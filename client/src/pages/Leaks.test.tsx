@@ -160,7 +160,11 @@ describe("Leaks page", () => {
     expect(screen.getByText("$215.88 per year if active")).toBeInTheDocument();
     expect(screen.getByTestId("link-ledger-spotify")).toHaveAttribute(
       "href",
-      expect.stringContaining("search=spotify"),
+      expect.stringContaining("ids=13%2C12"),
+    );
+    expect(screen.getByTestId("link-ledger-spotify")).toHaveAttribute(
+      "href",
+      expect.not.stringContaining("search=spotify"),
     );
   });
 
@@ -213,7 +217,8 @@ describe("Leaks page", () => {
       await screen.findByRole("heading", { level: 2, name: "Recent spending leaks" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Priority leak")).toBeInTheDocument();
-    expect(screen.getByText("Subscriptions to review")).toBeInTheDocument();
+    expect(screen.queryByText("Subscriptions to review")).not.toBeInTheDocument();
+    expect(screen.getByTestId("leak-mode-active")).toHaveTextContent("Subscriptions");
 
     const headings = screen.getAllByRole("heading", { level: 2 });
     expect(headings[0]).toHaveTextContent("Recent spending leaks");
@@ -221,31 +226,35 @@ describe("Leaks page", () => {
 
   it("labels stopped findings with historical cost instead of active annual cost", async () => {
     renderLeaks();
+    await screen.findByText("Spotify");
+    fireEvent.click(screen.getByTestId("leak-mode-stopped"));
     expect(await screen.findByText("Old Gym")).toBeInTheDocument();
     expect(screen.getByText("$120.00 tracked historically")).toBeInTheDocument();
     expect(screen.queryByText("$288.00 per year if active")).not.toBeInTheDocument();
   });
 
-  it("filters sections when a mode is selected", async () => {
+  it("keeps the overview compact and shows one finding section at a time", async () => {
     renderLeaks();
-    expect(await screen.findByText("Old Gym")).toBeInTheDocument();
+    expect(await screen.findByText("Spotify")).toBeInTheDocument();
+    expect(screen.queryByText("Old Gym")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
     expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
       "aria-label",
-      "Full hunt, 2 findings",
+      "Overview, 2 findings",
     );
     expect(screen.getByTestId("leak-mode-active")).toHaveAttribute(
       "aria-label",
-      "Active, 1 finding",
+      "Subscriptions, 1 finding",
     );
     expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    fireEvent.click(screen.getByTestId("leak-mode-active"));
+    fireEvent.click(screen.getByTestId("leak-mode-stopped"));
     await waitFor(() => {
-      expect(screen.queryByText("Old Gym")).not.toBeInTheDocument();
-      expect(screen.getByText("Spotify")).toBeInTheDocument();
-      expect(screen.getByTestId("leak-mode-active")).toHaveAttribute(
+      expect(screen.getByText("Old Gym")).toBeInTheDocument();
+      expect(screen.queryByText("Spotify")).not.toBeInTheDocument();
+      expect(screen.getByTestId("leak-mode-stopped")).toHaveAttribute(
         "aria-pressed",
         "true",
       );
@@ -286,16 +295,19 @@ describe("Leaks page", () => {
 
     renderLeaks();
 
+    expect(await screen.findByText("Spotify")).toBeInTheDocument();
+    expect(screen.queryByText("Recurring pattern")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("leak-mode-needs_review"));
     expect(await screen.findByText("Recurring pattern")).toBeInTheDocument();
     expect(screen.getByText("$600.00 seen · not counted as a leak")).toBeInTheDocument();
     expect(screen.getByText(/not counted as leaks or savings/i)).toBeInTheDocument();
     expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
       "aria-label",
-      "Full hunt, 3 findings",
+      "Overview, 3 findings",
     );
     expect(screen.getByTestId("leak-mode-active")).toHaveAttribute(
       "aria-label",
-      "Active, 1 finding",
+      "Subscriptions, 1 finding",
     );
 
     fireEvent.click(screen.getByTestId("leak-mode-active"));
@@ -303,8 +315,53 @@ describe("Leaks page", () => {
     await waitFor(() => {
       expect(screen.getByText("Spotify")).toBeInTheDocument();
       expect(screen.queryByText("Recurring pattern")).not.toBeInTheDocument();
-      expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("heading", { level: 2, name: "Needs review" }),
+      ).not.toBeInTheDocument();
     });
+  });
+
+  it("paginates long finding groups instead of growing one endless page", async () => {
+    const findings = Array.from({ length: 5 }, (_, index) => ({
+      ...MOCK_REPORT.sections.activeLeaks[0],
+      id: `active-service-${index + 1}`,
+      merchantKey: `service-${index + 1}`,
+      merchant: `Service ${index + 1}`,
+      transactions: [
+        {
+          id: 100 + index,
+          date: "2026-01-15",
+          merchant: `Service ${index + 1}`,
+          amount: 17.99,
+          category: "software",
+        },
+      ],
+    }));
+    vi.stubGlobal(
+      "fetch",
+      makeMockFetch({
+        ...MOCK_REPORT,
+        summary: { ...MOCK_REPORT.summary, activeCount: 5 },
+        sections: { ...MOCK_REPORT.sections, activeLeaks: findings },
+      }),
+    );
+
+    renderLeaks();
+
+    expect(
+      await screen.findByRole("heading", { level: 3, name: "Service 1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Service 3" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 3, name: "Service 4" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      await screen.findByRole("heading", { level: 3, name: "Service 4" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { level: 3, name: "Service 1" }),
+    ).not.toBeInTheDocument();
   });
 
   it("preserves report query filters and writes selected mode to the URL", async () => {

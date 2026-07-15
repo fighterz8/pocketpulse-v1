@@ -71,9 +71,15 @@ export function Ledger() {
       accountIdParam && /^\d+$/.test(accountIdParam)
         ? Number(accountIdParam)
         : undefined;
+    const transactionIds = (p.get("ids") ?? "")
+      .split(",")
+      .filter((value) => /^\d+$/.test(value))
+      .map(Number)
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
     return {
       page: 1,
       limit: 50,
+      transactionIds: transactionIds.length > 0 ? transactionIds : undefined,
       accountId,
       search: p.get("search") ?? undefined,
       category: p.get("category") ?? undefined,
@@ -162,7 +168,7 @@ export function Ledger() {
   };
 
   const hasAnyFilter = !!(
-    filters.search || filters.category || filters.transactionClass ||
+    filters.transactionIds?.length || filters.search || filters.category || filters.transactionClass ||
     filters.recurrenceType || filters.dateFrom || filters.dateTo ||
     filters.accountId
   );
@@ -170,6 +176,7 @@ export function Ledger() {
   const clearFilters = () => {
     setSearchInput("");
     setFilters({ page: 1, limit: 50 });
+    if (window.location.search) setLocation("/transactions");
   };
 
   // Clean up propagation notice timer on unmount.
@@ -181,6 +188,7 @@ export function Ledger() {
 
   const handleExport = () => {
     const params = new URLSearchParams();
+    if (filters.transactionIds?.length) params.set("ids", filters.transactionIds.join(","));
     if (filters.search)          params.set("search", filters.search);
     if (filters.category)        params.set("category", filters.category);
     if (filters.transactionClass) params.set("transactionClass", filters.transactionClass);
@@ -220,6 +228,18 @@ export function Ledger() {
         transition={{ duration: 0.35, delay: 0.07 }}
         className="glass-card mb-4"
       >
+      {filters.transactionIds?.length ? (
+        <div className="ledger-context-filter" role="status" data-testid="ledger-leak-filter">
+          <div>
+            <strong>Leak Hunter selection</strong>
+            <span>
+              Showing only {filters.transactionIds.length} associated transaction
+              {filters.transactionIds.length === 1 ? "" : "s"}.
+            </span>
+          </div>
+          <button type="button" onClick={clearFilters}>Show full ledger</button>
+        </div>
+      ) : null}
       <div className="ledger-filters">
         <div className="ledger-search-row">
           <input

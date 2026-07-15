@@ -74,6 +74,7 @@ import { createDevTestSuiteRouter } from "./devTestSuite.js";
 import { buildLeakHunterReport, isValidIsoDate } from "./leakHunter.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { runUploadAiWorker } from "./aiWorker.js";
+import { parseTransactionIdsParam } from "./transactionFilterParams.js";
 import {
   isDevEmailAllowed,
   toAuthUserPayload,
@@ -1670,9 +1671,15 @@ export function createApp(options?: CreateAppOptions) {
     try {
       const userId = req.session.userId!;
       const q = req.query;
+      const transactionIds = parseTransactionIdsParam(q.ids);
+      if (transactionIds === null) {
+        res.status(400).json({ error: "ids must be a comma-separated list of transaction IDs" });
+        return;
+      }
 
       const result = await listTransactionsForUser({
         userId,
+        transactionIds,
         page: parseInt(q.page as string) || 1,
         limit: parseInt(q.limit as string) || 50,
         accountId: q.accountId ? parseInt(q.accountId as string) : undefined,
@@ -1936,10 +1943,16 @@ export function createApp(options?: CreateAppOptions) {
     try {
       const userId = req.session.userId!;
       const q = req.query as Record<string, string>;
+      const transactionIds = parseTransactionIdsParam(q.ids);
+      if (transactionIds === null) {
+        res.status(400).json({ error: "ids must be a comma-separated list of transaction IDs" });
+        return;
+      }
 
       const [rows, userAccounts] = await Promise.all([
         listAllTransactionsForExport({
           userId,
+          transactionIds,
           accountId: q.accountId ? parseInt(q.accountId) : undefined,
           search: q.search || undefined,
           category: q.category || undefined,

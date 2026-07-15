@@ -843,6 +843,7 @@ export async function createTransactionBatch(
 
 export type ListTransactionsOptions = {
   userId: number;
+  transactionIds?: number[];
   accountId?: number;
   page?: number;
   limit?: number;
@@ -908,6 +909,9 @@ export async function listTransactionsForUser(options: ListTransactionsOptions) 
 export function buildTransactionFilters(options: ListTransactionsOptions) {
   const conditions = [eq(transactions.userId, options.userId)];
 
+  if (options.transactionIds?.length) {
+    conditions.push(inArray(transactions.id, options.transactionIds));
+  }
   if (options.accountId !== undefined) {
     conditions.push(eq(transactions.accountId, options.accountId));
   }
