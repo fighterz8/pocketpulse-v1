@@ -81,7 +81,6 @@ const emptyLeakReport = {
 function makeSuccessFetch(
   summaryData: unknown,
   leakReport: unknown = emptyLeakReport,
-  recurringTransactions: unknown[] = [],
 ) {
   return vi.fn((url: string) => {
     if ((url as string).startsWith("/api/leak-hunter/report")) {
@@ -89,22 +88,6 @@ function makeSuccessFetch(
     }
     if ((url as string).startsWith("/api/dashboard/months")) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-    }
-    if ((url as string).startsWith("/api/transactions?")) {
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            transactions: recurringTransactions,
-            pagination: { totalPages: 1, total: recurringTransactions.length },
-          }),
-      });
-    }
-    if (url === "/api/recurring-candidates/sync") {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ recurringCount: 2, oneTimeCount: 40 }),
-      });
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve(summaryData) });
   });
@@ -119,6 +102,7 @@ beforeEach(() => {
   // dashboard body. The overlay-specific tests below clear this flag
   // explicitly to verify the overlay's first-visit behaviour.
   window.localStorage.setItem("pp_welcome_seen", "1");
+  window.history.replaceState({}, "", "/dashboard");
 });
 
 describe("Dashboard", () => {
@@ -257,13 +241,6 @@ describe("Dashboard", () => {
       if (url.startsWith("/api/leak-hunter/report")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(emptyLeakReport) });
       }
-      if (url.startsWith("/api/transactions?")) {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({ transactions: [], pagination: { totalPages: 1 } }),
-        });
-      }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(februarySummary) });
     });
     vi.stubGlobal("fetch", fetchSpy);
@@ -277,16 +254,12 @@ describe("Dashboard", () => {
     );
   });
 
-  it("reconciles the selected-month recurring breakdown to the KPI", async () => {
+  it("opens the selected month's recurring expenses in the filtered ledger", async () => {
     const februarySummary = {
       ...fullSummary,
       isAllTime: false,
       totals: { ...fullSummary.totals, recurringExpenses: 243.19 },
     };
-    const recurringRows = [
-      { id: 21, merchant: "Home Loan", amount: "-200.00", date: "2026-02-01" },
-      { id: 22, merchant: "Music Service", amount: "-43.19", date: "2026-02-12" },
-    ];
     const fetchSpy = vi.fn((url: string) => {
       if (url === "/api/dashboard/months") {
         return Promise.resolve({
@@ -297,54 +270,23 @@ describe("Dashboard", () => {
       if (url.startsWith("/api/leak-hunter/report")) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(emptyLeakReport) });
       }
-      if (url.startsWith("/api/transactions?")) {
-        return Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              transactions: recurringRows,
-              pagination: { totalPages: 1, total: recurringRows.length },
-            }),
-        });
-      }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(februarySummary) });
     });
     vi.stubGlobal("fetch", fetchSpy);
 
     renderDashboard();
 
-    expect(await screen.findByTestId("recurring-panel-total")).toHaveTextContent(
-      "Total: $243.19",
-    );
-    expect(screen.getByText("Home Loan")).toBeInTheDocument();
-    expect(screen.getByText("Music Service")).toBeInTheDocument();
-    expect(screen.queryByTestId("recurring-panel-mismatch")).not.toBeInTheDocument();
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "/api/transactions?transactionClass=expense&recurrenceType=recurring",
-      ),
-      expect.any(Object),
-    );
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.stringContaining("dateFrom=2026-02-01&dateTo=2026-02-28"),
-      expect.any(Object),
-    );
-  });
+    const recurringKpi = await screen.findByTestId("kpi-recurring-expenses");
+    const recurringCard = recurringKpi.closest('[role="link"]');
+    expect(recurringCard).not.toBeNull();
 
-  it("refreshes recurrence only and leaves categorization untouched", async () => {
-    const fetchSpy = makeSuccessFetch(fullSummary);
-    vi.stubGlobal("fetch", fetchSpy);
+    fireEvent.click(recurringCard!);
 
-    renderDashboard();
-    fireEvent.click(await screen.findByTestId("btn-refresh-detection"));
-
-    expect(await screen.findByTestId("recurring-refresh-done")).toHaveTextContent(
-      "Recurring payment detection refreshed",
+    expect(window.location.search).toBe(
+      "?excluded=false&dateFrom=2026-02-01&dateTo=2026-02-28&transactionClass=expense&recurrenceType=recurring",
     );
-    expect(fetchSpy).toHaveBeenCalledWith("/api/recurring-candidates/sync", {
-      headers: expect.any(Headers),
-      method: "POST",
-    });
+    expect(window.location.pathname).toBe("/transactions");
+    expect(screen.queryByText(/recurring expenses · breakdown/i)).not.toBeInTheDocument();
   });
 
   it("renders category breakdown after data loads", async () => {

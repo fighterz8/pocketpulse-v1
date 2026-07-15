@@ -5861,29 +5861,3 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
 .landing-final-cta h2 { max-width: 14ch; margin-inline: auto; }
 .landing-final-cta .landing-secondary { color: #fff; background: rgb(255 255 255 / 0.12); border-color: rgb(255 255 255 / 0.18); }
 @media (max-width: 900px) { .landing-nav nav a:not(.landing-nav-cta) { display: none; } .landing-hero, .landing-split, .landing-privacy { grid-template-columns: minmax(0, 1fr); } .landing-hero { min-height: auto; } .landing-hero-copy, .landing-app-preview { min-width: 0; } .landing-main h1 { max-width: 100%; font-size: clamp(3rem, 15vw, 5rem); } .landing-feature-grid, .landing-actual-kpis, .landing-actual-grid { grid-template-columns: minmax(0, 1fr); } .landing-app-preview { padding: 0.8rem; } .landing-ledger-mini { overflow-x: auto; } }
-
-/* ─── Dashboard: recurring expenses breakdown panel ───────────────────────── */
-.recurring-panel { display: flex; flex-direction: column; gap: 0.75rem; }
-.recurring-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-.recurring-panel-note { font-size: 0.85rem; color: #64748b; }
-.dark .recurring-panel-note { color: #94a3b8; }
-.recurring-panel-empty p:first-child { font-weight: 600; color: #334155; margin-bottom: 0.25rem; }
-.dark .recurring-panel-empty p:first-child { color: #e2e8f0; }
-.recurring-panel-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.recurring-panel-list li + li { border-top: 1px solid rgb(15 23 42 / 0.06); }
-.dark .recurring-panel-list li + li { border-top-color: rgb(255 255 255 / 0.08); }
-.recurring-panel-row { display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: baseline; padding: 0.55rem 0.25rem; border-radius: 0.5rem; text-decoration: none; }
-.recurring-panel-row:hover { background: rgb(37 99 235 / 0.05); }
-.dark .recurring-panel-row:hover { background: rgb(147 197 253 / 0.08); }
-.recurring-panel-merchant { font-weight: 600; font-size: 0.92rem; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dark .recurring-panel-merchant { color: #e2e8f0; }
-.recurring-panel-count { font-size: 0.8rem; color: #64748b; white-space: nowrap; }
-.dark .recurring-panel-count { color: #94a3b8; }
-.recurring-panel-amount { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.92rem; color: #b91c1c; white-space: nowrap; }
-.dark .recurring-panel-amount { color: #fca5a5; }
-.recurring-panel-more { align-self: flex-start; font-size: 0.82rem; font-weight: 600; color: #2563eb; background: none; border: none; padding: 0.15rem 0.25rem; cursor: pointer; }
-.dark .recurring-panel-more { color: #93c5fd; }
-.recurring-panel-footer { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; padding-top: 0.6rem; border-top: 1px solid rgb(15 23 42 / 0.08); font-size: 0.88rem; font-weight: 700; color: #334155; }
-.dark .recurring-panel-footer { border-top-color: rgb(255 255 255 / 0.1); color: #e2e8f0; }
-.recurring-panel-warn { font-size: 0.78rem; font-weight: 500; color: #b45309; }
-.dark .recurring-panel-warn { color: #fbbf24; }
