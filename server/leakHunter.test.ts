@@ -150,6 +150,12 @@ describe("buildLeakHunterReport", () => {
     );
 
     expect(report.coverage.asOfDate).toBe("2026-01-01");
+    expect(report.analysisWindow).toEqual({
+      startDate: "2025-01-02",
+      endDate: "2026-01-01",
+      days: 365,
+      totalTransactions: 1,
+    });
     expect(report.summary).toEqual({
       activeCount: 0,
       inactiveCount: 0,
@@ -192,6 +198,29 @@ describe("buildLeakHunterReport", () => {
     expect(report.sections.activeLeaks.map((finding) => finding.merchant)).toEqual(
       ["Cloud Storage", "OpenAI"],
     );
+    expect(report.sections.activeLeaks[0]?.transactions).toEqual([
+      {
+        id: 10,
+        date: "2026-03-15",
+        merchant: "Cloud Storage",
+        amount: 18,
+        category: "software",
+      },
+      {
+        id: 9,
+        date: "2026-02-15",
+        merchant: "Cloud Storage",
+        amount: 12,
+        category: "software",
+      },
+      {
+        id: 8,
+        date: "2026-01-15",
+        merchant: "Cloud Storage",
+        amount: 12,
+        category: "software",
+      },
+    ]);
     expect(report.sections.stoppedLeaks[0]).toMatchObject({
       merchant: "Old SaaS",
       status: "inactive",
@@ -229,6 +258,26 @@ describe("buildLeakHunterReport", () => {
     expect(report.coverage.asOfDate).toBe("2026-03-15");
     expect(allFindings.map((finding) => finding.merchant)).toContain("Before App");
     expect(allFindings.map((finding) => finding.merchant)).not.toContain("After App");
+  });
+
+  it("limits default comparisons to the latest 365 days", () => {
+    const report = buildLeakHunterReport(
+      [
+        expense(1, "2023-01-05", 12, "Old Streaming"),
+        expense(2, "2023-02-05", 12, "Old Streaming"),
+        expense(3, "2023-03-05", 12, "Old Streaming"),
+        expense(4, "2026-06-01", 12, "Old Streaming"),
+      ],
+      { asOfDate: "2026-06-15", today: "2026-06-15" },
+    );
+
+    expect(report.analysisWindow).toEqual({
+      startDate: "2025-06-16",
+      endDate: "2026-06-15",
+      days: 365,
+      totalTransactions: 1,
+    });
+    expect(Object.values(report.sections).flat()).toEqual([]);
   });
 
   it("fills recent habit findings without double-counting active recurring merchants", () => {
@@ -279,9 +328,67 @@ describe("buildLeakHunterReport", () => {
         startDate: "2026-03-05",
         endDate: "2026-03-20",
       },
+      transactions: [
+        {
+          id: 8,
+          date: "2026-03-20",
+          merchant: "Corner Coffee",
+          amount: 8,
+          category: "coffee",
+        },
+        {
+          id: 7,
+          date: "2026-03-14",
+          merchant: "Corner Coffee",
+          amount: 9,
+          category: "coffee",
+        },
+        {
+          id: 6,
+          date: "2026-03-09",
+          merchant: "Corner Coffee",
+          amount: 7,
+          category: "coffee",
+        },
+        {
+          id: 5,
+          date: "2026-03-05",
+          merchant: "Corner Coffee",
+          amount: 8,
+          category: "coffee",
+        },
+      ],
     });
     expect(report.sections.recentHabits.map((finding) => finding.merchant))
       .not.toContain("Streaming Box");
+  });
+
+  it("groups normalized merchant variants despite changing amounts", () => {
+    const report = buildLeakHunterReport(
+      [
+        expense(1, "2026-05-02", 6.5, "TST* Corner Coffee 123456", {
+          category: "coffee",
+        }),
+        expense(2, "2026-05-09", 9.2, "Corner Coffee #8492", {
+          category: "coffee",
+        }),
+        expense(3, "2026-05-17", 7.1, "CORNER COFFEE 998877", {
+          category: "coffee",
+        }),
+        expense(4, "2026-05-28", 11, "Corner Coffee", {
+          category: "coffee",
+        }),
+      ],
+      { asOfDate: "2026-06-01", today: "2026-06-01" },
+    );
+
+    expect(report.sections.recentHabits).toHaveLength(1);
+    expect(report.sections.recentHabits[0]).toMatchObject({
+      merchantKey: "corner coffee",
+      kind: "habit",
+      occurrences: 4,
+    });
+    expect(report.sections.recentHabits[0]?.transactions).toHaveLength(4);
   });
 });
 

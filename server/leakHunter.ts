@@ -47,11 +47,28 @@ export type LeakHunterFinding = {
   priceChangePct?: number;
   confidence: "high" | "medium" | "low";
   evidence: string[];
+  transactions: LeakHunterEvidenceTransaction[];
   ledgerQuery: Record<string, string>;
+};
+
+export type LeakHunterEvidenceTransaction = {
+  id: number;
+  date: string;
+  merchant: string;
+  amount: number;
+  category: string;
+};
+
+export type LeakHunterAnalysisWindow = {
+  startDate: string | null;
+  endDate: string | null;
+  days: number;
+  totalTransactions: number;
 };
 
 export type LeakHunterReport = {
   coverage: LeakHunterCoverage;
+  analysisWindow: LeakHunterAnalysisWindow;
   summary: {
     activeCount: number;
     inactiveCount: number;
@@ -148,6 +165,7 @@ const ACTIONABLE_SUBSCRIPTION_CATEGORIES = new Set([
 ]);
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const DEFAULT_LEAK_HUNTER_WINDOW_DAYS = 365;
 
 export function isValidIsoDate(value: unknown): value is string {
   if (typeof value !== "string" || !ISO_DATE_RE.test(value)) return false;
@@ -194,6 +212,20 @@ function median(values: number[]): number {
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function evidenceTransactions(
+  transactions: NormalizedLeakTransaction[],
+): LeakHunterEvidenceTransaction[] {
+  return [...transactions]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+    .map((txn) => ({
+      id: txn.id,
+      date: txn.date,
+      merchant: txn.merchant,
+      amount: roundMoney(txn.amount),
+      category: txn.category,
+    }));
 }
 
 export function coverageQualityForDays(days: number): LeakHunterCoverageQuality {
@@ -475,6 +507,7 @@ function buildFinding(
     priceChangePct,
     confidence: confidenceFor(group.transactions.length, cadence, status),
     evidence,
+    transactions: evidenceTransactions(group.transactions),
     ledgerQuery: {
       merchant: group.merchantKey,
       startDate: first.date,
@@ -506,7 +539,10 @@ function transactionsOnOrBefore(
   );
 }
 
-function mapRecentHabitFinding(leak: RecentHabitLeakItem): LeakHunterFinding {
+function mapRecentHabitFinding(
+  leak: RecentHabitLeakItem,
+  transactions: NormalizedLeakTransaction[],
+): LeakHunterFinding {
   const dailyEvidence =
     leak.dailyAverage !== undefined
       ? `Averages about ${roundMoney(leak.dailyAverage)} per day in the recent window.`
@@ -517,7 +553,7 @@ function mapRecentHabitFinding(leak: RecentHabitLeakItem): LeakHunterFinding {
     merchantKey: leak.merchantKey,
     merchant: leak.merchant,
     status: "active",
-    kind: "habit",
+    kind: leak.isSubscriptionLike ? "subscription" : "habit",
     firstSeen: leak.firstDate,
     lastSeen: leak.lastDate,
     occurrences: leak.occurrences,
@@ -536,6 +572,14 @@ function mapRecentHabitFinding(leak: RecentHabitLeakItem): LeakHunterFinding {
       `Seen ${leak.occurrences} times from ${leak.firstDate} to ${leak.lastDate}.`,
       dailyEvidence,
     ],
+    transactions: evidenceTransactions(
+      transactions.filter(
+        (txn) =>
+          txn.merchantKey === leak.merchantKey &&
+          txn.date >= leak.firstDate &&
+          txn.date <= leak.lastDate,
+      ),
+    ),
     ledgerQuery: {
       merchant: leak.merchantFilter,
       startDate: leak.firstDate,
@@ -574,10 +618,12 @@ export function detectRecentHabitFindings(
     excludedFromAnalysis: txn.excludedFromAnalysis,
   }));
 
+  const normalizedWindowTransactions = normalizeLeakTransactions(windowTransactions);
+
   return detectLeaks(leakRows, {
     rangeDays,
     recurringMerchantKeys: options.recurringMerchantKeys,
-  }).map(mapRecentHabitFinding);
+  }).map((leak) => mapRecentHabitFinding(leak, normalizedWindowTransactions));
 }
 
 export function detectRecurringLifecycleFindings(
@@ -610,7 +656,29 @@ export function buildLeakHunterReport(
   } = {},
 ): LeakHunterReport {
   const coverage = buildCoverageMetadata(transactions, options);
-  const analysisTransactions = transactionsOnOrBefore(transactions, coverage.asOfDate);
+  const boundedTransactions = transactionsOnOrBefore(transactions, coverage.asOfDate);
+  const analysisTransactions = coverage.asOfDate
+    ? transactionsInWindow(boundedTransactions, {
+        endDate: coverage.asOfDate,
+        rangeDays: DEFAULT_LEAK_HUNTER_WINDOW_DAYS,
+      })
+    : [];
+  const analysisWindow: LeakHunterAnalysisWindow = coverage.asOfDate
+    ? {
+        startDate: addDays(
+          coverage.asOfDate,
+          -(DEFAULT_LEAK_HUNTER_WINDOW_DAYS - 1),
+        ),
+        endDate: coverage.asOfDate,
+        days: DEFAULT_LEAK_HUNTER_WINDOW_DAYS,
+        totalTransactions: analysisTransactions.length,
+      }
+    : {
+        startDate: null,
+        endDate: null,
+        days: 0,
+        totalTransactions: 0,
+      };
   const analysisCoverage = buildCoverageMetadata(analysisTransactions, {
     ...options,
     asOfDate: coverage.asOfDate ?? undefined,
@@ -666,6 +734,7 @@ export function buildLeakHunterReport(
 
   return {
     coverage,
+    analysisWindow,
     summary: {
       activeCount: activeLeaks.length,
       inactiveCount: stoppedLeaks.length,
