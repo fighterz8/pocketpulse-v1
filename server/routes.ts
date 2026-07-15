@@ -86,6 +86,20 @@ import {
 import { getEnhancementFeatureFlags } from "./enhancementConfig.js";
 import { summarizeUnresolvedTransactions } from "./enhancementAvailability.js";
 import {
+  AiEnhancementActiveJobError,
+  AiEnhancementDailyJobLimitError,
+  AiEnhancementIdempotencyMismatchError,
+  AiEnhancementJobNotCancellableError,
+  AiEnhancementJobNotFoundError,
+  AiEnhancementNotNeededError,
+  AiEnhancementUploadNotFoundError,
+  AiEnhancementUploadNotReadyError,
+  cancelAiEnhancementJob,
+  createAiEnhancementJob,
+  getAiEnhancementAvailability,
+  getAiEnhancementJobForUser,
+} from "./aiEnhancementJobs.js";
+import {
   assertResendSendSucceeded,
   formatFromEmail,
   getUncachableResendClient,
@@ -109,6 +123,73 @@ declare module "express-session" {
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ABANDONED_AI_ERROR = "AI enhancement exceeded its runtime budget";
+
+function parsePositiveRouteId(value: unknown): number | null {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sendEnhancementError(
+  error: unknown,
+  res: express.Response,
+): boolean {
+  if (
+    error instanceof AiEnhancementUploadNotFoundError ||
+    error instanceof AiEnhancementJobNotFoundError
+  ) {
+    res.status(404).json({ error: "Enhancement resource not found" });
+    return true;
+  }
+  if (error instanceof AiEnhancementUploadNotReadyError) {
+    res.status(409).json({
+      error: "This upload is not ready for enhancement",
+      code: "UPLOAD_NOT_READY",
+    });
+    return true;
+  }
+  if (error instanceof AiEnhancementNotNeededError) {
+    res.status(409).json({
+      error: "No unresolved merchants remain for this upload",
+      code: "ENHANCEMENT_NOT_NEEDED",
+    });
+    return true;
+  }
+  if (error instanceof AiEnhancementActiveJobError) {
+    res.status(409).json({
+      error: "An enhancement job is already active",
+      code: "ACTIVE_JOB_EXISTS",
+      activeJobId: error.activeJobId,
+    });
+    return true;
+  }
+  if (error instanceof AiEnhancementDailyJobLimitError) {
+    res.status(429).json({
+      error: "Daily enhancement allowance reached",
+      code: "USER_LIMIT_REACHED",
+    });
+    return true;
+  }
+  if (error instanceof AiEnhancementIdempotencyMismatchError) {
+    res.status(409).json({
+      error: "This request key was already used for another upload",
+      code: "IDEMPOTENCY_MISMATCH",
+    });
+    return true;
+  }
+  if (error instanceof AiEnhancementJobNotCancellableError) {
+    res.status(409).json({
+      error: "This enhancement job can no longer be cancelled",
+      code: "JOB_NOT_CANCELLABLE",
+    });
+    return true;
+  }
+  if (error instanceof RangeError) {
+    res.status(400).json({ error: error.message, code: "INVALID_REQUEST" });
+    return true;
+  }
+  return false;
+}
 
 function idleLegacyAiStatus(status: string): string {
   return status === "pending" || status === "processing" ? "none" : status;
@@ -1619,6 +1700,140 @@ export function createApp(options?: CreateAppOptions) {
         res.status(201).json({ results });
       } catch (e) {
         next(e);
+      }
+    },
+  );
+
+  /** Read-only preparation view. This route never invokes a paid provider. */
+  app.get(
+    "/api/uploads/:id/enhancement",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const uploadId = parsePositiveRouteId(req.params.id);
+        if (uploadId === null) {
+          res.status(400).json({ error: "Invalid upload id" });
+          return;
+        }
+        const flags = getEnhancementFeatureFlags();
+        const availability = await getAiEnhancementAvailability({
+          userId: req.session.userId!,
+          uploadId,
+          featureEnabled: flags.transactionEnhancement,
+          providerAvailable: Boolean(process.env.OPENAI_API_KEY?.trim()),
+        });
+        res.json(availability);
+      } catch (error) {
+        if (!sendEnhancementError(error, res)) next(error);
+      }
+    },
+  );
+
+  /** Create an explicitly requested, durable enhancement job. */
+  app.post("/api/enhancement-jobs", requireAuth, async (req, res, next) => {
+    try {
+      const flags = getEnhancementFeatureFlags();
+      if (!flags.transactionEnhancement) {
+        res.status(503).json({
+          error: "Transaction enhancement is not available",
+          code: "FEATURE_DISABLED",
+        });
+        return;
+      }
+      if (!process.env.OPENAI_API_KEY?.trim()) {
+        res.status(503).json({
+          error: "Transaction enhancement is temporarily unavailable",
+          code: "PROVIDER_UNAVAILABLE",
+        });
+        return;
+      }
+      const body = req.body as Record<string, unknown> | undefined;
+      if (
+        !body ||
+        Object.keys(body).length !== 1 ||
+        !Object.hasOwn(body, "uploadId") ||
+        !Number.isSafeInteger(body.uploadId) ||
+        Number(body.uploadId) <= 0
+      ) {
+        res.status(400).json({
+          error: "uploadId must be a positive integer",
+          code: "INVALID_REQUEST",
+        });
+        return;
+      }
+      const idempotencyKey = req.get("Idempotency-Key");
+      if (!idempotencyKey) {
+        res.status(400).json({
+          error: "Idempotency-Key header is required",
+          code: "IDEMPOTENCY_KEY_REQUIRED",
+        });
+        return;
+      }
+      const job = await createAiEnhancementJob({
+        userId: req.session.userId!,
+        uploadId: Number(body.uploadId),
+        idempotencyKey,
+      });
+      res.status(202).json({ job });
+    } catch (error) {
+      if (!sendEnhancementError(error, res)) next(error);
+    }
+  });
+
+  app.get(
+    "/api/enhancement-jobs/:id",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const jobId = parsePositiveRouteId(req.params.id);
+        if (jobId === null) {
+          res.status(400).json({ error: "Invalid enhancement job id" });
+          return;
+        }
+        const job = await getAiEnhancementJobForUser(
+          req.session.userId!,
+          jobId,
+        );
+        if (!job) {
+          res.status(404).json({ error: "Enhancement resource not found" });
+          return;
+        }
+        res.json({ job });
+      } catch (error) {
+        if (!sendEnhancementError(error, res)) next(error);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/enhancement-jobs/:id",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const jobId = parsePositiveRouteId(req.params.id);
+        if (jobId === null) {
+          res.status(400).json({ error: "Invalid enhancement job id" });
+          return;
+        }
+        const body = req.body as Record<string, unknown> | undefined;
+        if (
+          !body ||
+          Object.keys(body).length !== 1 ||
+          body.status !== "cancelled"
+        ) {
+          res.status(400).json({
+            error: 'status must be exactly "cancelled"',
+            code: "INVALID_REQUEST",
+          });
+          return;
+        }
+        const job = await cancelAiEnhancementJob({
+          userId: req.session.userId!,
+          jobId,
+        });
+        res.json({ job });
+      } catch (error) {
+        if (!sendEnhancementError(error, res)) next(error);
       }
     },
   );

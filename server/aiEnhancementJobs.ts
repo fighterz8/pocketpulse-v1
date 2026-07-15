@@ -28,6 +28,20 @@ export type AiEnhancementJobView = {
   updatedAt: Date;
 };
 
+export type AiEnhancementAvailability = {
+  uploadId: number;
+  state: "not_needed" | "available" | "active" | "complete" | "blocked";
+  unresolvedTransactionCount: number;
+  unresolvedMerchantCount: number;
+  activeJobId?: number;
+  blockedReason?:
+    | "FEATURE_DISABLED"
+    | "ACTIVE_JOB_EXISTS"
+    | "USER_LIMIT_REACHED"
+    | "PROVIDER_UNAVAILABLE";
+  resetAt?: string;
+};
+
 type JobRow = {
   id: number;
   upload_id: number;
@@ -99,6 +113,24 @@ export class AiEnhancementIdempotencyMismatchError extends Error {
   constructor() {
     super("The idempotency key was already used for a different upload");
     this.name = "AiEnhancementIdempotencyMismatchError";
+  }
+}
+
+export class AiEnhancementJobNotFoundError extends Error {
+  readonly code = "AI_ENHANCEMENT_JOB_NOT_FOUND" as const;
+
+  constructor() {
+    super("Enhancement job was not found");
+    this.name = "AiEnhancementJobNotFoundError";
+  }
+}
+
+export class AiEnhancementJobNotCancellableError extends Error {
+  readonly code = "AI_ENHANCEMENT_JOB_NOT_CANCELLABLE" as const;
+
+  constructor() {
+    super("Enhancement job can no longer be cancelled");
+    this.name = "AiEnhancementJobNotCancellableError";
   }
 }
 
@@ -175,6 +207,192 @@ async function findIdempotentJob(
   return existing.rows[0] ?? null;
 }
 
+async function listUnresolvedRows(
+  client: pg.PoolClient,
+  userId: number,
+  uploadId: number,
+): Promise<UnresolvedRow[]> {
+  const unresolved = await client.query<UnresolvedRow>(
+    `SELECT id, merchant FROM transactions
+     WHERE user_id = $1 AND upload_id = $2
+       AND ai_assisted = true
+       AND label_source <> 'ai'
+       AND label_source NOT IN ('manual', 'propagated')
+       AND user_corrected = false
+     ORDER BY id
+     FOR SHARE`,
+    [userId, uploadId],
+  );
+  return unresolved.rows;
+}
+
+function unresolvedSummary(rows: UnresolvedRow[]): {
+  transactionCount: number;
+  representatives: Map<string, number>;
+} {
+  const representatives = new Map<string, number>();
+  for (const row of rows) {
+    const key = recurrenceKey(row.merchant);
+    if (key && !representatives.has(key)) representatives.set(key, row.id);
+  }
+  return { transactionCount: rows.length, representatives };
+}
+
+export async function getAiEnhancementJobForUser(
+  userId: number,
+  jobId: number,
+): Promise<AiEnhancementJobView | null> {
+  assertPositiveId(userId, "userId");
+  assertPositiveId(jobId, "jobId");
+  const result = await pool.query<JobRow>(
+    `SELECT ${JOB_COLUMNS} FROM ai_enhancement_jobs
+     WHERE id = $1 AND user_id = $2`,
+    [jobId, userId],
+  );
+  return result.rows[0] ? toJobView(result.rows[0]) : null;
+}
+
+export async function getAiEnhancementAvailability(input: {
+  userId: number;
+  uploadId: number;
+  featureEnabled: boolean;
+  providerAvailable: boolean;
+}): Promise<AiEnhancementAvailability> {
+  assertPositiveId(input.userId, "userId");
+  assertPositiveId(input.uploadId, "uploadId");
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const upload = await client.query<{ status: string }>(
+      `SELECT status FROM uploads WHERE id = $1 AND user_id = $2 FOR SHARE`,
+      [input.uploadId, input.userId],
+    );
+    if (!upload.rows[0]) throw new AiEnhancementUploadNotFoundError();
+    if (upload.rows[0].status !== "complete") {
+      throw new AiEnhancementUploadNotReadyError();
+    }
+
+    const unresolved = unresolvedSummary(
+      await listUnresolvedRows(client, input.userId, input.uploadId),
+    );
+    const active = await client.query<{ id: number; upload_id: number }>(
+      `SELECT id, upload_id FROM ai_enhancement_jobs
+       WHERE user_id = $1
+         AND status IN ('queued', 'processing', 'budget_blocked')
+       LIMIT 1`,
+      [input.userId],
+    );
+    const activeJob = active.rows[0];
+    const latest = await client.query<{ id: number; status: string }>(
+      `SELECT id, status FROM ai_enhancement_jobs
+       WHERE user_id = $1 AND upload_id = $2
+       ORDER BY id DESC LIMIT 1`,
+      [input.userId, input.uploadId],
+    );
+    const quota = await client.query<{ count: string; reset_at: Date }>(
+      `SELECT COUNT(*)::text AS count,
+              date_trunc('day', clock_timestamp()) + interval '1 day' AS reset_at
+       FROM ai_enhancement_jobs
+       WHERE user_id = $1
+         AND created_at >= date_trunc('day', clock_timestamp())`,
+      [input.userId],
+    );
+    await client.query("COMMIT");
+
+    const base = {
+      uploadId: input.uploadId,
+      unresolvedTransactionCount: unresolved.transactionCount,
+      unresolvedMerchantCount: unresolved.representatives.size,
+    };
+    if (activeJob?.upload_id === input.uploadId) {
+      return { ...base, state: "active", activeJobId: activeJob.id };
+    }
+    if (unresolved.transactionCount === 0) {
+      return {
+        ...base,
+        state: latest.rows[0]?.status === "complete" ? "complete" : "not_needed",
+      };
+    }
+    if (!input.featureEnabled) {
+      return { ...base, state: "blocked", blockedReason: "FEATURE_DISABLED" };
+    }
+    if (!input.providerAvailable) {
+      return {
+        ...base,
+        state: "blocked",
+        blockedReason: "PROVIDER_UNAVAILABLE",
+      };
+    }
+    if (activeJob) {
+      return {
+        ...base,
+        state: "blocked",
+        activeJobId: activeJob.id,
+        blockedReason: "ACTIVE_JOB_EXISTS",
+      };
+    }
+    if (
+      Number(quota.rows[0]!.count) >= AI_ENHANCEMENT_MAX_JOBS_PER_USER_DAY
+    ) {
+      return {
+        ...base,
+        state: "blocked",
+        blockedReason: "USER_LIMIT_REACHED",
+        resetAt: quota.rows[0]!.reset_at.toISOString(),
+      };
+    }
+    return { ...base, state: "available" };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function cancelAiEnhancementJob(input: {
+  userId: number;
+  jobId: number;
+}): Promise<AiEnhancementJobView> {
+  assertPositiveId(input.userId, "userId");
+  assertPositiveId(input.jobId, "jobId");
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query<JobRow & { status: AiEnhancementJobStatus }>(
+      `SELECT ${JOB_COLUMNS} FROM ai_enhancement_jobs
+       WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [input.jobId, input.userId],
+    );
+    const job = existing.rows[0];
+    if (!job) throw new AiEnhancementJobNotFoundError();
+    if (job.status === "cancelled") {
+      await client.query("COMMIT");
+      return toJobView(job);
+    }
+    if (!['queued', 'processing', 'budget_blocked'].includes(job.status)) {
+      throw new AiEnhancementJobNotCancellableError();
+    }
+    const cancelled = await client.query<JobRow>(
+      `UPDATE ai_enhancement_jobs
+       SET status = 'cancelled', cancelled_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       WHERE id = $1
+       RETURNING ${JOB_COLUMNS}`,
+      [input.jobId],
+    );
+    await client.query("COMMIT");
+    return toJobView(cancelled.rows[0]!);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function createAiEnhancementJob(input: {
   userId: number;
   uploadId: number;
@@ -244,25 +462,15 @@ export async function createAiEnhancementJob(input: {
       throw new AiEnhancementDailyJobLimitError();
     }
 
-    const unresolved = await client.query<UnresolvedRow>(
-      `SELECT id, merchant FROM transactions
-       WHERE user_id = $1 AND upload_id = $2
-         AND ai_assisted = true
-         AND label_source <> 'ai'
-         AND label_source NOT IN ('manual', 'propagated')
-         AND user_corrected = false
-       ORDER BY id
-       FOR SHARE`,
-      [input.userId, input.uploadId],
+    const unresolved = unresolvedSummary(
+      await listUnresolvedRows(client, input.userId, input.uploadId),
     );
-
-    const representatives = new Map<string, number>();
-    for (const row of unresolved.rows) {
-      const key = recurrenceKey(row.merchant);
-      if (!key || representatives.has(key)) continue;
-      representatives.set(key, row.id);
-      if (representatives.size === AI_ENHANCEMENT_MAX_MERCHANTS_PER_JOB) break;
-    }
+    const representatives = new Map(
+      [...unresolved.representatives].slice(
+        0,
+        AI_ENHANCEMENT_MAX_MERCHANTS_PER_JOB,
+      ),
+    );
     if (representatives.size === 0) {
       throw new AiEnhancementNotNeededError();
     }
