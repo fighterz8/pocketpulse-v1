@@ -13,7 +13,10 @@
  * registration-time path.
  */
 import {
+  bigint,
   boolean,
+  check,
+  date,
   index,
   integer,
   json,
@@ -26,6 +29,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /** Keep in sync with `.default()` on `userPreferences` columns for explicit inserts. */
 export const USER_PREFERENCE_DEFAULTS = {
@@ -190,6 +194,230 @@ export const uploads = pgTable(
   (t) => [
     index("uploads_user_id_idx").on(t.userId),
     index("uploads_account_id_idx").on(t.accountId),
+  ],
+);
+
+export const AI_OPERATIONS = [
+  "transaction_classification",
+  "csv_format_detection",
+] as const;
+export type AiOperation = (typeof AI_OPERATIONS)[number];
+
+export const AI_RESERVATION_STATUSES = [
+  "active",
+  "committed",
+  "reserved_unknown",
+  "released",
+] as const;
+export type AiReservationStatus = (typeof AI_RESERVATION_STATUSES)[number];
+
+/**
+ * Durable pre-call reservation. Kept separate from the immutable usage ledger
+ * because a reservation has a mutable lifecycle while a finalized spend event
+ * must never be rewritten.
+ */
+export const aiBudgetReservations = pgTable(
+  "ai_budget_reservations",
+  {
+    id: text("id").primaryKey(),
+    userId: integer("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    accountId: integer("account_id").references(() => accounts.id, {
+      onDelete: "set null",
+    }),
+    uploadId: integer("upload_id").references(() => uploads.id, {
+      onDelete: "set null",
+    }),
+    /** Job table arrives in Slice 3; the nullable correlation ID is reserved now. */
+    jobId: integer("job_id"),
+    operation: text("operation").$type<AiOperation>().notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    pricingVersion: text("pricing_version").notNull(),
+    reservedCostMicrousd: bigint("reserved_cost_microusd", { mode: "number" })
+      .notNull(),
+    finalCostMicrousd: bigint("final_cost_microusd", { mode: "number" }),
+    status: text("status").$type<AiReservationStatus>().notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reconciledAt: timestamp("reconciled_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+  },
+  (t) => [
+    index("ai_budget_reservations_user_id_idx").on(t.userId),
+    index("ai_budget_reservations_account_id_idx").on(t.accountId),
+    index("ai_budget_reservations_upload_id_idx").on(t.uploadId),
+    check(
+      "ai_budget_reservations_operation_check",
+      sql`${t.operation} IN ('transaction_classification', 'csv_format_detection')`,
+    ),
+    check(
+      "ai_budget_reservations_status_check",
+      sql`${t.status} IN ('active', 'committed', 'reserved_unknown', 'released')`,
+    ),
+    check(
+      "ai_budget_reservations_cost_check",
+      sql`${t.reservedCostMicrousd} >= 0 AND (${t.finalCostMicrousd} IS NULL OR ${t.finalCostMicrousd} >= 0)`,
+    ),
+  ],
+);
+
+export const AI_USAGE_SOURCES = [
+  "actual",
+  "estimated",
+  "reserved_unknown",
+] as const;
+export type AiUsageSource = (typeof AI_USAGE_SOURCES)[number];
+
+export const AI_ATTEMPT_STATUSES = [
+  "succeeded",
+  "failed",
+  "released",
+  "unknown",
+] as const;
+export type AiAttemptStatus = (typeof AI_ATTEMPT_STATUSES)[number];
+
+/** Finalized, privacy-minimized provider request ledger. */
+export const aiUsageEvents = pgTable(
+  "ai_usage_events",
+  {
+    id: serial("id").primaryKey(),
+    reservationId: text("reservation_id")
+      .notNull()
+      .references(() => aiBudgetReservations.id, { onDelete: "restrict" }),
+    userId: integer("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    accountId: integer("account_id").references(() => accounts.id, {
+      onDelete: "set null",
+    }),
+    uploadId: integer("upload_id").references(() => uploads.id, {
+      onDelete: "set null",
+    }),
+    jobId: integer("job_id"),
+    operation: text("operation").$type<AiOperation>().notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    pricingVersion: text("pricing_version").notNull(),
+    providerRequestId: text("provider_request_id"),
+    attemptStatus: text("attempt_status").$type<AiAttemptStatus>().notNull(),
+    latencyMs: integer("latency_ms"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    reasoningTokens: integer("reasoning_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    reservedCostMicrousd: bigint("reserved_cost_microusd", { mode: "number" })
+      .notNull(),
+    finalCostMicrousd: bigint("final_cost_microusd", { mode: "number" })
+      .notNull(),
+    usageSource: text("usage_source").$type<AiUsageSource>().notNull(),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("ai_usage_events_reservation_id_unique").on(t.reservationId),
+    uniqueIndex("ai_usage_events_provider_request_unique")
+      .on(t.provider, t.providerRequestId)
+      .where(sql`${t.providerRequestId} IS NOT NULL`),
+    index("ai_usage_events_user_id_idx").on(t.userId),
+    index("ai_usage_events_account_id_idx").on(t.accountId),
+    index("ai_usage_events_upload_id_idx").on(t.uploadId),
+    index("ai_usage_events_created_at_idx").on(t.createdAt),
+    check(
+      "ai_usage_events_operation_check",
+      sql`${t.operation} IN ('transaction_classification', 'csv_format_detection')`,
+    ),
+    check(
+      "ai_usage_events_attempt_status_check",
+      sql`${t.attemptStatus} IN ('succeeded', 'failed', 'released', 'unknown')`,
+    ),
+    check(
+      "ai_usage_events_usage_source_check",
+      sql`${t.usageSource} IN ('actual', 'estimated', 'reserved_unknown')`,
+    ),
+    check(
+      "ai_usage_events_token_check",
+      sql`${t.inputTokens} >= 0 AND ${t.cachedInputTokens} >= 0 AND ${t.outputTokens} >= 0 AND ${t.reasoningTokens} >= 0 AND ${t.totalTokens} >= 0 AND ${t.cachedInputTokens} <= ${t.inputTokens} AND ${t.reasoningTokens} <= ${t.outputTokens} AND ${t.totalTokens} = ${t.inputTokens} + ${t.outputTokens}`,
+    ),
+    check(
+      "ai_usage_events_cost_check",
+      sql`${t.reservedCostMicrousd} >= 0 AND ${t.finalCostMicrousd} >= 0`,
+    ),
+  ],
+);
+
+export const aiBudgetBuckets = pgTable(
+  "ai_budget_buckets",
+  {
+    id: serial("id").primaryKey(),
+    scope: text("scope").$type<"app" | "user">().notNull(),
+    userId: integer("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    period: text("period").$type<"day" | "month">().notNull(),
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    configuredLimitMicrousd: bigint("configured_limit_microusd", {
+      mode: "number",
+    }).notNull(),
+    reservedCostMicrousd: bigint("reserved_cost_microusd", { mode: "number" })
+      .notNull()
+      .default(0),
+    committedCostMicrousd: bigint("committed_cost_microusd", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("ai_budget_buckets_app_period_unique")
+      .on(t.period, t.periodStart)
+      .where(sql`${t.scope} = 'app'`),
+    uniqueIndex("ai_budget_buckets_user_period_unique")
+      .on(t.userId, t.period, t.periodStart)
+      .where(sql`${t.scope} = 'user'`),
+    index("ai_budget_buckets_user_id_idx").on(t.userId),
+    check(
+      "ai_budget_buckets_scope_check",
+      sql`(${t.scope} = 'app' AND ${t.userId} IS NULL) OR (${t.scope} = 'user' AND ${t.userId} IS NOT NULL)`,
+    ),
+    check(
+      "ai_budget_buckets_period_check",
+      sql`${t.period} IN ('day', 'month')`,
+    ),
+    check(
+      "ai_budget_buckets_cost_check",
+      sql`${t.configuredLimitMicrousd} >= 0 AND ${t.reservedCostMicrousd} >= 0 AND ${t.committedCostMicrousd} >= 0`,
+    ),
+  ],
+);
+
+export const aiConcurrencyLeases = pgTable(
+  "ai_concurrency_leases",
+  {
+    id: text("id").primaryKey(),
+    holderKey: text("holder_key").notNull(),
+    acquiredAt: timestamp("acquired_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true })
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("ai_concurrency_leases_holder_key_unique").on(t.holderKey),
+    index("ai_concurrency_leases_expires_at_idx").on(t.expiresAt),
   ],
 );
 
