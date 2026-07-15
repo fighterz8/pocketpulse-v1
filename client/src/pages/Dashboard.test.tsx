@@ -84,7 +84,6 @@ function makeSuccessFetch(summaryData: unknown) {
 }
 
 beforeEach(() => {
-  vi.unstubAllGlobals();
   // Mark the first-visit welcome overlay as already seen by default so the
   // existing dashboard tests render as if the user has been here before.
   // Task #119 moved the WelcomeOverlay from AccountSetup into the Dashboard;

@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "../components/ui/tooltip";
 import {
   ONBOARDING_UPLOAD_SUCCESS_FLAG,
@@ -111,10 +111,6 @@ describe("OnboardingUpload", () => {
         return new Response("not found", { status: 404 });
       }),
     );
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
   it("renders Step 2 of 2 chrome and references the just-created account", () => {
