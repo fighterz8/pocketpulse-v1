@@ -45,11 +45,24 @@ type LeakHunterFinding = {
   priceChangePct?: number;
   confidence: "high" | "medium" | "low";
   evidence: string[];
+  transactions: Array<{
+    id: number;
+    date: string;
+    merchant: string;
+    amount: number;
+    category: string;
+  }>;
   ledgerQuery: Record<string, string>;
 };
 
 type LeakHunterReport = {
   coverage: LeakHunterCoverage;
+  analysisWindow: {
+    startDate: string | null;
+    endDate: string | null;
+    days: number;
+    totalTransactions: number;
+  };
   summary: {
     activeCount: number;
     inactiveCount: number;
@@ -140,6 +153,14 @@ function findingCostLabel(finding: LeakHunterFinding): string {
     return `${fmt(finding.historicalTotal)} seen in this window`;
   }
   return `${fmt(finding.monthlyEquivalent * 12)} per year if active`;
+}
+
+function findingKindLabel(finding: LeakHunterFinding): string {
+  if (finding.kind === "habit") return "Priority leak";
+  if (finding.kind === "subscription") return "Subscription";
+  if (finding.kind === "bill") return "Bill or obligation";
+  if (finding.kind === "price_creep") return "Subscription price increase";
+  return "Needs review";
 }
 
 function initialMode(): LeakHunterMode {
@@ -234,7 +255,13 @@ function emptyGuidance(
   };
 }
 
-function CoverageStrip({ coverage }: { coverage: LeakHunterCoverage }) {
+function CoverageStrip({
+  coverage,
+  analysisWindow,
+}: {
+  coverage: LeakHunterCoverage;
+  analysisWindow: LeakHunterReport["analysisWindow"];
+}) {
   const range =
     coverage.startDate && coverage.endDate
       ? `${formatDate(coverage.startDate)} to ${formatDate(coverage.endDate)}`
@@ -265,13 +292,18 @@ function CoverageStrip({ coverage }: { coverage: LeakHunterCoverage }) {
       <div>
         <p className="leak-hunter-eyebrow">{coverageTone(coverage.coverageQuality)}</p>
         <p className="leak-hunter-coverage-main">
-          Analyzing {coverage.accountCount} account
+          Imported {coverage.accountCount} account
           {coverage.accountCount === 1 ? "" : "s"} from {range}.
         </p>
         <p className="leak-hunter-coverage-sub">
-          Current as of {formatDate(coverage.asOfDate)} ·{" "}
-          {coverage.totalTransactions.toLocaleString()} transactions ·{" "}
+          Imported coverage: {coverage.totalTransactions.toLocaleString()} transactions ·{" "}
           {coverage.coverageDays} days
+        </p>
+        <p className="leak-hunter-analysis-window" data-testid="leak-hunter-analysis-window">
+          <strong>Recent analysis:</strong> {formatDate(analysisWindow.startDate)} to{" "}
+          {formatDate(analysisWindow.endDate)} ·{" "}
+          {analysisWindow.totalTransactions.toLocaleString()} transactions. Older imported
+          transactions are not compared with this period.
         </p>
         <p className="leak-hunter-coverage-guidance">
           {coverageGuidance(coverage.coverageQuality)}
@@ -350,11 +382,11 @@ function ModeControl({
 
 function SummaryGrid({ report }: { report: LeakHunterReport }) {
   const cards = [
-    ["Active leaks", String(report.summary.activeCount)],
-    ["Stopped leaks", String(report.summary.inactiveCount)],
-    ["Price creep", String(report.summary.priceCreepCount)],
-    ["Recent habits", String(report.summary.recentHabitCount)],
-    ["Active monthly", fmtShort(report.summary.estimatedActiveMonthly)],
+    ["Recent spending leaks", String(report.summary.recentHabitCount)],
+    ["Active subscriptions", String(report.summary.activeCount)],
+    ["Stopped subscriptions", String(report.summary.inactiveCount)],
+    ["Subscription price creep", String(report.summary.priceCreepCount)],
+    ["Active subscriptions / mo", fmtShort(report.summary.estimatedActiveMonthly)],
   ];
 
   return (
@@ -389,10 +421,11 @@ function FindingCard({
     finding.priceChangePct === undefined
       ? null
       : `${finding.priceChangePct > 0 ? "+" : ""}${Math.round(finding.priceChangePct)}%`;
+  const transactions = finding.transactions ?? [];
 
   return (
     <motion.article
-      className={`leak-hunter-card leak-hunter-card--${finding.status}`}
+      className={`leak-hunter-card leak-hunter-card--${finding.status} leak-hunter-card--kind-${finding.kind}`}
       variants={fadeUp}
       initial="hidden"
       animate="visible"
@@ -407,9 +440,14 @@ function FindingCard({
             {formatDate(finding.lastSeen)}
           </p>
         </div>
-        <span className={`leak-hunter-status leak-hunter-status--${finding.status}`}>
-          {sentenceCase(finding.status)}
-        </span>
+        <div className="leak-hunter-badges">
+          <span className={`leak-hunter-kind leak-hunter-kind--${finding.kind}`}>
+            {findingKindLabel(finding)}
+          </span>
+          <span className={`leak-hunter-status leak-hunter-status--${finding.status}`}>
+            {sentenceCase(finding.status)}
+          </span>
+        </div>
       </div>
 
       <div className="leak-hunter-metrics">
@@ -437,6 +475,31 @@ function FindingCard({
           <li>Expected again around {formatDate(finding.expectedNextDate)}.</li>
         )}
       </ul>
+
+      <details className="leak-hunter-transactions">
+        <summary>
+          {transactions.length} associated transaction
+          {transactions.length === 1 ? "" : "s"}
+        </summary>
+        {transactions.length > 0 ? (
+          <ul>
+            {transactions.map((transaction) => (
+              <li key={transaction.id}>
+                <div>
+                  <strong>{transaction.merchant}</strong>
+                  <span>
+                    <time dateTime={transaction.date}>{formatDate(transaction.date)}</time> ·{" "}
+                    {sentenceCase(transaction.category)}
+                  </span>
+                </div>
+                <strong>{fmt(transaction.amount)}</strong>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>Open the ledger to review the matching transaction history.</p>
+        )}
+      </details>
 
       <div className="leak-hunter-actions">
         <span>{findingCostLabel(finding)}</span>
@@ -507,15 +570,23 @@ export function Leaks() {
     if (!data) return [];
     const sections = [
       {
+        key: "recent_habits" as const,
+        title: "Recent spending leaks",
+        subtitle:
+          "Repeated discretionary purchases in the recent window. Amounts can vary; similar merchant activity is grouped together.",
+        findings: data.sections.recentHabits,
+      },
+      {
         key: "active" as const,
-        title: "Active leaks",
-        subtitle: "Recurring charges that look active or close enough to check.",
+        title: "Subscriptions to review",
+        subtitle:
+          "Likely subscriptions are labeled separately from discretionary leaks so you can judge whether they still earn their cost.",
         findings: data.sections.activeLeaks,
       },
       {
         key: "stopped" as const,
-        title: "Stopped leaks",
-        subtitle: "Historical patterns that appear to have ended before the latest upload.",
+        title: "Stopped subscriptions",
+        subtitle: "Recent recurring patterns that appear to have ended before the latest upload.",
         findings: data.sections.stoppedLeaks,
       },
       {
@@ -523,12 +594,6 @@ export function Leaks() {
         title: "Price creep",
         subtitle: "Recurring charges where the latest amount rose meaningfully.",
         findings: data.sections.priceCreep,
-      },
-      {
-        key: "recent_habits" as const,
-        title: "Recent habits",
-        subtitle: "Repeat discretionary spending from the current import window.",
-        findings: data.sections.recentHabits,
       },
       {
         key: "needs_review" as const,
@@ -574,8 +639,8 @@ export function Leaks() {
         Leak Hunter
       </h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Private CSV-based review for recurring charges, stopped subscriptions,
-        price creep, and repeat spending.
+        Recent-first review of repeated discretionary spending, subscriptions,
+        and price changes—with the matching transactions attached.
       </p>
     </motion.div>
   );
@@ -603,7 +668,7 @@ export function Leaks() {
   return (
     <div>
       {header}
-      <CoverageStrip coverage={data.coverage} />
+      <CoverageStrip coverage={data.coverage} analysisWindow={data.analysisWindow} />
       {data.coverage.limitations.length > 0 && (
         <motion.div
           className="leak-hunter-limitations"

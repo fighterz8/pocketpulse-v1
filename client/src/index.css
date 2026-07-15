@@ -3113,6 +3113,18 @@ html.dark .leaks-error {
   color: #64748b;
 }
 
+.leak-hunter-analysis-window {
+  margin-top: 0.45rem;
+  max-width: 46rem;
+  padding: 0.55rem 0.65rem;
+  border-left: 3px solid #0f766e;
+  border-radius: 0.25rem;
+  background: #f0fdfa;
+  color: #134e4a;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .leak-hunter-coverage-guidance {
   margin-top: 0.4rem;
   max-width: 44rem;
@@ -3306,6 +3318,11 @@ html.dark .leaks-error {
   border-left-color: #2563eb;
 }
 
+.leak-hunter-card--kind-habit {
+  border-left-color: #dc2626;
+  background: linear-gradient(90deg, rgb(254 242 242 / 0.92), rgb(255 255 255 / 0.92) 20%);
+}
+
 .leak-hunter-card-head {
   display: flex;
   justify-content: space-between;
@@ -3324,6 +3341,39 @@ html.dark .leaks-error {
   margin-top: 0.2rem;
   font-size: 0.78rem;
   color: #64748b;
+}
+
+.leak-hunter-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.leak-hunter-kind {
+  flex: 0 0 auto;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.leak-hunter-kind--habit {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.leak-hunter-kind--bill,
+.leak-hunter-kind--unknown {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.leak-hunter-kind--price_creep {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .leak-hunter-status {
@@ -3387,6 +3437,61 @@ html.dark .leaks-error {
   margin-top: 0.22rem;
 }
 
+.leak-hunter-transactions {
+  margin-top: 0.85rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.75rem;
+  color: #475569;
+  font-size: 0.82rem;
+}
+
+.leak-hunter-transactions summary {
+  width: fit-content;
+  color: #0f766e;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.leak-hunter-transactions ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leak-hunter-transactions li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.45rem;
+  background: #f8fafc;
+}
+
+.leak-hunter-transactions li > div {
+  min-width: 0;
+}
+
+.leak-hunter-transactions li strong,
+.leak-hunter-transactions li span {
+  display: block;
+}
+
+.leak-hunter-transactions li > div > strong {
+  overflow-wrap: anywhere;
+  color: #0f172a;
+}
+
+.leak-hunter-transactions li span,
+.leak-hunter-transactions > p {
+  margin-top: 0.1rem;
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
 .leak-hunter-actions {
   display: flex;
   align-items: center;
@@ -3442,6 +3547,32 @@ html.dark .leak-hunter-metrics strong {
   color: #f8fafc;
 }
 
+html.dark .leak-hunter-card--kind-habit {
+  background: linear-gradient(90deg, rgb(69 10 10 / 0.62), rgb(15 23 42 / 0.74) 24%);
+}
+
+html.dark .leak-hunter-analysis-window {
+  background: rgb(19 78 74 / 0.36);
+  color: #ccfbf1;
+}
+
+html.dark .leak-hunter-transactions {
+  border-color: rgb(148 163 184 / 0.2);
+  color: #cbd5e1;
+}
+
+html.dark .leak-hunter-transactions summary {
+  color: #5eead4;
+}
+
+html.dark .leak-hunter-transactions li {
+  background: rgb(30 41 59 / 0.9);
+}
+
+html.dark .leak-hunter-transactions li > div > strong {
+  color: #f8fafc;
+}
+
 html.dark .leak-hunter-coverage-sub,
 html.dark .leak-hunter-coverage-guidance,
 html.dark .leak-hunter-limitations span,
@@ -3484,6 +3615,10 @@ html.dark .leak-hunter-limitations span {
 
   .leak-hunter-actions {
     align-items: flex-start;
+  }
+
+  .leak-hunter-badges {
+    justify-content: flex-start;
   }
 }
 

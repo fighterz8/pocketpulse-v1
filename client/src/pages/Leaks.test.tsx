@@ -14,6 +14,12 @@ const MOCK_REPORT = {
     freshness: "current",
     limitations: [],
   },
+  analysisWindow: {
+    startDate: "2025-02-01",
+    endDate: "2026-01-31",
+    days: 365,
+    totalTransactions: 72,
+  },
   summary: {
     activeCount: 1,
     inactiveCount: 1,
@@ -42,6 +48,22 @@ const MOCK_REPORT = {
         priceChangePct: 20,
         confidence: "high",
         evidence: ["Monthly cadence detected across 13 charges."],
+        transactions: [
+          {
+            id: 13,
+            date: "2026-01-15",
+            merchant: "SPOTIFY.COM",
+            amount: 17.99,
+            category: "entertainment",
+          },
+          {
+            id: 12,
+            date: "2025-12-15",
+            merchant: "SPOTIFY USA",
+            amount: 14.99,
+            category: "entertainment",
+          },
+        ],
         ledgerQuery: { search: "spotify", transactionClass: "expense" },
       },
     ],
@@ -62,6 +84,7 @@ const MOCK_REPORT = {
         historicalTotal: 120,
         confidence: "medium",
         evidence: ["No matching charge after May 2025."],
+        transactions: [],
         ledgerQuery: { search: "old gym", transactionClass: "expense" },
       },
     ],
@@ -113,8 +136,14 @@ describe("Leaks page", () => {
       expect(screen.getByTestId("leak-hunter-coverage")).toHaveTextContent(
         "annual renewals",
       );
+      expect(screen.getByTestId("leak-hunter-coverage")).toHaveTextContent(
+        "Recent analysis",
+      );
+      expect(screen.getByTestId("leak-hunter-coverage")).toHaveTextContent(
+        "72 transactions",
+      );
       expect(screen.getByTestId("leak-hunter-summary")).toHaveTextContent(
-        "Active monthly",
+        "Active subscriptions / mo",
       );
       expect(screen.getByTestId("leak-hunter-summary")).toHaveTextContent("$18");
     });
@@ -124,11 +153,70 @@ describe("Leaks page", () => {
     renderLeaks();
     expect(await screen.findByText("Spotify")).toBeInTheDocument();
     expect(screen.getByText(/Monthly cadence detected/)).toBeInTheDocument();
+    expect(screen.getAllByText("Subscription").length).toBeGreaterThan(0);
+    expect(screen.getByText("2 associated transactions")).toBeInTheDocument();
+    expect(screen.getByText("SPOTIFY USA")).toBeInTheDocument();
+    expect(screen.getAllByText("$17.99").length).toBeGreaterThan(0);
     expect(screen.getByText("$215.88 per year if active")).toBeInTheDocument();
     expect(screen.getByTestId("link-ledger-spotify")).toHaveAttribute(
       "href",
       expect.stringContaining("search=spotify"),
     );
+  });
+
+  it("places non-subscription spending leaks first and marks them as priority", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeMockFetch({
+        ...MOCK_REPORT,
+        summary: {
+          ...MOCK_REPORT.summary,
+          recentHabitCount: 1,
+        },
+        sections: {
+          ...MOCK_REPORT.sections,
+          recentHabits: [
+            {
+              id: "habit-corner-coffee",
+              merchantKey: "corner-coffee",
+              merchant: "Corner Coffee",
+              status: "active",
+              kind: "habit",
+              firstSeen: "2026-01-02",
+              lastSeen: "2026-01-28",
+              occurrences: 4,
+              averageAmount: 8.45,
+              latestAmount: 11,
+              monthlyEquivalent: 33.8,
+              historicalTotal: 33.8,
+              confidence: "medium",
+              evidence: ["Amounts varied across four similar coffee purchases."],
+              transactions: [
+                {
+                  id: 20,
+                  date: "2026-01-28",
+                  merchant: "Corner Coffee",
+                  amount: 11,
+                  category: "coffee",
+                },
+              ],
+              ledgerQuery: { merchant: "corner coffee" },
+            },
+          ],
+        },
+      }),
+    );
+
+    renderLeaks();
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Recent spending leaks" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Priority leak")).toBeInTheDocument();
+    expect(screen.getByText("Subscriptions to review")).toBeInTheDocument();
+
+    const headings = screen.getAllByRole("heading", { level: 2 });
+    expect(headings[0]).toHaveTextContent("Recent spending leaks");
   });
 
   it("labels stopped findings with historical cost instead of active annual cost", async () => {
