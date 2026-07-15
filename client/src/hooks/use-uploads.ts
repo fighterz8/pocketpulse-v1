@@ -35,6 +35,10 @@ export type UploadFileResult = {
   intraBatchDuplicates?: number;
   error?: string;
   warnings?: string[];
+  /** Imported rows that local rules and caches could not fully resolve. */
+  unresolvedTransactionCount?: number;
+  /** Unique normalized merchants represented by unresolved rows. */
+  unresolvedMerchantCount?: number;
 };
 
 export type UploadInput = {
@@ -89,11 +93,6 @@ export function useUploads() {
       void queryClient.invalidateQueries({ queryKey: availableMonthsQueryKey });
       void queryClient.invalidateQueries({ queryKey: dashboardSummaryQueryKey });
       void queryClient.invalidateQueries({ queryKey: ["/api/recurring-candidates"] });
-      // Kick the AI-enhancement status poll so the header pulse badge
-      // appears as soon as the server seeds aiStatus='pending'. Without
-      // this nudge the next ai-status fetch wouldn't fire until the
-      // user refocused the window — the badge would feel laggy.
-      void queryClient.invalidateQueries({ queryKey: ["ai-enhancement-status"] });
     },
   });
 

@@ -25,7 +25,6 @@ import {
 } from "../shared/schema.js";
 import {
   consumePasswordResetTokenAndUpdatePassword,
-  countNeedsAiForUpload,
   createAccountForUser,
   createTransactionBatch,
   createUpload,
@@ -64,7 +63,6 @@ import { normalizeEmail } from "./auth.js";
 import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
-import { scheduleBackgroundTask } from "./background.js";
 import {
   collectRecurringTransactionIds,
   collectRecurringEvidenceTransactionIds,
@@ -75,16 +73,18 @@ import { detectLeaks } from "./cashflow.js";
 import { createDevTestSuiteRouter } from "./devTestSuite.js";
 import { buildLeakHunterReport, isValidIsoDate } from "./leakHunter.js";
 import { reclassifyTransactions } from "./reclassify.js";
-import { runUploadAiWorker } from "./aiWorker.js";
 import {
   isStaleAiProcessing,
   publicEnhancementError,
 } from "./aiLifecycle.js";
 import { parseTransactionIdsParam } from "./transactionFilterParams.js";
 import {
+  hasDevToolsAccess,
   isDevEmailAllowed,
   toAuthUserPayload,
 } from "./devAccess.js";
+import { getEnhancementFeatureFlags } from "./enhancementConfig.js";
+import { summarizeUnresolvedTransactions } from "./enhancementAvailability.js";
 import {
   assertResendSendSucceeded,
   formatFromEmail,
@@ -109,6 +109,10 @@ declare module "express-session" {
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ABANDONED_AI_ERROR = "AI enhancement exceeded its runtime budget";
+
+function idleLegacyAiStatus(status: string): string {
+  return status === "pending" || status === "processing" ? "none" : status;
+}
 
 async function reconcileAiStatusRow<
   T extends {
@@ -1152,6 +1156,7 @@ export function createApp(options?: CreateAppOptions) {
     async (req, res, next) => {
       try {
         const userId = req.session.userId!;
+        const enhancementFlags = getEnhancementFeatureFlags();
         const files = req.files as Express.Multer.File[] | undefined;
 
         if (!files || files.length === 0) {
@@ -1187,6 +1192,8 @@ export function createApp(options?: CreateAppOptions) {
           intraBatchDuplicates?: number;
           error?: string;
           warnings?: string[];
+          unresolvedTransactionCount?: number;
+          unresolvedMerchantCount?: number;
         }> = [];
 
         // Shared across all files in this request so that cross-file duplicates
@@ -1379,7 +1386,7 @@ export function createApp(options?: CreateAppOptions) {
 
           // 3d. If parse fully failed OR low-confidence, try AI format detection.
           const needsAi = !parseResult.ok || isLowConfidenceParse;
-          if (needsAi) {
+          if (needsAi && enhancementFlags.csvFormatAssistance) {
             const priorError = parseResult.ok ? null : parseResult.error;
             try {
               const sampleRecords = getSampleRows();
@@ -1485,15 +1492,14 @@ export function createApp(options?: CreateAppOptions) {
             continue;
           }
 
-          // Classification pipeline: rules → user-rules → cache → (AI deferred).
+          // Classification pipeline: rules → user-rules → cache.
           //
           // We pass `skipAi: true` here so the upload request returns as soon
           // as rule + cache labels are applied. Rows that still want an AI
-          // verdict are flagged via `needsAi` / `aiAssisted=true`; the
-          // background worker spawned after `res.json()` (see below) then
-          // promotes them to `labelSource='ai'` and writes the merchant
-          // cache. `aiTimeoutMs` is unused on this code path but the option
-          // type still requires a number — set to 0 for clarity.
+          // verdict are flagged via `needsAi` so the response can describe
+          // unresolved work without starting a paid provider request.
+          // `aiTimeoutMs` is unused on this code path but the option type still
+          // requires a number — set to 0 for clarity.
           const pipelineOutputs = await classifyPipeline(
             parseResult.rows.map((r) => ({
               rawDescription: r.description,
@@ -1526,11 +1532,18 @@ export function createApp(options?: CreateAppOptions) {
             labelSource: out.labelSource,
             labelConfidence: out.labelConfidence.toFixed(2),
             labelReason: out.labelReason,
-            aiAssisted: out.aiAssisted,
+            // `aiAssisted` is the legacy persisted selector for unresolved
+            // work. Persist the pipeline's authoritative `needsAi` decision;
+            // the older classifier field can be false on handled fallbacks.
+            aiAssisted: out.needsAi,
           }));
 
-          const { insertedCount, previouslyImported, intraBatchDuplicates } =
-            await createTransactionBatch(txnInputs, sessionSeen);
+          const {
+            insertedCount,
+            previouslyImported,
+            intraBatchDuplicates,
+            insertedUnresolvedTransactions,
+          } = await createTransactionBatch(txnInputs, sessionSeen);
           const parsedDates = parseResult.rows.map((row) => row.date).sort();
           const startDate = parsedDates[0]!;
           const endDate = parsedDates[parsedDates.length - 1]!;
@@ -1549,22 +1562,22 @@ export function createApp(options?: CreateAppOptions) {
             parseResult.warnings.length,
           );
 
-          // Seed the AI tracking columns based on what actually landed in
-          // the DB. dedup may have removed some inputs, so we count the
-          // surviving rows that still want AI rather than trusting the
-          // pre-insert pipeline output count.
-          let needsAiCount = 0;
-          try {
-            needsAiCount = await countNeedsAiForUpload(uploadRecord.id);
-          } catch {
-            // Non-fatal: the worker will recount when it starts.
-          }
+          // The insert returns the exact unresolved rows that landed after
+          // deduplication and conflict handling. Counting that result avoids a
+          // second query that could fail after an otherwise successful import.
+          const unresolvedCounts = summarizeUnresolvedTransactions(
+            insertedUnresolvedTransactions,
+          );
+
+          // Slice 0 deliberately leaves legacy async-AI lifecycle fields idle.
+          // Unresolved work is reported to the caller, but no paid worker is
+          // queued or started automatically.
           await updateUploadAiStatus(uploadRecord.id, {
-            aiStatus: needsAiCount > 0 ? "pending" : "complete",
-            aiRowsPending: needsAiCount,
+            aiStatus: "none",
+            aiRowsPending: 0,
             aiRowsDone: 0,
             aiStartedAt: null,
-            aiCompletedAt: needsAiCount > 0 ? null : new Date(),
+            aiCompletedAt: null,
             aiError: null,
           });
 
@@ -1573,6 +1586,7 @@ export function createApp(options?: CreateAppOptions) {
             uploadId: uploadRecord.id,
             status: "complete",
             rowCount: insertedCount,
+            ...unresolvedCounts,
             coverage: {
               startDate,
               endDate,
@@ -1603,22 +1617,6 @@ export function createApp(options?: CreateAppOptions) {
         }
 
         res.status(201).json({ results });
-
-        // Fire-and-forget the AI worker for every upload that has pending
-        // rows. Runs AFTER res.json so the user sees their data immediately;
-        // rule + cache labels are already in the response. Each worker
-        // self-guards against double-spawn via an in-process Set, so it is
-        // safe to call here even if the startup sweep also picked up the
-        // same uploadId.
-        for (const r of results) {
-          if (r.status === "complete" && r.uploadId != null) {
-            const uploadId = r.uploadId;
-            scheduleBackgroundTask(
-              runUploadAiWorker(userId, uploadId),
-              `aiWorker upload=${uploadId}`,
-            );
-          }
-        }
       } catch (e) {
         next(e);
       }
@@ -1651,7 +1649,7 @@ export function createApp(options?: CreateAppOptions) {
       const done = status.aiRowsDone ?? 0;
       res.json({
         uploadId: status.id,
-        aiStatus: status.aiStatus,
+        aiStatus: idleLegacyAiStatus(status.aiStatus),
         aiRowsPending: pending,
         aiRowsDone: done,
         progress: pending > 0 ? Math.min(1, done / pending) : 1,
@@ -1681,14 +1679,6 @@ export function createApp(options?: CreateAppOptions) {
       const userId = req.session.userId!;
       const storedRows = await listActiveAiUploadsForUser(userId);
       const rows = await Promise.all(storedRows.map(reconcileAiStatusRow));
-      for (const row of rows) {
-        if (row.aiStatus === "pending") {
-          scheduleBackgroundTask(
-            runUploadAiWorker(userId, row.id),
-            `aiWorker upload=${row.id}`,
-          );
-        }
-      }
       res.json({
         uploads: rows.map((row) => {
           const pending = row.aiRowsPending ?? 0;
@@ -1696,7 +1686,7 @@ export function createApp(options?: CreateAppOptions) {
           return {
             uploadId: row.id,
             filename: row.filename,
-            aiStatus: row.aiStatus,
+            aiStatus: idleLegacyAiStatus(row.aiStatus),
             aiRowsPending: pending,
             aiRowsDone: done,
             progress: pending > 0 ? Math.min(1, done / pending) : 1,
@@ -1984,6 +1974,16 @@ export function createApp(options?: CreateAppOptions) {
     async (req, res, next) => {
       try {
         const userId = req.session.userId!;
+        const { fullReclassification } = getEnhancementFeatureFlags();
+        if (!fullReclassification) {
+          res.status(404).json({ error: "Not found" });
+          return;
+        }
+        const user = await getUserById(userId);
+        if (!user || !hasDevToolsAccess(user)) {
+          res.status(404).json({ error: "Not found" });
+          return;
+        }
         const result = await reclassifyTransactions(userId);
         // Re-sync recurring patterns so recurring-transfer promotions are
         // reapplied after the rules engine may have reset them to "transfer".

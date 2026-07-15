@@ -699,6 +699,15 @@ function QueueRow({
               {item.result.intraBatchDuplicates !== 1 ? "s" : ""} in file
             </span>
           )}
+          {(item.result.unresolvedMerchantCount ?? 0) > 0 && (
+            <span className="upload-result-skipped">
+              {" · "}
+              {item.result.unresolvedMerchantCount} merchant
+              {item.result.unresolvedMerchantCount === 1
+                ? " needs review"
+                : "s need review"}
+            </span>
+          )}
         </p>
       )}
     </li>

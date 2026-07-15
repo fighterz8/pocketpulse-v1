@@ -578,22 +578,8 @@ export async function listNeedsAiTransactionsForUpload(
 }
 
 /**
- * Return uploads whose async AI work is orphaned across a server
- * restart. We include BOTH `processing` and `pending` rows because:
- *
- *   • `processing` — the worker was actively running batches when the
- *     process died. Obvious candidate.
- *   • `pending` — either (a) the upload route flipped to `pending` and
- *     fired the worker but the process died before the worker could
- *     transition to `processing`, or (b) a previous recovery sweep
- *     already flipped a `processing` upload back to `pending` and re-
- *     kicked, then the process died again before that re-kick reached
- *     the status flip. In both cases the upload sits at `pending` with
- *     no live worker — without this we'd leave it stuck forever, which
- *     is exactly what users see as "X transactions left, never ticks".
- *
- * `uploaded_at` is included so the sweep can age out abandoned `pending`
- * rows whose `ai_started_at` is still null.
+ * Return uploads left in legacy automatic-enhancement states. Slice 0 retires
+ * these states without restarting provider work.
  */
 export async function findStuckProcessingUploads() {
   return db
@@ -699,6 +685,8 @@ export type CreateBatchResult = {
   previouslyImported: number;
   /** Rows skipped because the same row appeared more than once within this upload batch. */
   intraBatchDuplicates: number;
+  /** Exact unresolved rows that were inserted, after deduplication and conflict handling. */
+  insertedUnresolvedTransactions: Array<{ merchant: string }>;
 };
 
 /**
@@ -719,7 +707,14 @@ export async function createTransactionBatch(
   txns: CreateTransactionInput[],
   sessionSeen?: Set<string>,
 ): Promise<CreateBatchResult> {
-  if (txns.length === 0) return { insertedCount: 0, previouslyImported: 0, intraBatchDuplicates: 0 };
+  if (txns.length === 0) {
+    return {
+      insertedCount: 0,
+      previouslyImported: 0,
+      intraBatchDuplicates: 0,
+      insertedUnresolvedTransactions: [],
+    };
+  }
 
   // All rows in a batch share the same userId and accountId (one file → one account).
   const { userId, accountId } = txns[0]!;
@@ -805,7 +800,12 @@ export async function createTransactionBatch(
   }
 
   if (newRows.length === 0) {
-    return { insertedCount: 0, previouslyImported, intraBatchDuplicates };
+    return {
+      insertedCount: 0,
+      previouslyImported,
+      intraBatchDuplicates,
+      insertedUnresolvedTransactions: [],
+    };
   }
 
   const values = newRows.map((t) => ({
@@ -833,7 +833,11 @@ export async function createTransactionBatch(
     .insert(transactions)
     .values(values)
     .onConflictDoNothing()
-    .returning({ id: transactions.id });
+    .returning({
+      id: transactions.id,
+      merchant: transactions.merchant,
+      aiAssisted: transactions.aiAssisted,
+    });
 
   // Any race-condition DB skips (concurrent uploads) are counted as intra-batch duplicates.
   const raceSkips = newRows.length - result.length;
@@ -841,6 +845,9 @@ export async function createTransactionBatch(
     insertedCount: result.length,
     previouslyImported,
     intraBatchDuplicates: intraBatchDuplicates + raceSkips,
+    insertedUnresolvedTransactions: result
+      .filter((row) => row.aiAssisted)
+      .map((row) => ({ merchant: row.merchant })),
   };
 }
 

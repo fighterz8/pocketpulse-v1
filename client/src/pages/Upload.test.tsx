@@ -500,6 +500,8 @@ describe("Per-file status pills", () => {
               coverageDays: 105,
             },
             previouslyImported: 2,
+            unresolvedTransactionCount: 4,
+            unresolvedMerchantCount: 2,
           },
         ],
       },
@@ -537,6 +539,9 @@ describe("Per-file status pills", () => {
     expect(
       screen.getByTestId(`text-row-result-${rowKey}`),
     ).toHaveTextContent(/2 already in ledger/);
+    expect(
+      screen.getByTestId(`text-row-result-${rowKey}`),
+    ).toHaveTextContent(/2 merchants need review/);
     // After completion the import button is replaced with "Upload more files".
     expect(screen.getByTestId("button-upload-more")).toBeInTheDocument();
     expect(screen.queryByTestId("button-import")).not.toBeInTheDocument();

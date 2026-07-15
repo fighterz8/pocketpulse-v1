@@ -71,7 +71,10 @@ Optional:
 | Variable | Description |
 |---|---|
 | `PORT` | Server port (default `5000`) |
-| `OPENAI_API_KEY` | Enables AI-assisted CSV detection and classification fallback |
+| `OPENAI_API_KEY` | Provider credential only; paid features remain off unless their explicit flags are enabled |
+| `POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED` | Reserved opt-in transaction enhancement switch; defaults to `false` |
+| `POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED` | Allows the legacy CSV-format fallback; defaults to `false` |
+| `POCKETPULSE_FULL_RECLASSIFY_ENABLED` | Allows dev-authorized full-history reclassification; defaults to `false` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables Google sign-in/sign-up. Add `${APP_ORIGIN}/api/auth/google/callback` as an authorized redirect URI in Google Cloud Console. |
 | `POCKETPULSE_DEV_TOOLS` | Set to `1` to enable the internal classifier lab routes/UI |
 | `POCKETPULSE_DEV_EMAILS` | Comma-separated email allowlist for classifier lab access |
@@ -98,7 +101,7 @@ npm run dev       # development server on localhost:5000
 | `npm run check` | TypeScript type check (`tsc --noEmit`) |
 | `npm test` | Run Vitest test suite |
 | `npm run db:migrate` | Apply committed Drizzle migrations |
-| `npm run db:maintenance` | Seed global merchant rules and recover stuck async uploads |
+| `npm run db:maintenance` | Seed global merchant rules and retire orphaned legacy enhancement states |
 | `npm run db:push` | Push Drizzle schema directly; local prototyping only, do not use for shared preview/production DBs |
 
 ---
