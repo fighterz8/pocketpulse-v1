@@ -30,6 +30,10 @@ import { db } from "./db.js";
 import { recurrenceKey } from "./recurrenceDetector.js";
 import { toPublicUser, type PublicUser } from "./public-user.js";
 import { RULE_SEED_ENTRIES } from "./classifierRuleMigration.js";
+import {
+  isClassCompatibleWithFlow,
+  type TransactionFlow,
+} from "./transactionDirection.js";
 
 export type { PublicUser } from "./public-user.js";
 export { toPublicUser } from "./public-user.js";
@@ -1038,6 +1042,21 @@ export type PropagateResult = {
   matchType: "fuzzy" | "exact" | "none";
 };
 
+export function filterPropagationCandidatesByDirection<
+  T extends { flowType: string },
+>(candidates: T[], transactionClass?: string): T[] {
+  if (transactionClass === undefined) return candidates;
+
+  return candidates.filter(
+    (candidate) =>
+      (candidate.flowType === "inflow" || candidate.flowType === "outflow") &&
+      isClassCompatibleWithFlow(
+        candidate.flowType as TransactionFlow,
+        transactionClass,
+      ),
+  );
+}
+
 export async function propagateUserCorrection(
   userId: number,
   sourceTxnId: number,
@@ -1074,7 +1093,11 @@ export async function propagateUserCorrection(
   // in JS so that merchants normalizing to the same key are matched together
   // (e.g. "OpenAI 123" and "OpenAI 1234" both produce key "openai").
   const candidates = await db
-    .select({ id: transactions.id, merchant: transactions.merchant })
+    .select({
+      id: transactions.id,
+      merchant: transactions.merchant,
+      flowType: transactions.flowType,
+    })
     .from(transactions)
     .where(
       and(
@@ -1084,7 +1107,12 @@ export async function propagateUserCorrection(
       ),
     );
 
-  const fuzzyIds = candidates
+  const directionSafeCandidates = filterPropagationCandidatesByDirection(
+    candidates,
+    transactionClass,
+  );
+
+  const fuzzyIds = directionSafeCandidates
     .filter((c) => c.merchant && recurrenceKey(c.merchant) === sourceKey)
     .map((c) => c.id);
 
@@ -1105,13 +1133,19 @@ export async function propagateUserCorrection(
 
   // --- Exact fallback: case-insensitive string match ---
   const merchantLower = sourceMerchant.toLowerCase();
+  const exactIds = directionSafeCandidates
+    .filter((candidate) => candidate.merchant?.toLowerCase() === merchantLower)
+    .map((candidate) => candidate.id);
+
+  if (exactIds.length === 0) return { count: 0, matchType: "none" };
+
   const updated = await db
     .update(transactions)
     .set(setValues)
     .where(
       and(
+        inArray(transactions.id, exactIds),
         eq(transactions.userId, userId),
-        sql`lower(${transactions.merchant}) = ${merchantLower}`,
         eq(transactions.userCorrected, false),
         ne(transactions.id, sourceTxnId),
       ),

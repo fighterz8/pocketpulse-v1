@@ -5,7 +5,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildUpdateSetValues } from "./storage.js";
+import {
+  buildUpdateSetValues,
+  filterPropagationCandidatesByDirection,
+} from "./storage.js";
 
 describe("buildUpdateSetValues — recurrenceSource provenance rule", () => {
   it("always sets userCorrected=true and labelSource='manual'", () => {
@@ -71,5 +74,31 @@ describe("buildUpdateSetValues — recurrenceSource provenance rule", () => {
     expect(sv).not.toHaveProperty("recurrenceSource");
     expect(sv).not.toHaveProperty("excludedFromAnalysis");
     expect(sv).not.toHaveProperty("excludedReason");
+  });
+});
+
+describe("filterPropagationCandidatesByDirection", () => {
+  const candidates = [
+    { id: 1, flowType: "outflow" },
+    { id: 2, flowType: "inflow" },
+  ];
+
+  it("does not propagate an expense correction onto an inflow refund", () => {
+    expect(filterPropagationCandidatesByDirection(candidates, "expense")).toEqual([
+      candidates[0],
+    ]);
+  });
+
+  it("does not propagate an income correction onto an outflow", () => {
+    expect(filterPropagationCandidatesByDirection(candidates, "income")).toEqual([
+      candidates[1],
+    ]);
+  });
+
+  it("allows transfers in both directions and category-only corrections everywhere", () => {
+    expect(filterPropagationCandidatesByDirection(candidates, "transfer")).toEqual(
+      candidates,
+    );
+    expect(filterPropagationCandidatesByDirection(candidates)).toEqual(candidates);
   });
 });
