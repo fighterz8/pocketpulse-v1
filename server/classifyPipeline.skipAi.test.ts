@@ -184,6 +184,25 @@ describe("classifyPipeline — skipAi option", () => {
     expect(aiSpy).not.toHaveBeenCalled();
   });
 
+  it("does not let an expense cache turn a confirmed inflow into an expense", async () => {
+    const desc = "PP SKIPAI OPPOSITE FLOW CACHE";
+    const key = toMerchantKey(desc);
+    await seedPerUser(key, "shopping");
+
+    const [out] = await classifyPipeline(
+      [{ rawDescription: desc, amount: 125, ambiguous: false }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      amount: 125,
+      flowType: "inflow",
+      transactionClass: "income",
+      category: "income",
+      labelSource: "cache",
+    });
+  });
+
   it("clears needsAi for rows resolved by the global seed", async () => {
     const desc = "PP SKIPAI GLOBALSEED UTILITIES";
     const key = toMerchantKey(desc);
@@ -290,5 +309,23 @@ describe("classifyPipeline — skipAi option", () => {
       expect(out).toHaveProperty("needsAi");
       expect(typeof out.needsAi).toBe("boolean");
     }
+  });
+
+  it("allows description rules to resolve direction only for ambiguous unsigned rows", async () => {
+    const [out] = await classifyPipeline(
+      [{
+        rawDescription: "CHECKCARD 0412 LOCAL RESTAURANT",
+        amount: 25,
+        ambiguous: true,
+      }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      amount: -25,
+      flowType: "outflow",
+      transactionClass: "expense",
+      category: "dining",
+    });
   });
 });

@@ -156,6 +156,32 @@ describe("runUploadAiWorker", () => {
     expect(mockedIncrement).toHaveBeenCalledWith(300, 2);
   });
 
+  it("rejects an AI expense label for a confirmed inflow", async () => {
+    mockedCount.mockResolvedValue(1);
+    mockedList.mockResolvedValue([
+      makeRow({
+        id: 13,
+        amount: "125.00",
+        flowType: "inflow",
+        transactionClass: "income",
+        category: "income",
+      }),
+    ]);
+    mockedAi.mockResolvedValue(
+      new Map([[0, makeAiResult(0, { transactionClass: "expense", category: "shopping" })]]) as never,
+    );
+
+    const out = await runUploadAiWorker(7, 301);
+
+    expect(out.status).toBe("complete");
+    expect(mockedBulkUpdate.mock.calls[0]![1][0]).toMatchObject({
+      id: 13,
+      flowType: "inflow",
+      transactionClass: "income",
+      category: "income",
+    });
+  });
+
   it("flips status to failed when every chunk returns no AI results", async () => {
     mockedCount.mockResolvedValue(1);
     mockedList.mockResolvedValue([makeRow()]);

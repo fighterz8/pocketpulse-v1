@@ -44,6 +44,7 @@ import {
   type BulkTransactionUpdate,
 } from "./storage.js";
 import type { MerchantClassification } from "../shared/schema.js";
+import { reconcileTransactionDirection } from "./transactionDirection.js";
 
 /** Rows per AI batch call. Matches the chunk size in ai-classifier.ts. */
 const WORKER_CHUNK_SIZE = 25;
@@ -238,13 +239,21 @@ export async function runUploadAiWorker(
         const row = chunk[i]!;
         const aiResult = aiResults.get(i);
         if (!aiResult) continue;
+        const flowType = row.flowType === "inflow" ? "inflow" : "outflow";
+        const directionalClassification = reconcileTransactionDirection({
+          flowType,
+          proposedClass: aiResult.transactionClass,
+          proposedCategory: aiResult.category,
+          fallbackClass: row.transactionClass,
+          fallbackCategory: row.category,
+        });
 
         updates.push({
           id: row.id,
           amount: String(row.amount),
           flowType: row.flowType,
-          transactionClass: aiResult.transactionClass,
-          category: aiResult.category,
+          transactionClass: directionalClassification.transactionClass,
+          category: directionalClassification.category,
           recurrenceType: aiResult.recurrenceType,
           recurrenceSource: "none",
           labelSource: "ai",
@@ -261,8 +270,8 @@ export async function runUploadAiWorker(
         if (key && aiResult.labelConfidence >= CACHE_WRITE_MIN_CONFIDENCE) {
           cacheEntries.push({
             merchantKey: key,
-            category: aiResult.category,
-            transactionClass: aiResult.transactionClass,
+            category: directionalClassification.category,
+            transactionClass: directionalClassification.transactionClass,
             recurrenceType: aiResult.recurrenceType,
             labelConfidence: Number(aiResult.labelConfidence),
             source: "ai",

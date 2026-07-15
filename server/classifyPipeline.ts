@@ -29,6 +29,8 @@ import {
   recordCacheHits,
 } from "./storage.js";
 import { recurrenceKey } from "./recurrenceDetector.js";
+import { inferFlowType } from "./transactionUtils.js";
+import { reconcileTransactionDirection } from "./transactionDirection.js";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -124,6 +126,22 @@ type InternalRow = {
   needsAi: boolean;
 };
 
+function applyDirectionalOverride(
+  row: InternalRow,
+  proposedClass: string,
+  proposedCategory: string,
+): void {
+  const reconciled = reconcileTransactionDirection({
+    flowType: row.flowType,
+    proposedClass,
+    proposedCategory,
+    fallbackClass: row.transactionClass,
+    fallbackCategory: row.category,
+  });
+  row.transactionClass = reconciled.transactionClass;
+  row.category = reconciled.category;
+}
+
 // ─── Pipeline ────────────────────────────────────────────────────────────────
 
 /**
@@ -163,13 +181,26 @@ export async function classifyPipeline(
       } satisfies InternalRow;
     }
 
+    // A parser-confirmed direction is structural truth. Merchant semantics may
+    // choose direction only for genuinely ambiguous unsigned-amount rows.
+    const flowType = row.ambiguous
+      ? classification.flowType
+      : inferFlowType(row.amount);
+
     // Normalise amount sign to match the resolved flowType.
     const effectiveAmount =
-      classification.flowType === "outflow" && row.amount > 0
+      flowType === "outflow" && row.amount > 0
         ? -Math.abs(row.amount)
-        : classification.flowType === "inflow" && row.amount < 0
+        : flowType === "inflow" && row.amount < 0
           ? Math.abs(row.amount)
           : row.amount;
+    const directionalClassification = reconcileTransactionDirection({
+      flowType,
+      proposedClass: classification.transactionClass,
+      proposedCategory: classification.category,
+      fallbackClass: flowType === "inflow" ? "income" : "expense",
+      fallbackCategory: flowType === "inflow" ? "income" : "other",
+    });
 
     // Union of both call-site needsAi conditions:
     //   - classification.aiAssisted: classifier flagged the row as uncertain
@@ -186,9 +217,9 @@ export async function classifyPipeline(
       rawDescription: row.rawDescription,
       merchant: classification.merchant,
       amount: effectiveAmount,
-      flowType: classification.flowType,
-      transactionClass: classification.transactionClass,
-      category: classification.category,
+      flowType,
+      transactionClass: directionalClassification.transactionClass,
+      category: directionalClassification.category,
       recurrenceType: classification.recurrenceType,
       recurrenceSource: classification.recurrenceSource,
       labelSource: classification.labelSource,
@@ -209,8 +240,11 @@ export async function classifyPipeline(
         const rule = key ? userRules.get(key) : undefined;
         if (!rule) continue;
 
-        if (rule.category) row.category = rule.category;
-        if (rule.transactionClass) row.transactionClass = rule.transactionClass;
+        applyDirectionalOverride(
+          row,
+          rule.transactionClass ?? row.transactionClass,
+          rule.category ?? row.category,
+        );
         // Mirror the established policy: only reset recurrenceSource when the
         // rule explicitly overrides recurrenceType; otherwise preserve the
         // classifier-derived hint so provenance is not discarded.
@@ -250,8 +284,7 @@ export async function classifyPipeline(
         const hit = cacheHits.get(key);
         if (!hit) continue;
 
-        row.category = hit.category;
-        row.transactionClass = hit.transactionClass;
+        applyDirectionalOverride(row, hit.transactionClass, hit.category);
         row.recurrenceType = hit.recurrenceType;
         row.recurrenceSource = "none";
         row.labelConfidence = hit.labelConfidence;
@@ -301,8 +334,7 @@ export async function classifyPipeline(
           const hit = globalHits.get(key);
           if (!hit) continue;
 
-          row.category = hit.category;
-          row.transactionClass = hit.transactionClass;
+          applyDirectionalOverride(row, hit.transactionClass, hit.category);
           row.recurrenceType = hit.recurrenceType;
           row.recurrenceSource = "none";
           row.labelConfidence = hit.labelConfidence;
@@ -396,8 +428,7 @@ export async function classifyPipeline(
       const aiResult = aiResults.get(aiIdx);
       if (!aiResult) continue;
       const row = internal[internalIdx]!;
-      row.category = aiResult.category;
-      row.transactionClass = aiResult.transactionClass;
+      applyDirectionalOverride(row, aiResult.transactionClass, aiResult.category);
       row.recurrenceType = aiResult.recurrenceType;
       row.recurrenceSource = "none";
       row.labelConfidence = aiResult.labelConfidence;
@@ -420,8 +451,8 @@ export async function classifyPipeline(
           if (!key) continue;
           cacheEntries.push({
             merchantKey: key,
-            category: aiResult.category,
-            transactionClass: aiResult.transactionClass,
+            category: row.category,
+            transactionClass: row.transactionClass,
             recurrenceType: aiResult.recurrenceType,
             labelConfidence: aiResult.labelConfidence,
             source: "ai" as const,
