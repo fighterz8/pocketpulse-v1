@@ -184,7 +184,7 @@ describe("classifyPipeline — skipAi option", () => {
     expect(aiSpy).not.toHaveBeenCalled();
   });
 
-  it("does not let an expense cache turn a confirmed inflow into an expense", async () => {
+  it("treats a confirmed inflow from an expense cache as a categorized refund", async () => {
     const desc = "PP SKIPAI OPPOSITE FLOW CACHE";
     const key = toMerchantKey(desc);
     await seedPerUser(key, "shopping");
@@ -197,8 +197,8 @@ describe("classifyPipeline — skipAi option", () => {
     expect(out).toMatchObject({
       amount: 125,
       flowType: "inflow",
-      transactionClass: "income",
-      category: "income",
+      transactionClass: "refund",
+      category: "shopping",
       labelSource: "cache",
     });
   });

@@ -6,7 +6,7 @@ import {
 } from "./transactionDirection.js";
 
 describe("transaction direction invariants", () => {
-  it("never allows a confirmed inflow to become an expense", () => {
+  it("turns a confirmed inflow from an expense merchant into a categorized refund", () => {
     expect(
       reconcileTransactionDirection({
         flowType: "inflow",
@@ -15,7 +15,7 @@ describe("transaction direction invariants", () => {
         fallbackClass: "income",
         fallbackCategory: "income",
       }),
-    ).toEqual({ transactionClass: "income", category: "income" });
+    ).toEqual({ transactionClass: "refund", category: "dining" });
   });
 
   it("never allows a confirmed outflow to become income or a refund", () => {

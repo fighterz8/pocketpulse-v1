@@ -46,13 +46,22 @@ export function reconcileTransactionDirection(input: {
   let transactionClass: TransactionClass;
   if (proposedIsCompatible) {
     transactionClass = input.proposedClass as TransactionClass;
+  } else if (input.proposedClass === "expense" && input.flowType === "inflow") {
+    // A true inflow from an expense merchant is normally a refund/reversal.
+    // Preserve the spending category instead of flattening it into income.
+    transactionClass = "refund";
+  } else if (
+    (input.proposedClass === "income" || input.proposedClass === "refund") &&
+    input.flowType === "outflow"
+  ) {
+    transactionClass = "expense";
   } else if (fallbackIsCompatible) {
     transactionClass = input.fallbackClass as TransactionClass;
   } else {
     transactionClass = input.flowType === "inflow" ? "income" : "expense";
   }
 
-  let category = proposedIsCompatible
+  let category = proposedIsCompatible || VALID_CLASSES.has(input.proposedClass as TransactionClass)
     ? input.proposedCategory
     : input.fallbackCategory ?? "other";
 

@@ -156,7 +156,7 @@ describe("runUploadAiWorker", () => {
     expect(mockedIncrement).toHaveBeenCalledWith(300, 2);
   });
 
-  it("rejects an AI expense label for a confirmed inflow", async () => {
+  it("turns an AI expense label for a confirmed inflow into a categorized refund", async () => {
     mockedCount.mockResolvedValue(1);
     mockedList.mockResolvedValue([
       makeRow({
@@ -177,8 +177,8 @@ describe("runUploadAiWorker", () => {
     expect(mockedBulkUpdate.mock.calls[0]![1][0]).toMatchObject({
       id: 13,
       flowType: "inflow",
-      transactionClass: "income",
-      category: "income",
+      transactionClass: "refund",
+      category: "shopping",
     });
   });
 

@@ -385,6 +385,33 @@ describe("parseCSV", () => {
     expect(payment.amount).toBeGreaterThan(0);
   });
 
+  it("keeps checking-account category phrases ambiguous instead of treating them as direction codes", async () => {
+    const csv = makeCsv([
+      "Account,Date,Amount,Balance,Type,Unused1,Unused2,Unused3,Unused4,Unused5,Description",
+      "Checking,07/01/2026,250.00,1000.00,Credit Card Payment,,,,,,MORTGAGE PAYMENT",
+    ]);
+
+    const result = await parseCSV(csv, "navy-federal-checking.csv", {
+      preambleRows: 0,
+      hasHeader: true,
+      dateColumn: 1,
+      descriptionColumn: 10,
+      amountColumn: 2,
+      debitColumn: null,
+      creditColumn: null,
+      typeColumn: 4,
+      signConvention: "unsigned",
+    });
+
+    expect(result.ok).toBe(true);
+    const [row] = (result as CSVParseResult & { ok: true }).rows;
+    expect(row).toMatchObject({
+      description: "MORTGAGE PAYMENT",
+      amount: 250,
+      ambiguous: true,
+    });
+  });
+
   // ── BOM stripping ──────────────────────────────────────────────────────────
   // Real BoA exports prepend a UTF-8 BOM (\uFEFF). Without stripping it, the
   // first header cell becomes "\uFEFFDate" instead of "Date", causing column

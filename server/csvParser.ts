@@ -177,24 +177,28 @@ function tryPositionalFallback(firstRow: string[]): ColumnMapping | null {
  *   US Bank: "DEBIT" / "CREDIT"
  *   generic: "DR" / "CR" / "deb" / "cred"
  */
-function classifyTypeColumn(rawType: string): "debit" | "credit" | null {
-  const t = rawType.toLowerCase().trim();
+function classifyTypeColumn(
+  rawType: string,
+  options: { paymentMeansCredit: boolean },
+): "debit" | "credit" | null {
+  const t = rawType.toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (!t) return null;
 
-  // Explicit debit indicators (purchase / outflow)
+  // Only accept explicit direction codes. Broad substring matching is unsafe:
+  // checking exports often use category-like values such as
+  // "Credit Card Payment", where the word "credit" does not mean money flowed
+  // into the checking account.
   if (
-    t === "debit"    || t === "dr"  || t === "deb" ||
-    t.includes("debit") ||
-    t === "sale"     || t === "purchase"
+    t === "debit" || t === "dr" || t === "deb" ||
+    t === "ach_debit" || t === "sale" || t === "purchase"
   ) {
     return "debit";
   }
 
-  // Explicit credit indicators (income / payment received)
   if (
-    t === "credit"   || t === "cr"  ||
-    t.includes("credit") ||
-    t === "payment"
+    t === "credit" || t === "cr" || t === "cred" ||
+    t === "ach_credit" ||
+    (t === "payment" && options.paymentMeansCredit)
   ) {
     return "credit";
   }
@@ -428,6 +432,15 @@ export async function parseCSV(
 
   const rows: ParsedRow[] = [];
 
+  // "Payment" is a credit only in card-export dialects that pair it with
+  // "Sale" for charges (for example Chase credit cards). In checking exports,
+  // payment usually describes an outflow and must remain ambiguous unless an
+  // explicit DR/CR-style value is present.
+  const typeIdx = mapping.typeIdx;
+  const paymentMeansCredit =
+    typeIdx !== null &&
+    dataRows.some((row) => row[typeIdx]?.toLowerCase().trim() === "sale");
+
   // When the spec says amounts are pre-signed (negative = outflow), a positive
   // amount is unambiguously an inflow and should NOT be flagged for AI review.
   // For unsigned conventions or heuristic-detected formats, positives are
@@ -502,7 +515,7 @@ export async function parseCSV(
       const rawAmount = adjAmountIdx !== null ? row[adjAmountIdx] ?? "" : "";
       const rawType   = adjTypeIdx   !== null ? row[adjTypeIdx]   ?? "" : "";
       const parsed    = normalizeAmount(rawAmount);
-      const direction = classifyTypeColumn(rawType);
+      const direction = classifyTypeColumn(rawType, { paymentMeansCredit });
 
       if (direction === "debit") {
         amount = -Math.abs(parsed);
