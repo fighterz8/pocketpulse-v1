@@ -38,7 +38,7 @@ type CR = {
 // Structural rules only — no brand names. Brand→category mapping is in the global seed.
 // prettier-ignore
 const CATEGORY_RULES: CR[] = [
-  { category: "debt", transactionClass: "expense", confidence: 0.92, keywords: [
+  { category: "debt", transactionClass: "expense", recurrenceType: "recurring", confidence: 0.92, keywords: [
     "loan payment","loan repayment","personal loan","student loan","auto loan","car payment",
     "car loan","vehicle loan","vehicle payment","auto payment","mortgage payment","home loan",
     "heloc","credit card payment","credit card pymt","payment to credit card","card payment",
@@ -47,13 +47,17 @@ const CATEGORY_RULES: CR[] = [
   { category: "fees", transactionClass: "expense", confidence: 0.88, keywords: [
     "atm withdrawal","cash withdrawal","atm/cash","nsf fee","overdraft fee","monthly fee","service charge","maintenance fee",
   ]},
-  { category: "insurance",  confidence: 0.90, keywords: ["insurance"] },
+  { category: "insurance", recurrenceType: "recurring", confidence: 0.90, keywords: ["insurance"] },
+  { category: "housing", recurrenceType: "recurring", confidence: 0.90, keywords: [
+    "rent payment","monthly rent","apartment rent","mortgage","hoa dues","home loan payment",
+    "loan servicing","mtg pymt","mortgage pymt",
+  ]},
   { category: "housing",    confidence: 0.80, keywords: [
     "rent","mortgage","hoa","homeowner","property tax","landlord","apartment","realty",
     "real estate","property management","maintenance","pest control","lawn","landscaping",
     "cleaning service","maid","loan servicing","mtg pymt","mortgage pymt",
   ]},
-  { category: "utilities",  confidence: 0.85, keywords: [
+  { category: "utilities", recurrenceType: "recurring", confidence: 0.85, keywords: [
     "electric","electricity","water bill","water dept","water utility","gas co","gas company",
     "natural gas","sewer","utility","utilities","power","energy","internet","broadband",
     "phone bill","cell phone","wireless bill","trash","recycling","propane",
@@ -188,6 +192,7 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
       if (tc === "expense") flowType = "outflow";
       else if (tc === "income") flowType = "inflow";
       if (rule.recurrenceType) recurrenceType = rule.recurrenceType;
+      if (rule.recurrenceType === "recurring") recurrenceSource = "hint";
       break outer;
     }
   }

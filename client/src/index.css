@@ -3279,35 +3279,101 @@ html.dark .leaks-error {
   color: #fff;
 }
 
-.leak-hunter-summary {
+.leak-hunter-briefing {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.7rem;
+  grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+  overflow: hidden;
   margin-bottom: 1.25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.05);
 }
 
-.leak-hunter-summary-card {
-  min-height: 4.8rem;
-  padding: 0.8rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  background: rgb(255 255 255 / 0.88);
+.leak-hunter-briefing-lead {
+  padding: 1.15rem 1.25rem;
+  background: #0f3d3a;
+  color: #dff7f3;
 }
 
-.leak-hunter-summary-card span {
-  display: block;
-  margin-bottom: 0.4rem;
-  font-size: 0.73rem;
+.leak-hunter-briefing-lead .leak-hunter-eyebrow {
+  color: #99f6e4;
+}
+
+.leak-hunter-briefing-lead h2 {
+  margin: 0;
+  max-width: 34rem;
+  font-size: 1.25rem;
+  line-height: 1.25;
+  font-weight: 780;
+  color: #ffffff;
+}
+
+.leak-hunter-briefing-lead > p:not(.leak-hunter-eyebrow) {
+  margin-top: 0.4rem;
+  color: #bfe7e1;
+  font-size: 0.86rem;
+}
+
+.leak-hunter-briefing-lead button {
+  min-height: 2.3rem;
+  margin-top: 0.9rem;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid #99f6e4;
+  border-radius: 0.45rem;
+  background: #ccfbf1;
+  color: #134e4a;
+  font: inherit;
+  font-size: 0.82rem;
   font-weight: 750;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  cursor: pointer;
 }
 
-.leak-hunter-summary-card strong {
-  font-size: 1.35rem;
-  line-height: 1;
+.leak-hunter-briefing-lead button:hover {
+  background: #ffffff;
+}
+
+.leak-hunter-briefing-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0.75rem 1rem;
+}
+
+.leak-hunter-briefing-facts > div {
+  padding: 0.5rem 0.65rem;
+}
+
+.leak-hunter-briefing-facts dt {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.leak-hunter-briefing-facts dd {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0;
   color: #0f172a;
+  font-size: 1.25rem;
+  font-weight: 780;
+}
+
+.leak-hunter-briefing-facts dd span {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.leak-hunter-briefing-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.55rem 1rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.75rem;
 }
 
 .leak-hunter-section {
@@ -3379,7 +3445,6 @@ html.dark .leaks-error {
 .leak-hunter-card {
   padding: 1rem;
   border: 1px solid #e2e8f0;
-  border-left: 4px solid #0f766e;
   border-radius: 0.5rem;
   background: rgb(255 255 255 / 0.9);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
@@ -3387,21 +3452,20 @@ html.dark .leaks-error {
 
 .leak-hunter-card--inactive,
 .leak-hunter-card--historical {
-  border-left-color: #64748b;
+  border-color: #cbd5e1;
 }
 
 .leak-hunter-card--overdue,
 .leak-hunter-card--possibly_active {
-  border-left-color: #d97706;
+  border-color: #fcd34d;
 }
 
 .leak-hunter-card--insufficient_history {
-  border-left-color: #2563eb;
+  border-color: #93c5fd;
 }
 
 .leak-hunter-card--kind-habit {
-  border-left-color: #dc2626;
-  background: linear-gradient(90deg, rgb(254 242 242 / 0.92), rgb(255 255 255 / 0.92) 20%);
+  border-top: 3px solid #dc2626;
 }
 
 .leak-hunter-card-head {
@@ -3412,8 +3476,8 @@ html.dark .leaks-error {
 }
 
 .leak-hunter-card-head h3 {
-  margin: 0;
-  font-size: 0.98rem;
+  margin: 0.42rem 0 0;
+  font-size: 1.05rem;
   font-weight: 750;
   color: #0f172a;
 }
@@ -3424,11 +3488,19 @@ html.dark .leaks-error {
   color: #64748b;
 }
 
-.leak-hunter-badges {
+.leak-hunter-card-impact {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 0.35rem;
+  text-align: right;
+}
+
+.leak-hunter-card-impact > strong {
+  max-width: 22rem;
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 760;
 }
 
 .leak-hunter-kind {
@@ -3484,26 +3556,61 @@ html.dark .leaks-error {
   color: #1d4ed8;
 }
 
-.leak-hunter-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.5rem;
+.leak-hunter-trail {
   margin-top: 0.85rem;
-}
-
-.leak-hunter-metrics span {
-  padding: 0.5rem;
+  padding: 0.65rem 0.75rem 0.55rem;
+  border: 1px solid #e2e8f0;
   border-radius: 0.45rem;
   background: #f8fafc;
-  color: #64748b;
-  font-size: 0.74rem;
 }
 
-.leak-hunter-metrics strong {
-  display: block;
-  margin-top: 0.15rem;
-  color: #0f172a;
-  font-size: 0.88rem;
+.leak-hunter-trail-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  height: 2.8rem;
+}
+
+.leak-hunter-trail-bars span {
+  flex: 1 1 0;
+  max-width: 4rem;
+  border-radius: 0.18rem 0.18rem 0 0;
+  background: #2dd4bf;
+}
+
+.leak-hunter-card--kind-habit .leak-hunter-trail-bars span {
+  background: #fb7185;
+}
+
+.leak-hunter-trail-labels {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.leak-hunter-trail-labels strong {
+  color: #334155;
+  font-weight: 700;
+}
+
+.leak-hunter-trail-labels span:last-child {
+  text-align: right;
+}
+
+.leak-hunter-why {
+  margin-top: 0.75rem;
+  color: #475569;
+  font-size: 0.82rem;
+}
+
+.leak-hunter-why summary {
+  width: fit-content;
+  color: #334155;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .leak-hunter-evidence {
@@ -3613,7 +3720,7 @@ html.dark .leaks-error {
 }
 
 html.dark .leak-hunter-coverage,
-html.dark .leak-hunter-summary-card,
+html.dark .leak-hunter-briefing,
 html.dark .leak-hunter-card,
 html.dark .leak-hunter-mode {
   border-color: rgb(148 163 184 / 0.2);
@@ -3621,7 +3728,7 @@ html.dark .leak-hunter-mode {
 }
 
 html.dark .leak-hunter-coverage-main,
-html.dark .leak-hunter-summary-card strong,
+html.dark .leak-hunter-briefing-facts dd,
 html.dark .leak-hunter-section-head h2,
 html.dark .leak-hunter-card-head h3,
 html.dark .leak-hunter-metrics strong {
@@ -3629,7 +3736,31 @@ html.dark .leak-hunter-metrics strong {
 }
 
 html.dark .leak-hunter-card--kind-habit {
-  background: linear-gradient(90deg, rgb(69 10 10 / 0.62), rgb(15 23 42 / 0.74) 24%);
+  border-top-color: #fb7185;
+}
+
+html.dark .leak-hunter-briefing-lead {
+  background: #134e4a;
+}
+
+html.dark .leak-hunter-briefing-note,
+html.dark .leak-hunter-trail {
+  border-color: rgb(148 163 184 / 0.2);
+  background: rgb(30 41 59 / 0.9);
+}
+
+html.dark .leak-hunter-briefing-facts dt,
+html.dark .leak-hunter-briefing-facts dd span,
+html.dark .leak-hunter-briefing-note,
+html.dark .leak-hunter-trail-labels,
+html.dark .leak-hunter-why {
+  color: #cbd5e1;
+}
+
+html.dark .leak-hunter-card-impact > strong,
+html.dark .leak-hunter-trail-labels strong,
+html.dark .leak-hunter-why summary {
+  color: #f8fafc;
 }
 
 html.dark .leak-hunter-analysis-window {
@@ -3657,7 +3788,7 @@ html.dark .leak-hunter-transactions li > div > strong {
 html.dark .leak-hunter-coverage-sub,
 html.dark .leak-hunter-coverage-guidance,
 html.dark .leak-hunter-limitations span,
-html.dark .leak-hunter-summary-card span,
+html.dark .leak-hunter-briefing-facts dt,
 html.dark .leak-hunter-section-head p,
 html.dark .leak-hunter-card-head p,
 html.dark .leak-hunter-evidence,
@@ -3682,9 +3813,8 @@ html.dark .leak-hunter-limitations span {
 }
 
 @media (max-width: 860px) {
-  .leak-hunter-summary,
-  .leak-hunter-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .leak-hunter-briefing {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -3706,24 +3836,21 @@ html.dark .leak-hunter-limitations span {
     flex-direction: column;
   }
 
-  .leak-hunter-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .leak-hunter-summary-card:last-child {
-    grid-column: 1 / -1;
-  }
-
-  .leak-hunter-metrics {
-    grid-template-columns: 1fr;
+  .leak-hunter-card-impact {
+    align-items: flex-start;
+    text-align: left;
   }
 
   .leak-hunter-actions {
     align-items: flex-start;
   }
 
-  .leak-hunter-badges {
-    justify-content: flex-start;
+  .leak-hunter-trail-labels {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .leak-hunter-trail-labels strong {
+    display: none;
   }
 
   .ledger-context-filter {

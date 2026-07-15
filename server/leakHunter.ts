@@ -481,7 +481,7 @@ function buildFinding(
 
   const evidence = [
     `Seen ${group.transactions.length} times from ${first.date} to ${latest.date}.`,
-    `Cadence looks ${cadence}; expected again around ${expectedNextDate}.`,
+    `Pattern repeats about ${cadence}; expected again around ${expectedNextDate}.`,
   ];
   if (priceChangePct !== undefined && priceChangePct >= 20) {
     evidence.push(

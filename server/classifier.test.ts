@@ -238,13 +238,26 @@ describe("classifyTransaction", () => {
       expect(result.recurrenceSource).toBe("hint");
     });
 
-    it("returns recurrenceSource='none' when a CategoryRule sets recurrenceType (rule wins over keyword passes)", () => {
-      // "subscription" CATEGORY_RULE directly sets recurrenceType:"recurring" in Pass 6.
-      // Pass 8's guard (recurrenceType === 'one-time') then fails
-      // → recurrenceSource stays 'none' (rule-based, not a keyword hint).
+    it("records CategoryRule recurring evidence as a durable hint", () => {
+      // A rule-backed subscription stays recurring even before the pattern
+      // detector has enough imported history to confirm a schedule.
       const result = classifyTransaction("MONTHLY SUBSCRIPTION SERVICE", -15.99);
       expect(result.recurrenceType).toBe("recurring");
-      expect(result.recurrenceSource).toBe("none");
+      expect(result.recurrenceSource).toBe("hint");
+    });
+
+    it("recognizes mortgage, rent payment, utilities, insurance, and debt as recurring obligations", () => {
+      for (const description of [
+        "MORTGAGE PAYMENT",
+        "MONTHLY RENT PAYMENT",
+        "CITY WATER UTILITY",
+        "STATE FARM INSURANCE",
+        "AUTO LOAN PAYMENT",
+      ]) {
+        const result = classifyTransaction(description, -250);
+        expect(result.recurrenceType, description).toBe("recurring");
+        expect(result.recurrenceSource, description).toBe("hint");
+      }
     });
 
     it("never returns recurrenceSource='detected' (only the batch detector sets that)", () => {
@@ -262,7 +275,8 @@ describe("classifyTransaction", () => {
      *
      *   UPLOAD   → recurrenceSource = "hint"     (classifier keyword pass fires)
      *   UPLOAD   → recurrenceSource = "none"     (no keyword; or override resets it)
-     *   DETECTOR → recurrenceSource = "detected" (syncRecurringCandidates runs)
+     *   DETECTOR → recurrenceSource = "detected" (only for inferred patterns)
+     *   SYNC     → recurrenceSource = "hint"     (explicit evidence is preserved)
      *
      * Tests here cover the upload-phase transitions because classifier.ts is
      * the entry point; detector promotion is tested implicitly by the sync
@@ -292,18 +306,18 @@ describe("classifyTransaction", () => {
       expect(afterSync.recurrenceSource).toBe("detected");
     });
 
-    it("recurring keyword outflow: starts as hint/recurring, becomes detected/recurring after sync confirms pattern", () => {
+    it("recurring keyword outflow: remains hint/recurring after sync", () => {
       // "GENERIC RECURRING PAYMENT" has no CategoryRule match so Pass 8 fires on "recurring" keyword → hint
       const atUpload = classifyTransaction("GENERIC RECURRING PAYMENT DEPT123", -9.99);
       expect(atUpload.recurrenceSource).toBe("hint");
       expect(atUpload.recurrenceType).toBe("recurring");
-      // After syncRecurringCandidates Step 2 (multi-month pattern confirmed):
-      // recurrenceSource → "detected", recurrenceType stays "recurring"
+      // Sync preserves explicit recurring evidence, even if the pattern detector
+      // also confirms it. This keeps new subscriptions and housing charges visible.
       const afterSync: Pick<ClassificationResult, "recurrenceSource" | "recurrenceType"> = {
-        recurrenceSource: "detected",
+        recurrenceSource: "hint",
         recurrenceType: "recurring",
       };
-      expect(afterSync.recurrenceSource).toBe("detected");
+      expect(afterSync.recurrenceSource).toBe("hint");
       expect(afterSync.recurrenceType).toBe("recurring");
     });
   });

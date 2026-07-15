@@ -92,7 +92,7 @@ export function BrandPulse({
     badgeTestid = "ai-pulse-badge";
     role = "status";
     ariaLive = "polite";
-    ariaLabel = `AI enhancement in progress: ${remaining} transactions remaining, ${percentLabel} complete`;
+    ariaLabel = `Transaction enhancement in progress: ${remaining} transactions remaining, ${percentLabel} complete`;
     interactive = true;
   } else if (visualState === "complete") {
     const summary = lastJustCompleted as AiEnhancementSummary;
@@ -101,23 +101,18 @@ export function BrandPulse({
     subtextContent =
       n > 0
         ? `${n} ${rowLabel} enhanced: categories, recurrence & confidence`
-        : "AI enhancement complete";
+        : "Transaction labels updated";
     subtextTestid = "text-ai-pulse-status";
     badgeTestid = "ai-pulse-badge";
     role = "status";
     ariaLive = "polite";
     titleAttr =
       n > 0
-        ? `AI enhanced ${n} ${rowLabel}${summary.filenames.length ? ` from ${summary.filenames.join(", ")}` : ""} by adding smarter categories, recurrence labels, confidence scores, and short reasons.`
-        : "AI enhancement complete";
+        ? `PocketPulse updated ${n} ${rowLabel}${summary.filenames.length ? ` from ${summary.filenames.join(", ")}` : ""} with improved categories, recurrence labels, confidence scores, and short reasons.`
+        : "Transaction labels updated";
   } else if (visualState === "failed") {
-    // Truncate to keep the subtext line readable; the full reason
-    // remains accessible via the title attribute on the wrapper.
-    const MAX = 80;
-    const reason = lastJustFailed ?? "AI enhancement failed";
-    const detail =
-      reason.length > MAX ? `${reason.slice(0, MAX - 1)}…` : reason;
-    subtextContent = `AI enhancement failed: ${detail}`;
+    const reason = lastJustFailed ?? "Enhancement is temporarily unavailable";
+    subtextContent = "Enhancement paused — imported data is ready";
     subtextTestid = "text-ai-pulse-status";
     badgeTestid = "ai-pulse-badge";
     role = "status";

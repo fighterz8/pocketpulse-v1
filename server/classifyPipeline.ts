@@ -334,6 +334,10 @@ export async function classifyPipeline(
       classification.labelConfidence < opts.aiConfidenceThreshold ||
       categoryNeedsAi;
 
+    const bankRecurringEvidence =
+      bankHint?.recurrenceType === "recurring" &&
+      directionalClassification.transactionClass === "expense";
+
     return {
       index,
       rawDescription: row.rawDescription,
@@ -343,8 +347,12 @@ export async function classifyPipeline(
       transactionClass: directionalClassification.transactionClass,
       classEvidence: unverifiedIncome ? "provisional" : classEvidence,
       category: directionalClassification.category,
-      recurrenceType: classification.recurrenceType,
-      recurrenceSource: classification.recurrenceSource,
+      recurrenceType: bankRecurringEvidence
+        ? "recurring"
+        : classification.recurrenceType,
+      recurrenceSource: bankRecurringEvidence
+        ? "hint"
+        : classification.recurrenceSource,
       labelSource: classification.labelSource,
       labelConfidence: bankHintApplied
         ? Math.max(classification.labelConfidence, bankHint?.confidence ?? 0)
@@ -378,7 +386,8 @@ export async function classifyPipeline(
         // classifier-derived hint so provenance is not discarded.
         if (rule.recurrenceType) {
           row.recurrenceType = rule.recurrenceType;
-          row.recurrenceSource = "none";
+          row.recurrenceSource =
+            rule.recurrenceType === "recurring" ? "hint" : "none";
         }
         row.labelSource = "user-rule";
         row.labelConfidence = 1.0;
@@ -419,7 +428,8 @@ export async function classifyPipeline(
           hit.source === "manual" ? "user" : "machine",
         );
         row.recurrenceType = hit.recurrenceType;
-        row.recurrenceSource = "none";
+        row.recurrenceSource =
+          hit.recurrenceType === "recurring" ? "hint" : "none";
         row.labelConfidence = hit.labelConfidence;
         row.labelReason = `cache hit: ${key} (${hit.source})`;
         row.labelSource = "cache";
@@ -471,7 +481,8 @@ export async function classifyPipeline(
 
           applyDirectionalOverride(row, hit.transactionClass, hit.category);
           row.recurrenceType = hit.recurrenceType;
-          row.recurrenceSource = "none";
+          row.recurrenceSource =
+            hit.recurrenceType === "recurring" ? "hint" : "none";
           row.labelConfidence = hit.labelConfidence;
           row.labelReason = `global seed hit: ${key}`;
           row.labelSource = "cache";
@@ -576,7 +587,8 @@ export async function classifyPipeline(
       row.transactionClass = reconciled.transactionClass;
       row.category = reconciled.category;
       row.recurrenceType = aiResult.recurrenceType;
-      row.recurrenceSource = "none";
+      row.recurrenceSource =
+        aiResult.recurrenceType === "recurring" ? "hint" : "none";
       row.labelConfidence = aiResult.labelConfidence;
       row.labelReason = aiResult.labelReason;
       row.labelSource = "ai";

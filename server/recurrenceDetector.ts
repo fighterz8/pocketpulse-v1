@@ -23,10 +23,10 @@
  *    to be tagged in a lifestyle category (e.g. meal-kit services).
  *  • All other categories — moderate tolerance (15 %).
  *
- * Monthly-frequency candidates must also appear in ≥ 65 % of calendar
- * months between their first and last occurrence. The check is skipped
- * when the candidate spans fewer than 2 distinct calendar months (short
- * CSV uploads).
+ * Recurrence is evaluated against the latest date in the imported dataset,
+ * not the wall clock. This keeps a historical statement internally coherent
+ * and prevents a newly started or previously ended recurring obligation from
+ * being rejected merely because unrelated history covers more months.
  */
 
 export type RecurringCandidate = {
@@ -71,6 +71,29 @@ export function collectRecurringTransactionIds(
   return ids;
 }
 
+/**
+ * Transaction-level recurring evidence supplied by rules, bank categories,
+ * AI/cache classifications, or a user correction. These rows are recurring
+ * even before enough history exists for the pattern detector to confirm a
+ * schedule. Detector-authored rows are intentionally excluded so a later sync
+ * can still revoke a pattern that has stopped matching.
+ */
+export function collectRecurringEvidenceTransactionIds(
+  transactions: ReadonlyArray<TransactionLike>,
+): Set<number> {
+  return new Set(
+    transactions
+      .filter(
+        (transaction) =>
+          transaction.flowType === "outflow" &&
+          !transaction.excludedFromAnalysis &&
+          transaction.recurrenceType === "recurring" &&
+          ["hint", "manual"].includes(transaction.recurrenceSource ?? ""),
+      )
+      .map((transaction) => transaction.id),
+  );
+}
+
 type TransactionLike = {
   id: number;
   date: string;
@@ -79,6 +102,8 @@ type TransactionLike = {
   flowType: string;
   category: string;
   excludedFromAnalysis: boolean;
+  recurrenceType?: string;
+  recurrenceSource?: string;
 };
 
 type MerchantGroup = {
@@ -300,13 +325,6 @@ const LOOKBACK_DAYS = 548; // ~18 months
  */
 const CONFIDENCE_THRESHOLD = 0.42;
 
-/**
- * Minimum fraction of calendar months (first → last occurrence) that a
- * monthly-frequency candidate must appear in. 65 % allows a single missed
- * month in a 3-month window (66 %) while still blocking random clusters.
- */
-const MONTHLY_COVERAGE_MIN = 0.65;
-
 const WEIGHTS = {
   interval: 0.35,
   amount: 0.25,
@@ -492,12 +510,16 @@ function median(values: number[]): number {
     : sorted[mid]!;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+function latestDatasetDate(txns: TransactionLike[]): string {
+  return txns
+    .map((transaction) => transaction.date)
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? new Date().toISOString().slice(0, 10);
 }
 
-function lookbackCutoff(): string {
-  const d = new Date();
+function lookbackCutoff(asOfDate: string): string {
+  const d = new Date(`${asOfDate}T00:00:00.000Z`);
   d.setDate(d.getDate() - LOOKBACK_DAYS);
   return d.toISOString().slice(0, 10);
 }
@@ -536,8 +558,11 @@ const CATEGORY_AMOUNT_ROUNDING: Record<string, number> = {
 
 // ─── Grouping ────────────────────────────────────────────────────────────────
 
-function groupTransactions(txns: TransactionLike[]): MerchantGroup[] {
-  const cutoff = lookbackCutoff();
+function groupTransactions(
+  txns: TransactionLike[],
+  asOfDate: string,
+): MerchantGroup[] {
+  const cutoff = lookbackCutoff(asOfDate);
   const map = new Map<string, TransactionLike[]>();
   for (const txn of txns) {
     if (txn.excludedFromAnalysis) continue;
@@ -589,40 +614,6 @@ function bucketByAmount(txns: TransactionLike[]): AmountBucket[] {
   return buckets;
 }
 
-// ─── Monthly coverage check ──────────────────────────────────────────────────
-
-/**
- * Returns true when the candidate's transactions appear in at least `minCoverage`
- * of the calendar months present in the FULL DATASET (lookback window), not just
- * the candidate's own first→last span.
- *
- * Using the dataset span instead of the candidate span catches patterns like:
- *   - Dataset covers 12 months; candidate appears in only 3 consecutive months
- *     → 3/12 = 25 % → FAIL (correctly rejected as non-recurring)
- *   - Dataset covers 12 months; genuine monthly subscription misses 2 months
- *     → 10/12 = 83 % → PASS
- *
- * `datasetTotalMonths` is the count of distinct YYYY-MM months present in the
- * full set of filtered outflow transactions passed to detectRecurringCandidates.
- *
- * Short-dataset guard: if the dataset spans fewer than 2 calendar months the
- * check is skipped (returns true) because a short CSV upload genuinely cannot
- * provide 65 % coverage of a 1-month window.
- */
-function passesMonthlyDatasetCoverage(
-  sorted: TransactionLike[],
-  datasetTotalMonths: number,
-  minCoverage = MONTHLY_COVERAGE_MIN,
-): boolean {
-  if (sorted.length < 2) return false;
-
-  // Short dataset guard — skip when the full dataset is < 2 calendar months
-  if (datasetTotalMonths < 2) return true;
-
-  const distinctMonths = new Set(sorted.map((t) => t.date.slice(0, 7))).size;
-  return distinctMonths / datasetTotalMonths >= minCoverage;
-}
-
 // ─── Frequency detection ─────────────────────────────────────────────────────
 
 function detectFrequency(txns: TransactionLike[]): FrequencyResult | null {
@@ -665,9 +656,31 @@ function detectFrequency(txns: TransactionLike[]): FrequencyResult | null {
 
 function getMinTransactions(
   frequency: RecurringCandidate["frequency"],
+  category: string,
+  merchantKey: string,
+  transactions: TransactionLike[],
 ): number {
   if (frequency === "annual") return 2;
   if (frequency === "quarterly") return 2;
+  const hasTransactionEvidence = transactions.some(
+    (transaction) =>
+      transaction.recurrenceType === "recurring" &&
+      ["hint", "manual"].includes(transaction.recurrenceSource ?? ""),
+  );
+  const hasStrongCategoryEvidence =
+    VARIABLE_AMOUNT_CATEGORIES.has(category) ||
+    SUBSCRIPTION_CATEGORIES.has(category) ||
+    category === "fitness";
+  const hasKnownSubscriptionBrand = SUBSCRIPTION_BRAND_FRAGMENTS.some(
+    (fragment) => merchantKey.includes(fragment),
+  );
+  if (
+    hasTransactionEvidence ||
+    hasStrongCategoryEvidence ||
+    hasKnownSubscriptionBrand
+  ) {
+    return 2;
+  }
   return 3;
 }
 
@@ -677,6 +690,7 @@ function scoreConfidence(
   txns: TransactionLike[],
   freq: FrequencyResult,
   category: string,
+  asOfDate: string,
 ): { score: number; amountScore: number; recencyScore: number } {
   const n = txns.length;
 
@@ -699,7 +713,7 @@ function scoreConfidence(
     : Math.max(0, 1.0 - amtCv * 3.33);
 
   // Recency: how long since the last charge vs expected interval
-  const daysSinceLast = daysBetween(txns[txns.length - 1]!.date, todayISO());
+  const daysSinceLast = daysBetween(txns[txns.length - 1]!.date, asOfDate);
   const recencyRatio =
     freq.medianInterval > 0 ? daysSinceLast / freq.medianInterval : 0;
   let recencyScore: number;
@@ -742,26 +756,10 @@ export function detectRecurringCandidates(
 ): RecurringCandidate[] {
   if (txns.length === 0) return [];
 
-  const today = todayISO();
+  const asOfDate = latestDatasetDate(txns);
   const candidates: RecurringCandidate[] = [];
 
-  // Pre-compute the dataset's calendar-month footprint (within the lookback window).
-  // This is used by passesMonthlyDatasetCoverage() as the denominator so a
-  // candidate that only appears in 3 of 12 dataset months correctly fails (3/12 < 65%)
-  // rather than trivially passing (3/3 = 100%) against its own narrow span.
-  const cutoff = lookbackCutoff();
-  const datasetTotalMonths = new Set(
-    txns
-      .filter(
-        (t) =>
-          !t.excludedFromAnalysis &&
-          t.flowType === "outflow" &&
-          t.date >= cutoff,
-      )
-      .map((t) => t.date.slice(0, 7)),
-  ).size;
-
-  const groups = groupTransactions(txns);
+  const groups = groupTransactions(txns, asOfDate);
 
   for (const group of groups) {
     const buckets = bucketByAmount(group.transactions).sort(
@@ -788,7 +786,12 @@ export function detectRecurringCandidates(
       const freq = detectFrequency(sorted);
       if (!freq) continue;
 
-      const minTxns = getMinTransactions(freq.frequency);
+      const minTxns = getMinTransactions(
+        freq.frequency,
+        category,
+        group.key,
+        sorted,
+      );
       if (sorted.length < minTxns) continue;
 
       // For annual, require the two charges to span at least 10 months
@@ -797,18 +800,11 @@ export function detectRecurringCandidates(
         if (span < 300) continue;
       }
 
-      // ── Monthly coverage check ───────────────────────────────────────────
-      // For monthly candidates only: must appear in ≥65 % of the dataset's
-      // calendar months (lookback window). Short-dataset guard applied inside.
-      if (freq.frequency === "monthly") {
-        if (!passesMonthlyDatasetCoverage(sorted, datasetTotalMonths)) continue;
-      }
-
       const {
         score: confidence,
         amountScore,
         recencyScore,
-      } = scoreConfidence(sorted, freq, category);
+      } = scoreConfidence(sorted, freq, category, asOfDate);
       if (confidence < CONFIDENCE_THRESHOLD) continue;
 
       // Suppress if low recency AND low confidence (stale cancelled subscriptions)
@@ -822,10 +818,12 @@ export function detectRecurringCandidates(
 
       const lastDate = sorted[sorted.length - 1]!.date;
       const nextDate = addDays(lastDate, Math.round(freq.medianInterval));
-      const daysSinceExpected = daysBetween(nextDate, today);
+      const daysSinceExpected = daysBetween(nextDate, asOfDate);
 
-      // Active = last charge was within 2 full median-intervals of today
-      const isActive = daysBetween(lastDate, today) <= freq.medianInterval * 2;
+      // Active = last charge was within 2 full median-intervals of the latest
+      // imported transaction date. Dataset freshness is communicated separately.
+      const isActive =
+        daysBetween(lastDate, asOfDate) <= freq.medianInterval * 2;
 
       const monthlyEquivalent =
         Math.round(avgAmt * MONTHLY_FACTOR[freq.frequency] * 100) / 100;

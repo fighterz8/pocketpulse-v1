@@ -628,7 +628,7 @@ describe("AI enhancement badge end-to-end", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("text-ai-pulse-status").textContent).toMatch(
-        /AI enhancement failed/,
+        /Enhancement paused/,
       );
     });
 

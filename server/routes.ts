@@ -61,12 +61,13 @@ import {
   type UpdateTransactionInput,
 } from "./storage.js";
 import { normalizeEmail } from "./auth.js";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { buildDashboardSummary } from "./dashboardQueries.js";
 import { db } from "./db.js";
 import { scheduleBackgroundTask } from "./background.js";
 import {
   collectRecurringTransactionIds,
+  collectRecurringEvidenceTransactionIds,
   detectRecurringCandidates,
   recurrenceKey,
 } from "./recurrenceDetector.js";
@@ -75,6 +76,10 @@ import { createDevTestSuiteRouter } from "./devTestSuite.js";
 import { buildLeakHunterReport, isValidIsoDate } from "./leakHunter.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { runUploadAiWorker } from "./aiWorker.js";
+import {
+  isStaleAiProcessing,
+  publicEnhancementError,
+} from "./aiLifecycle.js";
 import { parseTransactionIdsParam } from "./transactionFilterParams.js";
 import {
   isDevEmailAllowed,
@@ -103,6 +108,32 @@ declare module "express-session" {
 }
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const ABANDONED_AI_ERROR = "AI enhancement exceeded its runtime budget";
+
+async function reconcileAiStatusRow<
+  T extends {
+    id: number;
+    aiStatus: string;
+    aiStartedAt?: Date | string | null;
+    aiCompletedAt?: Date | string | null;
+    aiError?: string | null;
+  },
+>(row: T): Promise<T> {
+  if (!isStaleAiProcessing(row)) return row;
+
+  const completedAt = new Date();
+  await updateUploadAiStatus(row.id, {
+    aiStatus: "failed",
+    aiCompletedAt: completedAt,
+    aiError: ABANDONED_AI_ERROR,
+  });
+  return {
+    ...row,
+    aiStatus: "failed",
+    aiCompletedAt: completedAt,
+    aiError: ABANDONED_AI_ERROR,
+  };
+}
 
 const CREDIT_CARD_PAYMENT_PATTERN =
   /\b(amex|american express|card payment|credit card payment|autopay payment|online payment|payment thank you|payment received)\b/i;
@@ -325,7 +356,8 @@ const sessionCookieOptions = {
 /**
  * Runs the recurring-expense detector and writes back to every outflow
  * transaction row for the given user:
- *   - recurrenceType:   detected recurring IDs → "recurring"; others → "one-time"
+ *   - recurrenceType:   explicit recurring evidence and pattern-detected IDs
+ *                       → "recurring"; unsupported detector-owned rows → "one-time"
  *   - transactionClass: recurring outflow transfers (not user-corrected) →
  *                       "expense" (labelSource="recurring-transfer"), reversed
  *                       on the next sync if the pattern stops.
@@ -339,11 +371,18 @@ async function syncRecurringCandidates(
   const allTxns = await listAllTransactionsForExport({ userId });
   const candidates = detectRecurringCandidates(allTxns as any);
 
-  const recurringIds = collectRecurringTransactionIds(candidates);
+  const detectedRecurringIds = collectRecurringTransactionIds(candidates);
+  const evidenceRecurringIds = collectRecurringEvidenceTransactionIds(
+    allTxns as any,
+  );
+  const recurringIds = new Set<number>([
+    ...detectedRecurringIds,
+    ...evidenceRecurringIds,
+  ]);
 
   const txnsById = new Map((allTxns as any[]).map((t) => [t.id, t]));
   const recurringTransferExpenseIds = new Set<number>(
-    [...recurringIds].filter((id) => {
+    [...detectedRecurringIds].filter((id) => {
       const t = txnsById.get(id);
       return (
         t?.transactionClass === "transfer" &&
@@ -353,10 +392,15 @@ async function syncRecurringCandidates(
     }),
   );
 
-  // Step 1: reset all outflow transactions to "one-time" / "detected" EXCEPT rows
+  // Step 1: reset detector-owned outflow transactions to "one-time" / "detected" EXCEPT rows
   // where the user has explicitly set a recurrence value (userCorrected=true →
   // labelSource "manual") or a same-merchant propagation carried that value
   // (labelSource "propagated"). User edits are law — the detector never overwrites them.
+  //
+  // Transaction-level evidence (`recurrenceSource='hint'`) is deliberately
+  // preserved. A known mortgage, subscription, utility, or insurance premium
+  // remains recurring even when the current upload has too little history to
+  // prove a schedule. Pattern-owned rows remain revocable on later syncs.
   //
   // recurrenceSource is set to "detected" (not "none") because the batch detector
   // has now evaluated every outflow row for this user. A reset row means the
@@ -372,6 +416,10 @@ async function syncRecurringCandidates(
         eq(txnTable.excludedFromAnalysis, false),
         ne(txnTable.labelSource, "manual"),
         ne(txnTable.labelSource, "propagated"),
+        or(
+          ne(txnTable.recurrenceSource, "hint"),
+          ne(txnTable.recurrenceType, "recurring"),
+        ),
       ),
     );
 
@@ -391,11 +439,13 @@ async function syncRecurringCandidates(
       ),
     );
 
-  // Step 2: mark detected IDs as "recurring" / "detected". Same user-edit guard
+  // Step 2: mark pattern-detected IDs as "recurring" / "detected". Same user-edit guard
   // as Step 1 — a manually-set "one-time" on a recurring-looking transaction
   // stays "one-time".
-  if (recurringIds.size > 0) {
-    const ids = [...recurringIds];
+  // A row that already carries transaction-level evidence keeps `hint` so a
+  // later detector sync cannot erase a known recurring obligation.
+  if (detectedRecurringIds.size > 0) {
+    const ids = [...detectedRecurringIds];
     for (let i = 0; i < ids.length; i += 500) {
       await db
         .update(txnTable)
@@ -406,6 +456,7 @@ async function syncRecurringCandidates(
             inArray(txnTable.id, ids.slice(i, i + 500)),
             ne(txnTable.labelSource, "manual"),
             ne(txnTable.labelSource, "propagated"),
+            ne(txnTable.recurrenceSource, "hint"),
           ),
         );
     }
@@ -1590,11 +1641,12 @@ export function createApp(options?: CreateAppOptions) {
         res.status(400).json({ error: "Invalid upload id" });
         return;
       }
-      const status = await getUploadAiStatusForUser(userId, uploadId);
-      if (!status) {
+      const storedStatus = await getUploadAiStatusForUser(userId, uploadId);
+      if (!storedStatus) {
         res.status(404).json({ error: "Upload not found" });
         return;
       }
+      const status = await reconcileAiStatusRow(storedStatus);
       const pending = status.aiRowsPending ?? 0;
       const done = status.aiRowsDone ?? 0;
       res.json({
@@ -1605,7 +1657,10 @@ export function createApp(options?: CreateAppOptions) {
         progress: pending > 0 ? Math.min(1, done / pending) : 1,
         aiStartedAt: status.aiStartedAt,
         aiCompletedAt: status.aiCompletedAt,
-        aiError: status.aiError,
+        aiError:
+          status.aiStatus === "failed"
+            ? publicEnhancementError(status.aiError)
+            : null,
       });
     } catch (e) {
       next(e);
@@ -1624,7 +1679,8 @@ export function createApp(options?: CreateAppOptions) {
   app.get("/api/uploads/ai-status", requireAuth, async (req, res, next) => {
     try {
       const userId = req.session.userId!;
-      const rows = await listActiveAiUploadsForUser(userId);
+      const storedRows = await listActiveAiUploadsForUser(userId);
+      const rows = await Promise.all(storedRows.map(reconcileAiStatusRow));
       for (const row of rows) {
         if (row.aiStatus === "pending") {
           scheduleBackgroundTask(
@@ -1646,7 +1702,10 @@ export function createApp(options?: CreateAppOptions) {
             progress: pending > 0 ? Math.min(1, done / pending) : 1,
             aiStartedAt: row.aiStartedAt,
             aiCompletedAt: row.aiCompletedAt,
-            aiError: row.aiError,
+            aiError:
+              row.aiStatus === "failed"
+                ? publicEnhancementError(row.aiError)
+                : null,
           };
         }),
       });
@@ -2339,8 +2398,8 @@ export function createApp(options?: CreateAppOptions) {
         // Rows with recurrenceSource='none' but recurrenceType='recurring' were
         // written before this column existed — they got their recurring label from
         // a classifier keyword pass (hint), so promote them to 'hint' now.
-        // syncRecurringCandidates (below) will then promote outflow rows to
-        // 'detected' once it evaluates them, making the full corpus consistent.
+        // syncRecurringCandidates (below) preserves that evidence while also
+        // adding detector-owned recurring patterns.
         const backfillResult = await db
           .update(txnTable)
           .set({ recurrenceSource: "hint" })

@@ -82,12 +82,12 @@ type LeakHunterReport = {
 };
 
 const MODE_OPTIONS: Array<{ value: LeakHunterMode; label: string }> = [
-  { value: "full", label: "Overview" },
-  { value: "recent_habits", label: "Spending leaks" },
+  { value: "full", label: "Hunt summary" },
+  { value: "recent_habits", label: "Spending patterns" },
   { value: "active", label: "Subscriptions" },
-  { value: "stopped", label: "Stopped" },
-  { value: "price_creep", label: "Price changes" },
-  { value: "needs_review", label: "Needs review" },
+  { value: "stopped", label: "Ended charges" },
+  { value: "price_creep", label: "Cost increases" },
+  { value: "needs_review", label: "Check these" },
 ];
 
 const FINDINGS_PER_PAGE = 3;
@@ -123,6 +123,33 @@ function fmtShort(n: number): string {
 
 function sentenceCase(s: string): string {
   return s.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function findingStatusLabel(finding: LeakHunterFinding): string {
+  if (finding.status === "active") return "Likely active";
+  if (finding.status === "possibly_active") return "Check timing";
+  if (finding.status === "overdue") return "May still be active";
+  if (finding.status === "inactive") return "Appears ended";
+  if (finding.status === "historical") return "Ended";
+  return "More history needed";
+}
+
+function repeatPatternLabel(finding: LeakHunterFinding): string {
+  if (finding.kind === "habit" || !finding.cadence) return "Repeated recently";
+  const labels: Record<NonNullable<LeakHunterFinding["cadence"]>, string> = {
+    weekly: "Repeats about weekly",
+    biweekly: "Repeats about every two weeks",
+    monthly: "Repeats about monthly",
+    quarterly: "Repeats about every three months",
+    annual: "Repeats about yearly",
+  };
+  return labels[finding.cadence];
+}
+
+function plainEvidence(line: string): string {
+  return line
+    .replace(/^Cadence looks /i, "Pattern repeats about ")
+    .replace(/\bcadence\b/gi, "pattern");
 }
 
 function formatDate(iso: string | null): string {
@@ -208,13 +235,13 @@ function coverageTone(quality: LeakHunterCoverage["coverageQuality"]): string {
 
 function coverageGuidance(quality: LeakHunterCoverage["coverageQuality"]): string {
   if (quality === "strong") {
-    return "Enough history for active charges, stopped patterns, annual renewals, and price-creep checks.";
+    return "Enough history for active charges, stopped patterns, annual renewals, and cost-increase checks.";
   }
   if (quality === "useful") {
-    return "Enough history for active charges and recent habits; more months can strengthen stopped-leak and price-creep checks.";
+    return "Enough history for active charges and recent habits; more months can strengthen ended-charge and cost-increase checks.";
   }
   if (quality === "partial") {
-    return "Good for a first pass on active charges, but annual renewals and price creep need more history.";
+    return "Good for a first pass on active charges, but annual renewals and cost increases need more history.";
   }
   if (quality === "limited") {
     return "Short history can catch obvious repeats; 90 days is better for active leaks and 12 months is better for stopped patterns.";
@@ -229,7 +256,7 @@ function emptyGuidance(
   if (coverage.coverageQuality === "empty") {
     return {
       title: "Upload history to start a leak hunt",
-      body: "A bank or card CSV lets PocketPulse infer the covered dates before looking for recurring charges, stopped subscriptions, price creep, and repeat spending.",
+      body: "A bank or card CSV lets PocketPulse infer the covered dates before looking for recurring charges, ended subscriptions, cost increases, and repeat spending.",
       action: "Upload transactions",
     };
   }
@@ -237,15 +264,15 @@ function emptyGuidance(
   if (coverage.coverageQuality === "limited" || coverage.coverageQuality === "partial") {
     return {
       title: "This upload is too short for a confident hit",
-      body: "Short windows can catch obvious repeats, but 90 days is better for active charges and 12 months is better for stopped leaks, annual renewals, and price creep.",
+      body: "Short windows can catch obvious repeats, but 90 days is better for active charges and 12 months is better for ended charges, annual renewals, and cost increases.",
       action: "Add more history",
     };
   }
 
   if (mode === "price_creep") {
     return {
-      title: "No meaningful price creep found",
-      body: "The recurring charges in this history did not show a clear latest-amount jump. Check Full hunt for active or stopped patterns worth reviewing.",
+      title: "No meaningful cost increase found",
+      body: "No subscription's latest charge was at least 20% higher than its first observed charge and $2 above its usual pattern.",
       action: "Upload more history",
     };
   }
@@ -355,18 +382,19 @@ function ModeControl({
   onChange: (mode: LeakHunterMode) => void;
 }) {
   const counts: Record<LeakHunterMode, number> = {
-    full:
-      report.sections.activeLeaks.length +
-      report.sections.stoppedLeaks.length +
-      report.sections.priceCreep.length +
-      report.sections.recentHabits.length +
-      report.sections.needsReview.length,
+    full: 0,
     active: report.sections.activeLeaks.length,
     stopped: report.sections.stoppedLeaks.length,
     price_creep: report.sections.priceCreep.length,
     recent_habits: report.sections.recentHabits.length,
     needs_review: report.sections.needsReview.length,
   };
+  const visibleOptions = MODE_OPTIONS.filter(
+    (option) =>
+      option.value === "full" ||
+      option.value === mode ||
+      counts[option.value] > 0,
+  );
 
   return (
     <motion.div
@@ -379,51 +407,121 @@ function ModeControl({
       custom={2}
       data-testid="leak-hunter-modes"
     >
-      {MODE_OPTIONS.map((option) => (
+      {visibleOptions.map((option) => (
         <button
           key={option.value}
           type="button"
           className={`leak-hunter-mode ${mode === option.value ? "leak-hunter-mode--active" : ""}`}
           onClick={() => onChange(option.value)}
           aria-pressed={mode === option.value}
-          aria-label={`${option.label}, ${counts[option.value]} ${
-            counts[option.value] === 1 ? "finding" : "findings"
-          }`}
+          aria-label={
+            option.value === "full"
+              ? option.label
+              : `${option.label}, ${counts[option.value]} ${
+                  counts[option.value] === 1 ? "finding" : "findings"
+                }`
+          }
           data-testid={`leak-mode-${option.value}`}
         >
           <span>{option.label}</span>
-          <strong aria-hidden="true">{counts[option.value]}</strong>
+          {option.value !== "full" && (
+            <strong aria-hidden="true">{counts[option.value]}</strong>
+          )}
         </button>
       ))}
     </motion.div>
   );
 }
 
-function SummaryGrid({ report }: { report: LeakHunterReport }) {
-  const cards = [
-    ["Recent spending leaks", String(report.summary.recentHabitCount)],
-    ["Active subscriptions", String(report.summary.activeCount)],
-    ["Stopped subscriptions", String(report.summary.inactiveCount)],
-    ["Subscription price creep", String(report.summary.priceCreepCount)],
-    ["Active subscriptions / mo", fmtShort(report.summary.estimatedActiveMonthly)],
-  ];
+function HuntBriefing({
+  report,
+  onSelect,
+}: {
+  report: LeakHunterReport;
+  onSelect: (mode: LeakHunterMode) => void;
+}) {
+  const startMode: LeakHunterMode = report.summary.recentHabitCount > 0
+    ? "recent_habits"
+    : report.summary.activeCount > 0
+      ? "active"
+      : report.summary.inactiveCount > 0
+        ? "stopped"
+        : report.summary.priceCreepCount > 0
+          ? "price_creep"
+          : "needs_review";
+  const startCount =
+    startMode === "recent_habits"
+      ? report.summary.recentHabitCount
+      : startMode === "active"
+        ? report.summary.activeCount
+        : startMode === "stopped"
+          ? report.summary.inactiveCount
+          : startMode === "price_creep"
+            ? report.summary.priceCreepCount
+            : report.sections.needsReview.length;
+  const startTitle =
+    startMode === "recent_habits"
+      ? "Start with repeated discretionary spending"
+      : startMode === "active"
+        ? "Start with subscriptions that still appear active"
+        : startMode === "stopped"
+          ? "Review charges that appear to have ended"
+          : startMode === "price_creep"
+            ? "Review subscriptions that now cost more"
+            : "Confirm the patterns PocketPulse is unsure about";
 
   return (
-    <motion.div
-      className="leak-hunter-summary"
+    <motion.section
+      className="leak-hunter-briefing"
       variants={fadeUp}
       initial="hidden"
       animate="visible"
       custom={3}
       data-testid="leak-hunter-summary"
     >
-      {cards.map(([label, value]) => (
-        <div className="leak-hunter-summary-card" key={label}>
-          <span>{label}</span>
-          <strong>{value}</strong>
+      <div className="leak-hunter-briefing-lead">
+        <p className="leak-hunter-eyebrow">Start here</p>
+        <h2>{startTitle}</h2>
+        <p>
+          {startCount > 0
+            ? `${startCount} ${startCount === 1 ? "finding deserves" : "findings deserve"} a closer look.`
+            : "No clear leak is demanding attention in this analysis window."}
+        </p>
+        {startCount > 0 && (
+          <button type="button" onClick={() => onSelect(startMode)}>
+            Review {startCount} {startCount === 1 ? "finding" : "findings"}
+          </button>
+        )}
+      </div>
+      <dl className="leak-hunter-briefing-facts">
+        <div>
+          <dt>Repeated spending</dt>
+          <dd>{report.summary.recentHabitCount}</dd>
         </div>
-      ))}
-    </motion.div>
+        <div>
+          <dt>Active subscriptions</dt>
+          <dd>
+            {report.summary.activeCount}
+            <span>{fmtShort(report.summary.estimatedActiveMonthly)}/mo</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Ended charges</dt>
+          <dd>
+            {report.summary.inactiveCount}
+            <span>{fmtShort(report.summary.estimatedHistoricalTotal)} seen</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Cost increases</dt>
+          <dd>{report.summary.priceCreepCount}</dd>
+        </div>
+      </dl>
+      <p className="leak-hunter-briefing-note">
+        A cost increase means the latest subscription charge is at least 20% above
+        the first observed charge and at least $2 above its average pattern.
+      </p>
+    </motion.section>
   );
 }
 
@@ -441,6 +539,21 @@ function FindingCard({
       ? null
       : `${finding.priceChangePct > 0 ? "+" : ""}${Math.round(finding.priceChangePct)}%`;
   const transactions = finding.transactions ?? [];
+  const trail = [...transactions]
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(-6);
+  const maxTrailAmount = Math.max(
+    1,
+    ...trail.map((transaction) => Math.abs(transaction.amount)),
+  );
+  const impact =
+    finding.kind === "habit"
+      ? `${fmt(finding.historicalTotal)} across ${finding.occurrences} recent purchases`
+      : finding.kind === "price_creep" && priceChange
+        ? `${fmt(finding.latestAmount)} now · ${priceChange}`
+        : finding.status === "inactive" || finding.status === "historical"
+          ? `${fmt(finding.latestAmount)} last observed charge`
+          : `${fmt(finding.latestAmount)} latest · about ${fmt(finding.monthlyEquivalent)}/mo`;
 
   return (
     <motion.article
@@ -452,48 +565,58 @@ function FindingCard({
       data-testid={`leak-hunter-card-${finding.merchantKey.replace(/\W+/g, "-")}`}
     >
       <div className="leak-hunter-card-head">
-        <div>
-          <h3>{finding.merchant}</h3>
-          <p>
-            Seen {finding.occurrences} times from {formatDate(finding.firstSeen)} to{" "}
-            {formatDate(finding.lastSeen)}
-          </p>
-        </div>
-        <div className="leak-hunter-badges">
+        <div className="leak-hunter-card-identity">
           <span className={`leak-hunter-kind leak-hunter-kind--${finding.kind}`}>
             {findingKindLabel(finding)}
           </span>
+          <h3>{finding.merchant}</h3>
+          <p>
+            {repeatPatternLabel(finding)} · {finding.occurrences} charges from{" "}
+            {formatDate(finding.firstSeen)} to {formatDate(finding.lastSeen)}
+          </p>
+        </div>
+        <div className="leak-hunter-card-impact">
+          <strong>{impact}</strong>
           <span className={`leak-hunter-status leak-hunter-status--${finding.status}`}>
-            {sentenceCase(finding.status)}
+            {findingStatusLabel(finding)}
           </span>
         </div>
       </div>
 
-      <div className="leak-hunter-metrics">
-        <span>
-          Latest <strong>{fmt(finding.latestAmount)}</strong>
-        </span>
-        <span>
-          Est. <strong>{fmt(finding.monthlyEquivalent)}/mo</strong>
-        </span>
-        <span>
-          Cadence <strong>{finding.cadence ? sentenceCase(finding.cadence) : "Review"}</strong>
-        </span>
-        {priceChange && (
-          <span>
-            Change <strong>{priceChange}</strong>
-          </span>
-        )}
-      </div>
+      {trail.length > 0 && (
+        <div
+          className="leak-hunter-trail"
+          aria-label={`Recent transaction pattern for ${finding.merchant}`}
+        >
+          <div className="leak-hunter-trail-bars" aria-hidden="true">
+            {trail.map((transaction) => (
+              <span
+                key={transaction.id}
+                style={{
+                  height: `${Math.max(18, Math.round((Math.abs(transaction.amount) / maxTrailAmount) * 100))}%`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="leak-hunter-trail-labels">
+            <span>{formatDate(trail[0]!.date)}</span>
+            <strong>{trail.length} matching charges</strong>
+            <span>{formatDate(trail[trail.length - 1]!.date)}</span>
+          </div>
+        </div>
+      )}
 
-      <ul className="leak-hunter-evidence">
-        {finding.evidence.slice(0, 3).map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-        {finding.expectedNextDate && (
-          <li>Expected again around {formatDate(finding.expectedNextDate)}.</li>
-        )}
-      </ul>
+      <details className="leak-hunter-why">
+        <summary>Why PocketPulse flagged this</summary>
+        <ul className="leak-hunter-evidence">
+          {finding.evidence.slice(0, 3).map((line) => (
+            <li key={line}>{plainEvidence(line)}</li>
+          ))}
+          {finding.expectedNextDate && (
+            <li>Expected again around {formatDate(finding.expectedNextDate)}.</li>
+          )}
+        </ul>
+      </details>
 
       <details className="leak-hunter-transactions">
         <summary>
@@ -618,7 +741,7 @@ export function Leaks() {
     const sections = [
       {
         key: "recent_habits" as const,
-        title: "Recent spending leaks",
+        title: "Spending patterns to review",
         subtitle:
           "Repeated discretionary purchases in the recent window. Amounts can vary; similar merchant activity is grouped together.",
         findings: data.sections.recentHabits,
@@ -632,19 +755,20 @@ export function Leaks() {
       },
       {
         key: "stopped" as const,
-        title: "Stopped subscriptions",
-        subtitle: "Recent recurring patterns that appear to have ended before the latest upload.",
+        title: "Charges that appear ended",
+        subtitle: "Recurring charges that stopped appearing before the latest uploaded activity.",
         findings: data.sections.stoppedLeaks,
       },
       {
         key: "price_creep" as const,
-        title: "Price creep",
-        subtitle: "Recurring charges where the latest amount rose meaningfully.",
+        title: "Subscriptions costing more",
+        subtitle:
+          "The latest charge is at least 20% above the first observed charge and $2 above its average pattern.",
         findings: data.sections.priceCreep,
       },
       {
         key: "needs_review" as const,
-        title: "Needs review",
+        title: "Patterns to confirm",
         subtitle:
           "Current recurring patterns PocketPulse cannot classify confidently. These are not counted as leaks or savings.",
         findings: data.sections.needsReview,
@@ -652,8 +776,8 @@ export function Leaks() {
     ];
 
     if (mode === "full") {
-      // Overview is intentionally compact: surface the highest-priority
-      // non-empty queue and let the section tabs expose every other group.
+      // The briefing provides the map; the overview previews only the first
+      // non-empty queue so the page stays compact.
       return sections.filter((section) => section.findings.length > 0).slice(0, 1);
     }
     if (mode === "active") return sections.filter((section) => section.key === "active");
@@ -694,7 +818,7 @@ export function Leaks() {
       </h1>
       <p className="text-sm text-slate-500 dark:text-slate-400">
         Recent-first review of repeated discretionary spending, subscriptions,
-        and price changes—with the matching transactions attached.
+        and cost increases—with the matching transactions attached.
       </p>
     </motion.div>
   );
@@ -741,8 +865,10 @@ export function Leaks() {
           ))}
         </motion.div>
       )}
+      {mode === "full" && (
+        <HuntBriefing report={data} onSelect={handleModeChange} />
+      )}
       <ModeControl mode={mode} report={data} onChange={handleModeChange} />
-      <SummaryGrid report={data} />
 
       {!hasFindings ? (
         <motion.div

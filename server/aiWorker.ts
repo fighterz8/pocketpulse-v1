@@ -45,6 +45,7 @@ import {
 } from "./storage.js";
 import type { MerchantClassification } from "../shared/schema.js";
 import { reconcileAiTransactionClassification } from "./transactionDirection.js";
+import { AI_WORKER_RUNTIME_BUDGET_MS } from "./aiLifecycle.js";
 
 /** Rows per AI batch call. Matches the chunk size in ai-classifier.ts. */
 const WORKER_CHUNK_SIZE = 25;
@@ -79,6 +80,10 @@ export type WorkerOutcome = {
 export async function runUploadAiWorker(
   userId: number,
   uploadId: number,
+  options: {
+    maxRuntimeMs?: number;
+    now?: () => number;
+  } = {},
 ): Promise<WorkerOutcome> {
   if (inFlight.has(uploadId)) {
     return {
@@ -89,6 +94,10 @@ export async function runUploadAiWorker(
     };
   }
   inFlight.add(uploadId);
+  const now = options.now ?? Date.now;
+  const startedAtMs = now();
+  const maxRuntimeMs =
+    options.maxRuntimeMs ?? AI_WORKER_RUNTIME_BUDGET_MS;
 
   try {
     // Refresh the pool from the DB rather than trusting the caller's count;
@@ -171,9 +180,16 @@ export async function runUploadAiWorker(
     let chunksAttempted = 0;
     let chunksSucceeded = 0;
     let chunkPersistError = false;
+    let workerTimedOut = false;
     let lastError: string | null = null;
 
     for (let offset = 0; offset < rows.length; offset += WORKER_CHUNK_SIZE) {
+      const runtimeRemaining = maxRuntimeMs - (now() - startedAtMs);
+      if (runtimeRemaining <= 0) {
+        workerTimedOut = true;
+        lastError = "AI enhancement exceeded its runtime budget";
+        break;
+      }
       const chunk = rows.slice(offset, offset + WORKER_CHUNK_SIZE);
       chunksAttempted++;
       console.log(
@@ -190,16 +206,20 @@ export async function runUploadAiWorker(
 
       let aiResults = new Map<number, AiClassificationResult>();
       try {
+        const chunkTimeoutMs = Math.max(
+          1,
+          Math.min(WORKER_AI_TIMEOUT_MS, runtimeRemaining),
+        );
         const timeout = new Promise<Map<number, AiClassificationResult>>(
           (_, reject) =>
             setTimeout(
               () =>
                 reject(
                   new Error(
-                    `AI chunk timed out after ${WORKER_AI_TIMEOUT_MS}ms`,
+                    `AI chunk timed out after ${chunkTimeoutMs}ms`,
                   ),
                 ),
-              WORKER_AI_TIMEOUT_MS,
+              chunkTimeoutMs,
             ),
         );
         aiResults = await Promise.race([
@@ -255,7 +275,8 @@ export async function runUploadAiWorker(
           transactionClass: directionalClassification.transactionClass,
           category: directionalClassification.category,
           recurrenceType: aiResult.recurrenceType,
-          recurrenceSource: "none",
+          recurrenceSource:
+            aiResult.recurrenceType === "recurring" ? "hint" : "none",
           labelSource: "ai",
           labelConfidence: Number(aiResult.labelConfidence).toFixed(2),
           labelReason: String(
@@ -331,7 +352,10 @@ export async function runUploadAiWorker(
     //   • At least one chunk's DB writeback failed (chunkPersistError) —
     //     the upload's AI state is now partial/unreliable. Surface this
     //     instead of returning a misleading "complete" with aiError=null.
-    if (chunksAttempted > 0 && (chunksSucceeded === 0 || chunkPersistError)) {
+    if (
+      workerTimedOut ||
+      (chunksAttempted > 0 && (chunksSucceeded === 0 || chunkPersistError))
+    ) {
       await updateUploadAiStatus(uploadId, {
         aiStatus: "failed",
         aiCompletedAt: new Date(),

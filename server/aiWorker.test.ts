@@ -271,4 +271,21 @@ describe("runUploadAiWorker", () => {
     );
     expect(failedCall).toBeDefined();
   });
+
+  it("stops inside the serverless runtime budget instead of remaining processing", async () => {
+    mockedCount.mockResolvedValue(1);
+    mockedList.mockResolvedValue([makeRow()]);
+
+    const out = await runUploadAiWorker(1, 800, { maxRuntimeMs: 0 });
+
+    expect(out.status).toBe("failed");
+    expect(mockedAi).not.toHaveBeenCalled();
+    expect(mockedUpdateStatus).toHaveBeenCalledWith(
+      800,
+      expect.objectContaining({
+        aiStatus: "failed",
+        aiError: expect.stringMatching(/runtime budget/i),
+      }),
+    );
+  });
 });

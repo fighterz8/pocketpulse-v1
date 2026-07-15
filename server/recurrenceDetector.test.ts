@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   recurrenceKey,
   buildCandidateKey,
+  collectRecurringEvidenceTransactionIds,
   detectRecurringCandidates,
   type RecurringCandidate,
 } from "./recurrenceDetector.js";
@@ -116,14 +117,24 @@ describe("detectRecurringCandidates", () => {
     expect(netflix!.confidence).toBeGreaterThan(0.35);
   });
 
-  it("does not flag monthly merchants with fewer than 3 transactions", () => {
+  it("accepts two monthly charges when the merchant is a known subscription", () => {
     const txns = [
       makeTxn({ id: 1, date: "2026-01-15", amount: "-15.99", merchant: "Netflix" }),
       makeTxn({ id: 2, date: "2026-02-15", amount: "-15.99", merchant: "Netflix" }),
     ];
 
     const candidates = detectRecurringCandidates(txns);
-    expect(candidates.length).toBe(0);
+    expect(candidates.length).toBe(1);
+    expect(candidates[0]!.frequency).toBe("monthly");
+  });
+
+  it("still requires three observations for an unknown ordinary merchant", () => {
+    const txns = [
+      makeTxn({ id: 1, date: "2026-01-15", amount: "-15.25", merchant: "Ordinary Vendor", category: "other" }),
+      makeTxn({ id: 2, date: "2026-02-15", amount: "-15.25", merchant: "Ordinary Vendor", category: "other" }),
+    ];
+
+    expect(detectRecurringCandidates(txns)).toHaveLength(0);
   });
 
   it("detects annual charges with only 2 transactions spanning >=330 days", () => {
@@ -328,7 +339,7 @@ describe("DEF-014: isSubscriptionLike=false for cash/banking merchants and categ
 
 // ─── Dataset-level monthly coverage tests ────────────────────────────────────
 
-describe("passesMonthlyDatasetCoverage: dataset-span denominator", () => {
+describe("monthly patterns are judged on their own evidence", () => {
   /**
    * Builds N background outflow transactions spread across N calendar months
    * so the dataset month span equals N.  Uses "Rent" (housing category) so
@@ -349,7 +360,7 @@ describe("passesMonthlyDatasetCoverage: dataset-span denominator", () => {
     });
   }
 
-  it("candidate in only 3 of 12 dataset months fails 65 % coverage (3/12 = 25 %)", () => {
+  it("detects a valid pattern that started recently inside a 12-month dataset", () => {
     // 12-month dataset with background noise
     const background = backgroundMonths(12);
     // Candidate appears only in Jan / Feb / Mar 2025 (3 months out of 12)
@@ -360,11 +371,11 @@ describe("passesMonthlyDatasetCoverage: dataset-span denominator", () => {
     ];
     const results = detectRecurringCandidates([...background, ...candidate]);
     const found = results.filter((c) => c.merchantKey === "somemonthlyapp");
-    // 3 months covered / 12 dataset months = 25 % < 65 % → should NOT be detected
-    expect(found.length).toBe(0);
+    // Unrelated older history must not erase a newly started recurring charge.
+    expect(found.length).toBe(1);
   });
 
-  it("candidate in 8 of 12 dataset months passes 65 % coverage (8/12 ≈ 67 %)", () => {
+  it("continues to detect a well-established monthly pattern", () => {
     const background = backgroundMonths(12);
     // Candidate appears in 8 of the 12 months (misses 4)
     const months = ["2025-01", "2025-02", "2025-03", "2025-04",
@@ -374,7 +385,6 @@ describe("passesMonthlyDatasetCoverage: dataset-span denominator", () => {
     );
     const results = detectRecurringCandidates([...background, ...candidate]);
     const found = results.filter((c) => c.merchantKey === "goodservice");
-    // 8/12 ≈ 67 % ≥ 65 % → should be detected
     expect(found.length).toBeGreaterThan(0);
   });
 
@@ -405,6 +415,37 @@ describe("passesMonthlyDatasetCoverage: dataset-span denominator", () => {
     // Dataset months: Jan, Feb, Mar → 3; candidate in all 3 → 3/3 = 100 % → PASS
     const results = detectRecurringCandidates(txns);
     expect(results.some((c) => c.merchantKey === "cloudbridge")).toBe(true);
+  });
+});
+
+describe("transaction-level recurring evidence", () => {
+  it("preserves a single rule-backed mortgage or subscription before pattern confirmation", () => {
+    const rows = [
+      {
+        ...makeTxn({ id: 1, merchant: "Mortgage Payment", category: "housing" }),
+        recurrenceType: "recurring",
+        recurrenceSource: "hint",
+      },
+      {
+        ...makeTxn({ id: 2, merchant: "Netflix", category: "entertainment" }),
+        recurrenceType: "recurring",
+        recurrenceSource: "hint",
+      },
+    ];
+
+    expect([...collectRecurringEvidenceTransactionIds(rows)]).toEqual([1, 2]);
+  });
+
+  it("does not make detector-owned rows permanent evidence", () => {
+    const rows = [
+      {
+        ...makeTxn({ id: 1 }),
+        recurrenceType: "recurring",
+        recurrenceSource: "detected",
+      },
+    ];
+
+    expect(collectRecurringEvidenceTransactionIds(rows)).toEqual(new Set());
   });
 });
 

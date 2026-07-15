@@ -7,18 +7,17 @@
  *   1. Backfill semantics: legacy rows (recurrenceSource='none', recurrenceType='recurring')
  *      should be promoted to 'hint' by the startup backfill query.
  *
- *   2. Detector promotion semantics: rows promoted to 'hint' at upload time become
- *      'detected/recurring' when detectRecurringCandidates confirms a multi-month pattern,
- *      and 'detected/one-time' when no pattern is found.
+ *   2. Detector reconciliation semantics: explicit recurring evidence remains
+ *      'hint/recurring', while unhinted multi-month patterns become 'detected/recurring'.
  *
  *   3. The classifier → detector provenance chain: a merchant classified as
- *      hint/recurring at upload time is evaluated by the detector, and only
- *      rows whose IDs appear in the detector's output become 'detected/recurring'.
+ *      hint/recurring at upload time is preserved even when the detector confirms it.
  */
 
 import { describe, expect, it } from "vitest";
 import { classifyTransaction } from "./classifier.js";
 import {
+  collectRecurringEvidenceTransactionIds,
   collectRecurringTransactionIds,
   detectRecurringCandidates,
 } from "./recurrenceDetector.js";
@@ -100,7 +99,7 @@ describe("recurrenceSource backfill semantics", () => {
 
 // ─── 2. Detector promotion semantics ─────────────────────────────────────────
 
-describe("detector promotion: hint/recurring → detected/recurring or detected/one-time", () => {
+describe("detector reconciliation semantics", () => {
   it("marks ordinary expense candidates recurring, not only transfer candidates", () => {
     const expenseTxns = monthlyTxns("Netflix.com", 15.99, "entertainment", 6);
     const candidates = detectRecurringCandidates(expenseTxns);
@@ -134,7 +133,7 @@ describe("detector promotion: hint/recurring → detected/recurring or detected/
     }
   });
 
-  it("a single one-time outflow is reset to detected/one-time by Step 1", () => {
+  it("a single unhinted one-time outflow remains eligible for a detected/one-time reset", () => {
     // Single charge from XYZZY CORP: cannot be confirmed as recurring
     const txns = [makeTx(99, "XYZZY CORP", 150.00, "2026-01-15", "other")];
     const candidates = detectRecurringCandidates(txns);
@@ -153,28 +152,32 @@ describe("detector promotion: hint/recurring → detected/recurring or detected/
 // ─── 3. Full provenance chain ─────────────────────────────────────────────────
 
 describe("full provenance chain: classifier → detector", () => {
-  it("a recurring keyword merchant goes hint→detected/recurring after detector confirms pattern", () => {
+  it("preserves recurring keyword evidence when the detector also confirms the pattern", () => {
     // Step 1: at upload time, classifier keyword fires → hint/recurring
     const atUpload = classifyTransaction("GENERIC RECURRING PAYMENT DEPT123", -9.99);
     expect(atUpload.recurrenceSource).toBe("hint");
     expect(atUpload.recurrenceType).toBe("recurring");
 
     // Step 2: 6 months of the same merchant → detector confirms pattern
-    const txns = monthlyTxns("Generic Recurring", 9.99, "software", 6);
+    const txns = monthlyTxns("Generic Recurring", 9.99, "software", 6).map(
+      (transaction) => ({
+        ...transaction,
+        recurrenceType: "recurring" as const,
+        recurrenceSource: "hint" as const,
+      }),
+    );
     const candidates = detectRecurringCandidates(txns);
     const confirmed = candidates.find((c) =>
       c.merchantKey.toLowerCase().includes("generic"),
     );
     expect(confirmed).toBeDefined();
 
-    // Step 3: confirmed IDs get detected/recurring; all other outflows get detected/one-time
-    const confirmedIds = new Set(confirmed!.transactionIds);
-    for (const t of txns) {
-      const afterSync = confirmedIds.has(t.id)
-        ? { recurrenceSource: "detected", recurrenceType: "recurring" }
-        : { recurrenceSource: "detected", recurrenceType: "one-time" };
-      expect(afterSync.recurrenceSource).toBe("detected");
-    }
+    // Step 3: explicit evidence is unioned with detector IDs, but its provenance
+    // remains "hint" so later syncs cannot erase subscriptions, rent, or bills.
+    const evidenceIds = collectRecurringEvidenceTransactionIds(txns);
+    expect([...evidenceIds].sort((a, b) => a - b)).toEqual(
+      txns.map((transaction) => transaction.id),
+    );
   });
 
   it("an inflow (income) never passes through the detector — stays hint/recurring permanently", () => {

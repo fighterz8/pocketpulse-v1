@@ -143,16 +143,20 @@ describe("Leaks page", () => {
         "72 transactions",
       );
       expect(screen.getByTestId("leak-hunter-summary")).toHaveTextContent(
-        "Active subscriptions / mo",
+        "Active subscriptions",
       );
-      expect(screen.getByTestId("leak-hunter-summary")).toHaveTextContent("$18");
+      expect(screen.getByTestId("leak-hunter-summary")).toHaveTextContent("$18/mo");
+      expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
+        "aria-label",
+        "Hunt summary",
+      );
     });
   });
 
   it("renders finding cards with evidence and ledger links", async () => {
     renderLeaks();
     expect(await screen.findByText("Spotify")).toBeInTheDocument();
-    expect(screen.getByText(/Monthly cadence detected/)).toBeInTheDocument();
+    expect(screen.getByText(/Monthly pattern detected/)).toBeInTheDocument();
     expect(screen.getAllByText("Subscription").length).toBeGreaterThan(0);
     expect(screen.getByText("2 associated transactions")).toBeInTheDocument();
     expect(screen.getByText("SPOTIFY USA")).toBeInTheDocument();
@@ -214,14 +218,14 @@ describe("Leaks page", () => {
     renderLeaks();
 
     expect(
-      await screen.findByRole("heading", { level: 2, name: "Recent spending leaks" }),
+      await screen.findByRole("heading", { level: 2, name: "Spending patterns to review" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Priority leak")).toBeInTheDocument();
     expect(screen.queryByText("Subscriptions to review")).not.toBeInTheDocument();
     expect(screen.getByTestId("leak-mode-active")).toHaveTextContent("Subscriptions");
 
     const headings = screen.getAllByRole("heading", { level: 2 });
-    expect(headings[0]).toHaveTextContent("Recent spending leaks");
+    expect(headings[0]).toHaveTextContent("Start with repeated discretionary spending");
   });
 
   it("labels stopped findings with historical cost instead of active annual cost", async () => {
@@ -237,10 +241,10 @@ describe("Leaks page", () => {
     renderLeaks();
     expect(await screen.findByText("Spotify")).toBeInTheDocument();
     expect(screen.queryByText("Old Gym")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
     expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
       "aria-label",
-      "Overview, 2 findings",
+      "Hunt summary",
     );
     expect(screen.getByTestId("leak-mode-active")).toHaveAttribute(
       "aria-label",
@@ -303,7 +307,7 @@ describe("Leaks page", () => {
     expect(screen.getByText(/not counted as leaks or savings/i)).toBeInTheDocument();
     expect(screen.getByTestId("leak-mode-full")).toHaveAttribute(
       "aria-label",
-      "Overview, 3 findings",
+      "Hunt summary",
     );
     expect(screen.getByTestId("leak-mode-active")).toHaveAttribute(
       "aria-label",
@@ -316,7 +320,7 @@ describe("Leaks page", () => {
       expect(screen.getByText("Spotify")).toBeInTheDocument();
       expect(screen.queryByText("Recurring pattern")).not.toBeInTheDocument();
       expect(
-        screen.queryByRole("heading", { level: 2, name: "Needs review" }),
+        screen.queryByRole("heading", { level: 2, name: "Patterns to confirm" }),
       ).not.toBeInTheDocument();
     });
   });
@@ -370,7 +374,15 @@ describe("Leaks page", () => {
       "",
       "/leaks?mode=stopped&accountId=10&asOf=2026-01-31",
     );
-    const fetchSpy = makeMockFetch();
+    const priceIncrease = {
+      ...MOCK_REPORT.sections.activeLeaks[0],
+      id: "increase-spotify",
+      kind: "price_creep",
+    };
+    const fetchSpy = makeMockFetch({
+      ...MOCK_REPORT,
+      sections: { ...MOCK_REPORT.sections, priceCreep: [priceIncrease] },
+    });
     vi.stubGlobal("fetch", fetchSpy);
 
     renderLeaks();
@@ -399,9 +411,8 @@ describe("Leaks page", () => {
   });
 
   it("shows empty state when the selected mode has no findings", async () => {
+    window.history.replaceState({}, "", "/leaks?mode=recent_habits");
     renderLeaks();
-    await screen.findByText("Spotify");
-    fireEvent.click(screen.getByTestId("leak-mode-recent_habits"));
     await waitFor(() => {
       expect(screen.getByTestId("leaks-empty")).toBeInTheDocument();
       expect(screen.getByTestId("leaks-empty")).toHaveTextContent(
@@ -412,6 +423,7 @@ describe("Leaks page", () => {
         "/upload",
       );
     });
+    expect(screen.getByTestId("leak-mode-recent_habits")).toHaveTextContent("0");
   });
 
   it("gives stronger upload guidance for limited coverage", async () => {

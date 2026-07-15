@@ -279,14 +279,11 @@ describe("classifier.ts unit (no DB)", () => {
     expect(r.category).toBe("fees");
   });
 
-  it("'MONTHLY SUBSCRIPTION FEE' → recurring (CATEGORY_RULE, recurrenceSource='none')", async () => {
-    // CATEGORY_RULES has {keywords:["subscription"], recurrenceType:"recurring"}.
-    // Pass 6 sets recurrenceType directly → Pass 8 guard (recurrenceType==="one-time") fails
-    // → recurrenceSource stays "none".
+  it("'MONTHLY SUBSCRIPTION FEE' → recurring with durable rule evidence", async () => {
     const { classifyTransaction } = await import("./classifier.js");
     const r = classifyTransaction("MONTHLY SUBSCRIPTION FEE", -15);
     expect(r.recurrenceType).toBe("recurring");
-    expect(r.recurrenceSource).toBe("none");
+    expect(r.recurrenceSource).toBe("hint");
   });
 
   it("hint-only 'monthly' keyword without a CATEGORY_RULE match → recurrenceSource='hint'", async () => {

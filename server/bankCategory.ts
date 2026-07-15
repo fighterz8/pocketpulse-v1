@@ -3,20 +3,22 @@ import type { V1Category } from "../shared/schema.js";
 export type BankCategoryHint = {
   category: V1Category;
   transactionClass?: "income" | "expense" | "transfer" | "refund";
+  /** Strong bank-native evidence that this charge belongs to a repeating obligation. */
+  recurrenceType?: "recurring";
   confidence: number;
 };
 
 const CATEGORY_HINTS: ReadonlyMap<string, BankCategoryHint> = new Map([
-  ["mortgages", { category: "housing", transactionClass: "expense", confidence: 0.96 }],
-  ["utilities", { category: "utilities", transactionClass: "expense", confidence: 0.85 }],
-  ["telephone services", { category: "utilities", transactionClass: "expense", confidence: 0.85 }],
+  ["mortgages", { category: "housing", transactionClass: "expense", recurrenceType: "recurring", confidence: 0.96 }],
+  ["utilities", { category: "utilities", transactionClass: "expense", recurrenceType: "recurring", confidence: 0.85 }],
+  ["telephone services", { category: "utilities", transactionClass: "expense", recurrenceType: "recurring", confidence: 0.85 }],
   ["groceries", { category: "groceries", transactionClass: "expense", confidence: 0.82 }],
   ["restaurants dining", { category: "dining", transactionClass: "expense", confidence: 0.82 }],
   ["gasoline fuel", { category: "gas", transactionClass: "expense", confidence: 0.82 }],
   ["travel", { category: "travel", transactionClass: "expense", confidence: 0.82 }],
   ["automotive expenses", { category: "auto", transactionClass: "expense", confidence: 0.82 }],
   ["healthcare medical", { category: "medical", transactionClass: "expense", confidence: 0.82 }],
-  ["insurance", { category: "insurance", transactionClass: "expense", confidence: 0.88 }],
+  ["insurance", { category: "insurance", transactionClass: "expense", recurrenceType: "recurring", confidence: 0.88 }],
   ["general merchandise", { category: "shopping", transactionClass: "expense", confidence: 0.78 }],
   ["clothing shoes", { category: "shopping", transactionClass: "expense", confidence: 0.78 }],
   ["gifts", { category: "shopping", transactionClass: "expense", confidence: 0.74 }],
