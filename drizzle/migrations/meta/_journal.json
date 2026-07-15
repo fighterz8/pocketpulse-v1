@@ -99,6 +99,13 @@
       "when": 1777603600000,
       "tag": "0013_ai_usage_accounting",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1777607200000,
+      "tag": "0014_ai_enhancement_jobs",
+      "breakpoints": true
     }
   ]
 }

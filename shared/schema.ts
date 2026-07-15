@@ -197,6 +197,106 @@ export const uploads = pgTable(
   ],
 );
 
+export const AI_ENHANCEMENT_JOB_STATUSES = [
+  "queued",
+  "processing",
+  "complete",
+  "partial",
+  "failed",
+  "cancelled",
+  "budget_blocked",
+] as const;
+export type AiEnhancementJobStatus =
+  (typeof AI_ENHANCEMENT_JOB_STATUSES)[number];
+
+export const AI_ENHANCEMENT_JOB_KINDS = [
+  "transaction_classification",
+] as const;
+export type AiEnhancementJobKind =
+  (typeof AI_ENHANCEMENT_JOB_KINDS)[number];
+
+/** Durable, explicitly user-initiated transaction-enhancement job. */
+export const aiEnhancementJobs = pgTable(
+  "ai_enhancement_jobs",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    uploadId: integer("upload_id")
+      .notNull()
+      .references(() => uploads.id, { onDelete: "cascade" }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<AiEnhancementJobKind>().notNull(),
+    status: text("status").$type<AiEnhancementJobStatus>().notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    totalMerchants: integer("total_merchants").notNull().default(0),
+    completedMerchants: integer("completed_merchants").notNull().default(0),
+    skippedMerchants: integer("skipped_merchants").notNull().default(0),
+    failedMerchants: integer("failed_merchants").notNull().default(0),
+    estimatedMaxCostMicrousd: bigint("estimated_max_cost_microusd", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    actualCostMicrousd: bigint("actual_cost_microusd", { mode: "number" })
+      .notNull()
+      .default(0),
+    internalErrorCode: text("internal_error_code"),
+    startedAt: timestamp("started_at", { mode: "date", withTimezone: true }),
+    completedAt: timestamp("completed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    cancelledAt: timestamp("cancelled_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("ai_enhancement_jobs_user_idempotency_unique").on(
+      t.userId,
+      t.idempotencyKey,
+    ),
+    uniqueIndex("ai_enhancement_jobs_one_active_user_unique")
+      .on(t.userId)
+      .where(
+        sql`${t.status} IN ('queued', 'processing', 'budget_blocked')`,
+      ),
+    index("ai_enhancement_jobs_user_id_idx").on(t.userId),
+    index("ai_enhancement_jobs_upload_id_idx").on(t.uploadId),
+    index("ai_enhancement_jobs_status_idx").on(t.status),
+    check(
+      "ai_enhancement_jobs_kind_check",
+      sql`${t.kind} = 'transaction_classification'`,
+    ),
+    check(
+      "ai_enhancement_jobs_status_check",
+      sql`${t.status} IN ('queued', 'processing', 'complete', 'partial', 'failed', 'cancelled', 'budget_blocked')`,
+    ),
+    check(
+      "ai_enhancement_jobs_idempotency_key_check",
+      sql`char_length(${t.idempotencyKey}) BETWEEN 1 AND 128`,
+    ),
+    check(
+      "ai_enhancement_jobs_counts_check",
+      sql`${t.totalMerchants} >= 0 AND ${t.completedMerchants} >= 0 AND ${t.skippedMerchants} >= 0 AND ${t.failedMerchants} >= 0 AND ${t.completedMerchants} + ${t.skippedMerchants} + ${t.failedMerchants} <= ${t.totalMerchants}`,
+    ),
+    check(
+      "ai_enhancement_jobs_cost_check",
+      sql`${t.estimatedMaxCostMicrousd} >= 0 AND ${t.actualCostMicrousd} >= 0 AND ${t.actualCostMicrousd} <= ${t.estimatedMaxCostMicrousd}`,
+    ),
+  ],
+);
+
 export const AI_OPERATIONS = [
   "transaction_classification",
   "csv_format_detection",
@@ -229,8 +329,9 @@ export const aiBudgetReservations = pgTable(
     uploadId: integer("upload_id").references(() => uploads.id, {
       onDelete: "set null",
     }),
-    /** Job table arrives in Slice 3; the nullable correlation ID is reserved now. */
-    jobId: integer("job_id"),
+    jobId: integer("job_id").references(() => aiEnhancementJobs.id, {
+      onDelete: "set null",
+    }),
     operation: text("operation").$type<AiOperation>().notNull(),
     provider: text("provider").notNull(),
     model: text("model").notNull(),
@@ -298,7 +399,9 @@ export const aiUsageEvents = pgTable(
     uploadId: integer("upload_id").references(() => uploads.id, {
       onDelete: "set null",
     }),
-    jobId: integer("job_id"),
+    jobId: integer("job_id").references(() => aiEnhancementJobs.id, {
+      onDelete: "set null",
+    }),
     operation: text("operation").$type<AiOperation>().notNull(),
     provider: text("provider").notNull(),
     model: text("model").notNull(),
@@ -480,6 +583,98 @@ export const transactions = pgTable(
     // DB stores with 2dp, matching parseFloat().toFixed(2) in JS.
     // The startup migration also purges pre-existing duplicates before
     // creating the index, so it is safe to run on any DB state.
+  ],
+);
+
+export const AI_ENHANCEMENT_ITEM_STATUSES = [
+  "pending",
+  "processing",
+  "result_ready",
+  "complete",
+  "skipped",
+  "failed",
+] as const;
+export type AiEnhancementItemStatus =
+  (typeof AI_ENHANCEMENT_ITEM_STATUSES)[number];
+
+/**
+ * One unique normalized merchant inside an enhancement job. Structured result
+ * columns make post-provider fan-out crash-safe without storing prompts or raw
+ * provider response bodies.
+ */
+export const aiEnhancementJobItems = pgTable(
+  "ai_enhancement_job_items",
+  {
+    id: serial("id").primaryKey(),
+    jobId: integer("job_id")
+      .notNull()
+      .references(() => aiEnhancementJobs.id, { onDelete: "cascade" }),
+    merchantKey: text("merchant_key").notNull(),
+    representativeTransactionId: integer("representative_transaction_id").references(
+      () => transactions.id,
+      { onDelete: "set null" },
+    ),
+    status: text("status").$type<AiEnhancementItemStatus>().notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    batchKey: text("batch_key"),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    reservationId: text("reservation_id").references(
+      () => aiBudgetReservations.id,
+      { onDelete: "restrict" },
+    ),
+    resultCategory: text("result_category"),
+    resultTransactionClass: text("result_transaction_class"),
+    resultRecurrenceType: text("result_recurrence_type"),
+    resultConfidence: numeric("result_confidence", { precision: 5, scale: 2 }),
+    resultReason: text("result_reason"),
+    internalErrorCode: text("internal_error_code"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+  },
+  (t) => [
+    uniqueIndex("ai_enhancement_job_items_job_merchant_unique").on(
+      t.jobId,
+      t.merchantKey,
+    ),
+    index("ai_enhancement_job_items_job_status_idx").on(t.jobId, t.status),
+    index("ai_enhancement_job_items_lease_expiry_idx").on(t.leaseExpiresAt),
+    index("ai_enhancement_job_items_batch_key_idx").on(t.batchKey),
+    check(
+      "ai_enhancement_job_items_status_check",
+      sql`${t.status} IN ('pending', 'processing', 'result_ready', 'complete', 'skipped', 'failed')`,
+    ),
+    check(
+      "ai_enhancement_job_items_merchant_key_check",
+      sql`char_length(${t.merchantKey}) BETWEEN 1 AND 240`,
+    ),
+    check(
+      "ai_enhancement_job_items_attempt_check",
+      sql`${t.attemptCount} BETWEEN 0 AND 1`,
+    ),
+    check(
+      "ai_enhancement_job_items_processing_lease_check",
+      sql`(${t.status} <> 'processing') OR (${t.batchKey} IS NOT NULL AND ${t.leaseToken} IS NOT NULL AND ${t.leaseExpiresAt} IS NOT NULL)`,
+    ),
+    check(
+      "ai_enhancement_job_items_result_check",
+      sql`(${t.status} NOT IN ('result_ready', 'complete')) OR (${t.resultCategory} IS NOT NULL AND ${t.resultTransactionClass} IS NOT NULL AND ${t.resultRecurrenceType} IS NOT NULL AND ${t.resultConfidence} IS NOT NULL AND ${t.resultReason} IS NOT NULL)`,
+    ),
+    check(
+      "ai_enhancement_job_items_confidence_check",
+      sql`${t.resultConfidence} IS NULL OR (${t.resultConfidence} >= 0 AND ${t.resultConfidence} <= 1)`,
+    ),
   ],
 );
 

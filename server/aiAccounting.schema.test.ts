@@ -22,6 +22,8 @@ describeDatabase("AI accounting schema", () => {
     const result = await pool.query<{ name: string | null }>(`
       SELECT to_regclass(name)::text AS name
       FROM unnest(ARRAY[
+        'ai_enhancement_jobs',
+        'ai_enhancement_job_items',
         'ai_budget_reservations',
         'ai_usage_events',
         'ai_budget_buckets',
@@ -34,6 +36,8 @@ describeDatabase("AI accounting schema", () => {
       "ai_budget_buckets",
       "ai_budget_reservations",
       "ai_concurrency_leases",
+      "ai_enhancement_job_items",
+      "ai_enhancement_jobs",
       "ai_usage_events",
     ]);
   });

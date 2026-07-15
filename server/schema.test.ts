@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   accounts,
+  aiEnhancementJobItems,
+  aiEnhancementJobs,
   recurringReviews,
   session,
   transactions,
@@ -21,6 +23,34 @@ describe("shared schema", () => {
   it("exports uploads and transactions tables", () => {
     expect(uploads).toBeDefined();
     expect(transactions).toBeDefined();
+  });
+
+  it("exports durable enhancement job and item tables", () => {
+    expect(getTableConfig(aiEnhancementJobs).name).toBe("ai_enhancement_jobs");
+    expect(getTableConfig(aiEnhancementJobItems).name).toBe(
+      "ai_enhancement_job_items",
+    );
+  });
+
+  it("enforces job idempotency, one active job, and merchant deduplication", () => {
+    const jobs = getTableConfig(aiEnhancementJobs);
+    const items = getTableConfig(aiEnhancementJobItems);
+
+    expect(
+      jobs.indexes.find(
+        (index) => index.config.name === "ai_enhancement_jobs_user_idempotency_unique",
+      )?.config.unique,
+    ).toBe(true);
+    expect(
+      jobs.indexes.find(
+        (index) => index.config.name === "ai_enhancement_jobs_one_active_user_unique",
+      )?.config.unique,
+    ).toBe(true);
+    expect(
+      items.indexes.find(
+        (index) => index.config.name === "ai_enhancement_job_items_job_merchant_unique",
+      )?.config.unique,
+    ).toBe(true);
   });
 
   it("uses expected PostgreSQL table names", () => {
