@@ -29,7 +29,10 @@ import { normalizeEmail } from "./auth.js";
 import { db } from "./db.js";
 import { recurrenceKey } from "./recurrenceDetector.js";
 import { toPublicUser, type PublicUser } from "./public-user.js";
-import { RULE_SEED_ENTRIES } from "./classifierRuleMigration.js";
+import {
+  lookupRuleSeedEntries,
+  RULE_SEED_ENTRIES,
+} from "./classifierRuleMigration.js";
 import {
   isClassCompatibleWithFlow,
   type TransactionFlow,
@@ -1532,8 +1535,11 @@ export async function getMerchantClassifications(
 }
 
 /**
- * Query the global merchant classification seed table for a list of keys.
- * Returns a Map<merchantKey, MerchantClassification> for all keys found.
+ * Query the global merchant classification table for a list of keys, then
+ * fill any missing exact matches from the bundled rule seed. The in-process
+ * fallback matters on Vercel because the serverless entrypoint intentionally
+ * skips startup jobs; brand recurrence knowledge must not depend on a cold
+ * start having populated a database table first.
  */
 export async function getGlobalMerchantClassifications(
   merchantKeys: string[],
@@ -1563,6 +1569,18 @@ export async function getGlobalMerchantClassifications(
       recurrenceType: row.recurrenceType,
       labelConfidence: parseFloat(row.labelConfidence ?? "0"),
       source: row.source as MerchantClassificationSource,
+    });
+  }
+  const fallbackEntries = lookupRuleSeedEntries(unique);
+  for (const [merchantKey, entry] of fallbackEntries) {
+    if (map.has(merchantKey)) continue;
+    map.set(merchantKey, {
+      merchantKey,
+      category: entry.category,
+      transactionClass: entry.transactionClass,
+      recurrenceType: entry.recurrenceType,
+      labelConfidence: entry.confidence,
+      source: "rule-seed",
     });
   }
   return map;

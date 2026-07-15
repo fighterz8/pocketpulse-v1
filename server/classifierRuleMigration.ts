@@ -961,3 +961,30 @@ export const RULE_SEED_ENTRIES: RuleSeedEntry[] = [
   ...ENTERTAINMENT_VENUE_ENTRIES,
   ...SHOPPING_ENTRIES,
 ];
+
+const RULE_SEED_INDEX = new Map<string, RuleSeedEntry>();
+for (const entry of RULE_SEED_ENTRIES) {
+  // Entries are ordered highest-confidence first. Preserve the first mapping
+  // when a key appears in more than one category group.
+  if (!RULE_SEED_INDEX.has(entry.merchantKeyPattern)) {
+    RULE_SEED_INDEX.set(entry.merchantKeyPattern, entry);
+  }
+}
+
+/**
+ * Resolve exact normalized merchant keys directly from the bundled rule seed.
+ * This is the serverless-safe fallback for deployments where startup seeding
+ * is intentionally disabled. Database-backed global classifications can still
+ * override these defaults; this lookup only fills keys the database did not
+ * return.
+ */
+export function lookupRuleSeedEntries(
+  merchantKeys: readonly string[],
+): Map<string, RuleSeedEntry> {
+  const matches = new Map<string, RuleSeedEntry>();
+  for (const key of new Set(merchantKeys.filter(Boolean))) {
+    const entry = RULE_SEED_INDEX.get(key);
+    if (entry) matches.set(key, entry);
+  }
+  return matches;
+}

@@ -334,12 +334,20 @@ function CoverageStrip({
       custom={1}
       data-testid="leak-hunter-coverage"
     >
-      <div>
-        <p className="leak-hunter-eyebrow">{coverageTone(coverage.coverageQuality)}</p>
-        <p className="leak-hunter-coverage-main">
-          Imported {coverage.accountCount} account
-          {coverage.accountCount === 1 ? "" : "s"} from {range}.
-        </p>
+      <div className="leak-hunter-coverage-line">
+        <div>
+          <p className="leak-hunter-eyebrow">{coverageTone(coverage.coverageQuality)}</p>
+          <p className="leak-hunter-coverage-main">
+            Imported {coverage.accountCount} account
+            {coverage.accountCount === 1 ? "" : "s"} from {range}.
+          </p>
+        </div>
+        <span className={`leak-hunter-freshness leak-hunter-freshness--${coverage.freshness}`}>
+          {freshness}
+        </span>
+      </div>
+      <details className="leak-hunter-coverage-details">
+        <summary>Coverage &amp; analysis window</summary>
         <p className="leak-hunter-coverage-sub">
           Imported coverage: {coverage.totalTransactions.toLocaleString()} transactions ·{" "}
           {coverage.coverageDays} days
@@ -364,10 +372,7 @@ function CoverageStrip({
             {freshnessWarning}
           </p>
         )}
-      </div>
-      <span className={`leak-hunter-freshness leak-hunter-freshness--${coverage.freshness}`}>
-        {freshness}
-      </span>
+      </details>
     </motion.div>
   );
 }
@@ -517,10 +522,13 @@ function HuntBriefing({
           <dd>{report.summary.priceCreepCount}</dd>
         </div>
       </dl>
-      <p className="leak-hunter-briefing-note">
-        A cost increase means the latest subscription charge is at least 20% above
-        the first observed charge and at least $2 above its average pattern.
-      </p>
+      <details className="leak-hunter-briefing-note">
+        <summary>What counts as a cost increase?</summary>
+        <p>
+          A cost increase means the latest subscription charge is at least 20% above
+          the first observed charge and at least $2 above its average pattern.
+        </p>
+      </details>
     </motion.section>
   );
 }

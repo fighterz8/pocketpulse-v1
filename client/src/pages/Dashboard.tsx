@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { apiFetch } from "../lib/api";
 
 import {
   formatMonthLabel,
@@ -183,6 +185,246 @@ function KpiCard({
       </p>
       {sub && <p className="kpi-sub">{sub}</p>}
       {href && <p className="kpi-drill">View transactions →</p>}
+    </GlassCard>
+  );
+}
+
+// ─── Recurring expenses breakdown panel ─────────────────────────────────
+
+type RecurringPanelTxn = {
+  id: number;
+  merchant: string;
+  amount: string;
+  date: string;
+};
+
+type RecurringMerchantGroup = {
+  merchant: string;
+  count: number;
+  total: number;
+  transactionIds: number[];
+};
+
+/**
+ * Fetches every recurring expense transaction for the period (paged, capped
+ * at 500 rows) so the breakdown reconciles exactly with the Recurring
+ * Expenses KPI — both are driven by the same filters the Ledger drill-down
+ * uses: transactionClass=expense, recurrenceType=recurring, excluded=false.
+ */
+async function fetchRecurringExpenseRows(dateRange?: {
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<{ rows: RecurringPanelTxn[]; truncated: boolean }> {
+  const rows: RecurringPanelTxn[] = [];
+  const MAX_PAGES = 5;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      transactionClass: "expense",
+      recurrenceType: "recurring",
+      excluded: "false",
+      limit: "100",
+      page: String(page),
+    });
+    if (dateRange?.dateFrom) params.set("dateFrom", dateRange.dateFrom);
+    if (dateRange?.dateTo) params.set("dateTo", dateRange.dateTo);
+    const res = await apiFetch(`/api/transactions?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to load recurring transactions");
+    const body = (await res.json()) as {
+      transactions: RecurringPanelTxn[];
+      pagination?: { total?: number; totalPages?: number };
+    };
+    rows.push(...body.transactions);
+    const totalPages = body.pagination?.totalPages ?? 1;
+    if (page >= totalPages) return { rows, truncated: false };
+  }
+  return { rows, truncated: true };
+}
+
+function groupRecurringByMerchant(
+  rows: RecurringPanelTxn[],
+): RecurringMerchantGroup[] {
+  const groups = new Map<string, RecurringMerchantGroup>();
+  for (const row of rows) {
+    const name = row.merchant || "Unlabeled merchant";
+    const existing = groups.get(name.toLowerCase());
+    const amount = Math.abs(parseFloat(row.amount)) || 0;
+    if (existing) {
+      existing.count += 1;
+      existing.total += amount;
+      existing.transactionIds.push(row.id);
+    } else {
+      groups.set(name.toLowerCase(), {
+        merchant: name,
+        count: 1,
+        total: amount,
+        transactionIds: [row.id],
+      });
+    }
+  }
+  return [...groups.values()].sort((a, b) => b.total - a.total);
+}
+
+function RecurringExpensesPanel({
+  dateRange,
+  periodLabelFull,
+  kpiTotal,
+  index,
+}: {
+  dateRange?: { dateFrom: string; dateTo: string };
+  periodLabelFull: string;
+  kpiTotal: number;
+  index: number;
+}) {
+  const queryClient = useQueryClient();
+  const [showAll, setShowAll] = useState(false);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["recurring-expense-panel", dateRange ?? "all"],
+    queryFn: () => fetchRecurringExpenseRows(dateRange),
+  });
+
+  const refreshDetection = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/recurring-candidates/sync", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Refresh failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries();
+    },
+  });
+
+  const groups = data ? groupRecurringByMerchant(data.rows) : [];
+  const visibleGroups = showAll ? groups : groups.slice(0, 8);
+  const panelTotal = groups.reduce((sum, group) => sum + group.total, 0);
+  const reconciles =
+    !data?.truncated && Math.abs(panelTotal - kpiTotal) < 0.01;
+
+  const refreshButton = (
+    <Hint
+      content="Re-scan your imported history for recurring payment patterns without changing transaction categories."
+      data-testid="hint-refresh-detection"
+    >
+      <button
+        type="button"
+        className="sync-btn"
+        onClick={() => refreshDetection.mutate()}
+        disabled={refreshDetection.isPending}
+        data-testid="btn-refresh-detection"
+      >
+        {refreshDetection.isPending ? "Refreshing…" : "↻ Refresh detection"}
+      </button>
+    </Hint>
+  );
+
+  return (
+    <GlassCard index={index} className="recurring-panel">
+      <div className="recurring-panel-head">
+        <div>
+          <p className="kpi-label">Recurring expenses · breakdown</p>
+          <p className="kpi-sub">
+            Every charge counted in the Recurring Expenses figure for{" "}
+            {periodLabelFull}.
+          </p>
+        </div>
+        {refreshButton}
+      </div>
+
+      {refreshDetection.isError && (
+        <p className="recurring-panel-note" data-testid="recurring-refresh-error">
+          Refresh didn’t finish — try again in a moment.
+        </p>
+      )}
+      {refreshDetection.isSuccess && (
+        <p className="recurring-panel-note" data-testid="recurring-refresh-done">
+          Recurring payment detection refreshed.
+        </p>
+      )}
+
+      {isLoading ? (
+        <p className="recurring-panel-note">Loading recurring charges…</p>
+      ) : error ? (
+        <p className="recurring-panel-note">
+          Couldn’t load the recurring breakdown.
+        </p>
+      ) : groups.length === 0 ? (
+        <div className="recurring-panel-empty" data-testid="recurring-panel-empty">
+          <p>No recurring charges detected in {periodLabelFull}.</p>
+          <p className="kpi-sub">
+            If you expect subscriptions or bills here, refresh detection to
+            re-scan your imported history.
+          </p>
+        </div>
+      ) : (
+        <>
+          <ul className="recurring-panel-list" data-testid="recurring-panel-list">
+            {visibleGroups.map((group) => (
+              <li key={group.merchant}>
+                <Link
+                  href={ledgerUrl(
+                    {
+                      ids: group.transactionIds.slice(0, 200).join(","),
+                    },
+                    dateRange,
+                  )}
+                  className="recurring-panel-row"
+                  data-testid={`recurring-panel-row-${group.merchant
+                    .toLowerCase()
+                    .replace(/\W+/g, "-")}`}
+                >
+                  <span className="recurring-panel-merchant">
+                    {group.merchant}
+                  </span>
+                  <span className="recurring-panel-count">
+                    {group.count} charge{group.count === 1 ? "" : "s"}
+                  </span>
+                  <span className="recurring-panel-amount">
+                    {currency(group.total)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {groups.length > 8 && (
+            <button
+              type="button"
+              className="recurring-panel-more"
+              onClick={() => setShowAll((v) => !v)}
+              data-testid="btn-recurring-show-all"
+            >
+              {showAll
+                ? "Show fewer"
+                : `Show all ${groups.length} merchants`}
+            </button>
+          )}
+          <div className="recurring-panel-footer">
+            <span data-testid="recurring-panel-total">
+              Total: {currency(panelTotal)}
+            </span>
+            {!reconciles && (
+              <span
+                className="recurring-panel-warn"
+                data-testid="recurring-panel-mismatch"
+              >
+                {data?.truncated
+                  ? "Showing the first 500 charges — open the ledger for the rest."
+                  : "This list and the KPI figure disagree — refresh detection."}
+              </span>
+            )}
+            <Link
+              href={ledgerUrl(
+                { transactionClass: "expense", recurrenceType: "recurring" },
+                dateRange,
+              )}
+              className="kpi-drill"
+            >
+              View in ledger →
+            </Link>
+          </div>
+        </>
+      )}
     </GlassCard>
   );
 }
@@ -777,6 +1019,16 @@ function DashboardImpl() {
           index={9}
           hint="Sum of Dining, Coffee, Delivery, and Shopping categories. Use it to gauge how much of your spending is optional this period."
           hintTestId="hint-discretionary-spend"
+        />
+      </div>
+
+      {/* ── Recurring expenses breakdown ────────────────────────────── */}
+      <div className="mb-4">
+        <RecurringExpensesPanel
+          dateRange={dateRange}
+          periodLabelFull={periodLabelFull}
+          kpiTotal={totals.recurringExpenses}
+          index={10}
         />
       </div>
 
