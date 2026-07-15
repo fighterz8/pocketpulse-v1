@@ -221,6 +221,63 @@ describe("parseCSV", () => {
     expect(rows[1]!.amount).toBe(3500.0);
   });
 
+  it("prefers Navy Federal's Credit Debit Indicator over its generic type column", async () => {
+    const csv = makeCsv([
+      "Posting Date,Transaction Date,Amount,Credit Debit Indicator,type,Type Group,Reference,Instructed Currency,Currency Exchange Rate,Instructed Amount,Description,Category",
+      "07/14/2026,07/14/2026,46.05,Debit,POS,POS,,,,,CARD PURCHASE,General Merchandise",
+      "07/14/2026,07/14/2026,200.00,Debit,Transfer,Transfer,,,,,TRANSFER TO CARD,Transfers",
+      "07/10/2026,07/10/2026,249.91,Credit,ACH Credit,ACH Credit,,,,,PAYROLL,Paychecks/Salary",
+      "06/17/2026,06/17/2026,300.00,Credit,Transfer,Transfer,,,,,TRANSFER FROM SAVINGS,Transfers",
+    ]);
+
+    const result = await parseCSV(csv, "navy-federal-checking.csv");
+
+    expect(result.ok).toBe(true);
+    const parsed = result as CSVParseResult & { ok: true };
+    expect(parsed.rows.map(({ amount, ambiguous }) => ({ amount, ambiguous }))).toEqual([
+      { amount: -46.05, ambiguous: false },
+      { amount: -200, ambiguous: false },
+      { amount: 249.91, ambiguous: false },
+      { amount: 300, ambiguous: false },
+    ]);
+    expect(parsed.rows.map((row) => row.sourceCategory)).toEqual([
+      "General Merchandise",
+      "Transfers",
+      "Paychecks/Salary",
+      "Transfers",
+    ]);
+    expect(parsed.detectedSpec.typeColumn).toBe(3);
+  });
+
+  it("repairs a stale Navy Federal spec that cached the generic type column", async () => {
+    const csv = makeCsv([
+      "Posting Date,Transaction Date,Amount,Credit Debit Indicator,type,Type Group,Reference,Instructed Currency,Currency Exchange Rate,Instructed Amount,Description,Category",
+      "07/14/2026,07/14/2026,46.05,Debit,POS,POS,,,,,CARD PURCHASE,General Merchandise",
+      "07/10/2026,07/10/2026,249.91,Credit,ACH Credit,ACH Credit,,,,,PAYROLL,Paychecks/Salary",
+    ]);
+
+    const result = await parseCSV(csv, "navy-federal-checking.csv", {
+      preambleRows: 0,
+      hasHeader: true,
+      dateColumn: 1,
+      descriptionColumn: 10,
+      amountColumn: 2,
+      debitColumn: null,
+      creditColumn: null,
+      typeColumn: 4,
+      signConvention: "unsigned",
+    });
+
+    expect(result.ok).toBe(true);
+    const parsed = result as CSVParseResult & { ok: true };
+    expect(parsed.rows.map((row) => row.amount)).toEqual([-46.05, 249.91]);
+    expect(parsed.rows.every((row) => row.ambiguous === false)).toBe(true);
+    expect(parsed.detectedSpec.typeColumn).toBe(3);
+    expect(parsed.warnings).toContain(
+      "Corrected the saved CSV format to use the explicit debit/credit indicator column.",
+    );
+  });
+
   it("detects Transaction Type column with DR/CR values", async () => {
     const csv = makeCsv([
       "Date,Description,Amount,Transaction Type",

@@ -28,6 +28,8 @@ export type ParsedRow = {
   date: string;
   description: string;
   amount: number;
+  /** Optional bank-provided category. Used only as a conservative fallback. */
+  sourceCategory?: string;
   /**
    * True when the direction of this row was determined by heuristic rather
    * than an explicit debit/credit column or type indicator. A positive-signed
@@ -46,9 +48,10 @@ export type CSVParseResult =
       /**
        * The format spec that was used (or detected) for this parse.
        * Present on successful parses so the caller can cache it for next time.
-       * Absent when parsing was done via a caller-supplied spec override.
+       * A caller-supplied spec may be repaired using stronger evidence from
+       * the actual header; this field always reflects the effective mapping.
        */
-      detectedSpec?: CsvFormatSpec;
+      detectedSpec: CsvFormatSpec;
     }
   | { ok: false; error: string };
 
@@ -59,6 +62,7 @@ type ColumnMapping = {
   debitIdx: number | null;
   creditIdx: number | null;
   typeIdx: number | null;
+  categoryIdx: number | null;
 };
 
 const DATE_PATTERNS = [
@@ -82,7 +86,29 @@ const AMOUNT_PATTERNS = ["amount", "transaction amount", "total"];
 // Include plural forms for banks like PNC (Withdrawals/Deposits)
 const DEBIT_PATTERNS  = ["debit", "debit amount", "withdrawal", "withdrawals"];
 const CREDIT_PATTERNS = ["credit", "credit amount", "deposit", "deposits"];
-const TYPE_PATTERNS   = ["type", "transaction type", "trans type", "dr/cr"];
+// A bank export may contain both an authoritative direction column and a
+// generic transaction-mechanism column. Navy Federal, for example, exports:
+//
+//   Credit Debit Indicator | type
+//   Debit                  | POS
+//   Credit                 | ACH Credit
+//
+// The first column determines money direction; the second only describes the
+// rail/mechanism. Keep these patterns separate so an exact generic `type`
+// header can never outrank an explicit debit/credit indicator.
+const DIRECTION_TYPE_PATTERNS = [
+  "credit debit indicator",
+  "debit credit indicator",
+  "credit/debit indicator",
+  "debit/credit indicator",
+  "credit debit",
+  "debit credit",
+  "credit/debit",
+  "debit/credit",
+  "dr/cr",
+];
+const GENERIC_TYPE_PATTERNS = ["type", "transaction type", "trans type"];
+const CATEGORY_PATTERNS = ["category", "transaction category"];
 
 function findColumnIndex(headers: string[], patterns: string[]): number {
   const normalized = headers.map((h) => h.toLowerCase().trim());
@@ -107,7 +133,15 @@ function detectColumns(headers: string[]): ColumnMapping | string {
   const amountIdx = findColumnIndex(headers, AMOUNT_PATTERNS);
   const debitIdx  = findColumnIndex(headers, DEBIT_PATTERNS);
   const creditIdx = findColumnIndex(headers, CREDIT_PATTERNS);
-  const typeIdx   = findColumnIndex(headers, TYPE_PATTERNS);
+  const explicitDirectionIdx = findColumnIndex(
+    headers,
+    DIRECTION_TYPE_PATTERNS,
+  );
+  const typeIdx =
+    explicitDirectionIdx !== -1
+      ? explicitDirectionIdx
+      : findColumnIndex(headers, GENERIC_TYPE_PATTERNS);
+  const categoryIdx = findColumnIndex(headers, CATEGORY_PATTERNS);
 
   if (amountIdx === -1 && debitIdx === -1 && creditIdx === -1) {
     return "Could not detect an amount column. Expected headers like: Amount, Debit/Credit, or Withdrawal/Deposit";
@@ -120,6 +154,36 @@ function detectColumns(headers: string[]): ColumnMapping | string {
     debitIdx:   debitIdx   !== -1 ? debitIdx   : null,
     creditIdx:  creditIdx  !== -1 ? creditIdx  : null,
     typeIdx:    typeIdx    !== -1 ? typeIdx    : null,
+    categoryIdx: categoryIdx !== -1 ? categoryIdx : null,
+  };
+}
+
+/**
+ * Repair a supplied/cached mapping using stronger evidence from the real CSV
+ * header. This protects repeat uploads from stale AI or heuristic specs that
+ * selected a generic `type` column even though an explicit DR/CR indicator is
+ * present, and recovers an optional bank category column without expanding the
+ * persisted format-spec schema.
+ */
+function reconcileMappingWithHeader(
+  mapping: ColumnMapping,
+  headers: string[] | undefined,
+): ColumnMapping {
+  if (!headers) return mapping;
+
+  const explicitDirectionIdx = findColumnIndex(
+    headers,
+    DIRECTION_TYPE_PATTERNS,
+  );
+  const categoryIdx = findColumnIndex(headers, CATEGORY_PATTERNS);
+
+  return {
+    ...mapping,
+    typeIdx:
+      explicitDirectionIdx >= 0
+        ? explicitDirectionIdx
+        : mapping.typeIdx,
+    categoryIdx: categoryIdx >= 0 ? categoryIdx : mapping.categoryIdx,
   };
 }
 
@@ -161,6 +225,7 @@ function tryPositionalFallback(firstRow: string[]): ColumnMapping | null {
     debitIdx: null,
     creditIdx: null,
     typeIdx: null,
+    categoryIdx: null,
   };
 }
 
@@ -223,6 +288,7 @@ function specToMapping(spec: CsvFormatSpec): ColumnMapping {
     debitIdx: spec.debitColumn ?? null,
     creditIdx: spec.creditColumn ?? null,
     typeIdx: spec.typeColumn ?? null,
+    categoryIdx: null,
   };
 }
 
@@ -276,18 +342,13 @@ export async function parseCSV(
     return { ok: false, error: `File "${filename}" is empty` };
   }
 
-  // ── Diagnostic logging (remove before public release) ─────────────────────
-  // Log a content preview so the server console shows the raw structure of any
-  // file that comes through — invaluable for diagnosing bank-specific formats.
-  const previewLines = content
-    .split(/\r?\n/)
-    .slice(0, 8)
-    .map((l, i) => `  [${i}] ${l.slice(0, 120)}`);
+  // Structural diagnostics only. Never log raw transaction rows: descriptions
+  // and amounts are private financial data and production logs are not an
+  // acceptable storage surface for them.
   console.log(
     `[csvParser] parsing "${filename}" — ` +
     `buffer=${buffer.length}B content=${content.length}ch ` +
-    `lineEnding=${content.includes("\r\n") ? "CRLF" : "LF"}\n` +
-    previewLines.join("\n"),
+    `lineEnding=${content.includes("\r\n") ? "CRLF" : "LF"}`,
   );
 
   let records: string[][];
@@ -316,8 +377,7 @@ export async function parseCSV(
       const msg =
         secondErr instanceof Error ? secondErr.message : String(secondErr);
       console.error(
-        `[csvParser] both parse attempts failed for "${filename}": ${msg}\n` +
-        `  content preview: ${content.slice(0, 400).replace(/\r/g, "\\r").replace(/\n/g, "\\n")}`,
+        `[csvParser] both parse attempts failed for "${filename}": ${msg}`,
       );
       return {
         ok: false,
@@ -371,6 +431,16 @@ export async function parseCSV(
     const headerRowIdx = specOverride.hasHeader ? specOverride.preambleRows : -1;
     if (headerRowIdx >= 0 && headerRowIdx < records.length) {
       headerColCount = records[headerRowIdx]!.length;
+      const originalTypeIdx = mapping.typeIdx;
+      mapping = reconcileMappingWithHeader(
+        mapping,
+        records[headerRowIdx],
+      );
+      if (mapping.typeIdx !== originalTypeIdx) {
+        warnings.push(
+          "Corrected the saved CSV format to use the explicit debit/credit indicator column.",
+        );
+      }
     }
 
     if (specOverride.preambleRows > 0) {
@@ -479,6 +549,7 @@ export async function parseCSV(
     let adjDebitIdx   = mapping.debitIdx;
     let adjCreditIdx  = mapping.creditIdx;
     let adjTypeIdx    = mapping.typeIdx;
+    let adjCategoryIdx = mapping.categoryIdx;
 
     if (overflow > 0) {
       // Join the base description cell + the extra cells caused by the overflow
@@ -491,6 +562,7 @@ export async function parseCSV(
       adjDebitIdx  = shift(mapping.debitIdx);
       adjCreditIdx = shift(mapping.creditIdx);
       adjTypeIdx   = shift(mapping.typeIdx);
+      adjCategoryIdx = shift(mapping.categoryIdx);
     } else {
       description = row[mapping.descriptionIdx] ?? "";
     }
@@ -546,7 +618,18 @@ export async function parseCSV(
       continue;
     }
 
-    rows.push({ date, description, amount, ambiguous });
+    const sourceCategory =
+      adjCategoryIdx !== null
+        ? (row[adjCategoryIdx] ?? "").trim()
+        : "";
+
+    rows.push({
+      date,
+      description,
+      amount,
+      ambiguous,
+      ...(sourceCategory ? { sourceCategory } : {}),
+    });
   }
 
   if (rows.length === 0) {
@@ -556,24 +639,25 @@ export async function parseCSV(
     };
   }
 
-  // Build detectedSpec for the heuristic path so the caller can cache it.
-  // Not populated when the caller supplied a specOverride (spec is already known).
-  let detectedSpec: CsvFormatSpec | undefined;
-  if (!specOverride && mapping !== null) {
-    detectedSpec = {
-      preambleRows: heuristicPreambleRows,
-      hasHeader: !usedPositionalFallback,
+  // Return the effective spec even when the caller supplied a cached/AI spec.
+  // The header may have repaired a stale type-column selection, and callers
+  // must persist that corrected mapping instead of caching the defect again.
+  const detectedSpec: CsvFormatSpec = {
+      preambleRows: specOverride?.preambleRows ?? heuristicPreambleRows,
+      hasHeader: specOverride?.hasHeader ?? !usedPositionalFallback,
       dateColumn: mapping.dateIdx,
       descriptionColumn: mapping.descriptionIdx,
       amountColumn: mapping.amountIdx,
       debitColumn: mapping.debitIdx,
       creditColumn: mapping.creditIdx,
       typeColumn: mapping.typeIdx,
-      // Default to "unsigned" — the heuristic doesn't determine sign convention.
-      // The AI detector fills in the real value if this spec is ever replaced.
-      signConvention: "unsigned",
+      // The heuristic cannot infer whether a lone amount column is pre-signed.
+      // Preserve an override's explicit convention; otherwise stay conservative.
+      signConvention: specOverride?.signConvention ?? "unsigned",
+      ...(specOverride?.dateFormat
+        ? { dateFormat: specOverride.dateFormat }
+        : {}),
     };
-  }
 
   return { ok: true, rows, warnings, detectedSpec };
 }

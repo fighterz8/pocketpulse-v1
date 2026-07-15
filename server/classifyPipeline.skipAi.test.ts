@@ -71,15 +71,22 @@ function skipAiOpts(): PipelineOptions {
   };
 }
 
-async function seedPerUser(merchantKey: string, category: string) {
+async function seedPerUser(
+  merchantKey: string,
+  category: string,
+  options: {
+    transactionClass?: "income" | "expense" | "transfer" | "refund";
+    source?: "manual" | "ai" | "rule-seed";
+  } = {},
+) {
   await db.insert(merchantClassifications).values({
     userId: testUserId,
     merchantKey,
     category,
-    transactionClass: "expense",
+    transactionClass: options.transactionClass ?? "expense",
     recurrenceType: "one-time",
     labelConfidence: "0.95",
-    source: "manual",
+    source: options.source ?? "manual",
     hitCount: 0,
     updatedAt: new Date(),
   }).onConflictDoNothing();
@@ -153,9 +160,85 @@ describe("classifyPipeline — skipAi option", () => {
     expect(out!.labelSource).not.toBe("ai");
   });
 
+  it("uses a Navy Federal category as an immediate fallback while retaining AI review", async () => {
+    const [out] = await classifyPipeline(
+      [{
+        rawDescription: "PP UNKNOWN LOCAL MERCHANT CAT1",
+        amount: -42,
+        sourceCategory: "Restaurants/Dining",
+      }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      flowType: "outflow",
+      transactionClass: "expense",
+      category: "dining",
+      needsAi: true,
+      labelSource: "rule",
+    });
+  });
+
+  it("uses an explicit bank income category instead of treating the credit as a provisional refund", async () => {
+    const [out] = await classifyPipeline(
+      [{
+        rawDescription: "PP PERIODIC DISTRIBUTION CAT2",
+        amount: 125,
+        ambiguous: false,
+        sourceCategory: "Investment Income",
+      }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      flowType: "inflow",
+      transactionClass: "income",
+      category: "income",
+      needsAi: false,
+    });
+  });
+
+  it("uses structural bank transfer categories to prevent double-counting", async () => {
+    const [out] = await classifyPipeline(
+      [{
+        rawDescription: "ATM WITHDRAWAL AT LOCAL TERMINAL",
+        amount: -40,
+        ambiguous: false,
+        sourceCategory: "ATM/Cash Withdrawals",
+      }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      flowType: "outflow",
+      transactionClass: "transfer",
+      category: "other",
+      needsAi: false,
+    });
+  });
+
+  it("keeps bank-identified refunds out of income totals", async () => {
+    const [out] = await classifyPipeline(
+      [{
+        rawDescription: "PP ACCOUNT ADJUSTMENT CAT3",
+        amount: 29.95,
+        ambiguous: false,
+        sourceCategory: "Refunds/Adjustments",
+      }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      flowType: "inflow",
+      transactionClass: "refund",
+      category: "other",
+      needsAi: true,
+    });
+  });
+
   it("queues an uncategorized refund for category enrichment without losing its class", async () => {
     const [out] = await classifyPipeline(
-      [{ rawDescription: "AMAZON REFUND", amount: 40, ambiguous: false }],
+      [{ rawDescription: "PP UNKNOWN REFUND MERCHANT XK8", amount: 40, ambiguous: false }],
       skipAiOpts(),
     );
 
@@ -168,6 +251,73 @@ describe("classifyPipeline — skipAi option", () => {
       labelSource: "rule",
     });
     expect(aiSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not call a confirmed unknown merchant credit income without earnings evidence", async () => {
+    const [out] = await classifyPipeline(
+      [{ rawDescription: "PP UNKNOWN MERCHANT INFLOW XK9", amount: 27.48, ambiguous: false }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      flowType: "inflow",
+      transactionClass: "refund",
+      category: "other",
+      needsAi: true,
+    });
+  });
+
+  it("rejects a learned AI income label when inflow is the only income evidence", async () => {
+    const desc = "PP UNKNOWN MERCHANT INFLOW CACHED XK9";
+    const key = toMerchantKey(desc);
+    await seedPerUser(key, "income", { transactionClass: "income", source: "ai" });
+
+    const [out] = await classifyPipeline(
+      [{ rawDescription: desc, amount: 27.48, ambiguous: false }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      transactionClass: "refund",
+      category: "other",
+      labelSource: "cache",
+      needsAi: true,
+    });
+  });
+
+  it("honors a manual correction that explicitly marks an inflow as income", async () => {
+    const desc = "PP USER CONFIRMED INCOME XK9";
+    const key = toMerchantKey(desc);
+    await seedPerUser(key, "income", { transactionClass: "income", source: "manual" });
+
+    const [out] = await classifyPipeline(
+      [{ rawDescription: desc, amount: 250, ambiguous: false }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      transactionClass: "income",
+      category: "income",
+      labelSource: "cache",
+      needsAi: false,
+    });
+  });
+
+  it("does not let a learned cache turn an explicit transfer into a fee expense", async () => {
+    const desc = "TRANSFER TO APPLE CASH";
+    const key = toMerchantKey(desc);
+    await seedPerUser(key, "fees", { transactionClass: "expense", source: "ai" });
+
+    const [out] = await classifyPipeline(
+      [{ rawDescription: desc, amount: -50, ambiguous: false }],
+      skipAiOpts(),
+    );
+
+    expect(out).toMatchObject({
+      transactionClass: "transfer",
+      category: "other",
+      needsAi: false,
+    });
   });
 
   it("clears needsAi for rows resolved by a confident structural rule", async () => {

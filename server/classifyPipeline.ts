@@ -15,6 +15,7 @@
  */
 
 import { classifyTransaction } from "./classifier.js";
+import { getBankCategoryHint } from "./bankCategory.js";
 import {
   aiClassifyBatch,
   type AiClassificationInput,
@@ -40,6 +41,8 @@ import {
 export type PipelineRow = {
   rawDescription: string;
   amount: number;
+  /** Optional category supplied by the bank export. */
+  sourceCategory?: string;
   /**
    * Upload-only: set to true when the CSV parser cannot determine amount
    * direction from column layout alone (positive single-column format).
@@ -114,6 +117,7 @@ type InternalRow = {
   amount: number;
   flowType: "inflow" | "outflow";
   transactionClass: string;
+  classEvidence: "explicit" | "heuristic" | "provisional";
   category: string;
   recurrenceType: string;
   recurrenceSource: string;
@@ -133,16 +137,56 @@ function applyDirectionalOverride(
   row: InternalRow,
   proposedClass: string,
   proposedCategory: string,
+  trust: "user" | "machine" = "machine",
 ): void {
+  // Explicit transfers are structural facts. A learned machine label from a
+  // prior row may not turn Apple Cash / Venmo / account transfers into fees,
+  // expenses, or income. Users can still deliberately override them.
+  if (
+    trust === "machine" &&
+    row.classEvidence === "explicit" &&
+    row.transactionClass === "transfer"
+  ) {
+    return;
+  }
+
+  let safeClass = proposedClass;
+  let safeCategory = proposedCategory;
+  if (
+    trust === "machine" &&
+    row.classEvidence === "explicit" &&
+    row.transactionClass === "income"
+  ) {
+    safeClass = "income";
+    safeCategory = "income";
+  } else if (
+    trust === "machine" &&
+    row.classEvidence === "explicit" &&
+    row.transactionClass === "refund"
+  ) {
+    safeClass = "refund";
+    safeCategory = proposedCategory === "income" ? row.category : proposedCategory;
+  }
+  if (
+    trust === "machine" &&
+    row.flowType === "inflow" &&
+    row.classEvidence === "provisional" &&
+    proposedClass === "income"
+  ) {
+    safeClass = "refund";
+    safeCategory = proposedCategory === "income" ? row.category : proposedCategory;
+  }
+
   const reconciled = reconcileTransactionDirection({
     flowType: row.flowType,
-    proposedClass,
-    proposedCategory,
+    proposedClass: safeClass,
+    proposedCategory: safeCategory,
     fallbackClass: row.transactionClass,
     fallbackCategory: row.category,
   });
   row.transactionClass = reconciled.transactionClass;
   row.category = reconciled.category;
+  if (trust === "user") row.classEvidence = "explicit";
 }
 
 // ─── Pipeline ────────────────────────────────────────────────────────────────
@@ -172,6 +216,7 @@ export async function classifyPipeline(
         amount: row.amount,
         flowType: row.amount >= 0 ? "inflow" : "outflow",
         transactionClass: "expense",
+        classEvidence: "heuristic",
         category: "other",
         recurrenceType: "one-time",
         recurrenceSource: "none",
@@ -197,12 +242,71 @@ export async function classifyPipeline(
         : flowType === "inflow" && row.amount < 0
           ? Math.abs(row.amount)
           : row.amount;
+    const bankHint = getBankCategoryHint(row.sourceCategory);
+    let proposedClass = classification.transactionClass;
+    let proposedCategory = classification.category;
+    let classEvidence: InternalRow["classEvidence"] =
+      classification.classEvidence;
+    let bankHintApplied = false;
+
+    if (bankHint) {
+      let bankClass = bankHint.transactionClass;
+
+      // A positive credit carrying an expense category is normally a reversal
+      // of that spending, not earnings. Preserve the bank's useful category
+      // while expressing the class as a refund.
+      if (flowType === "inflow" && bankClass === "expense") {
+        bankClass = "refund";
+      } else if (
+        flowType === "outflow" &&
+        (bankClass === "income" || bankClass === "refund")
+      ) {
+        bankClass = undefined;
+      }
+
+      // Explicit description semantics such as transfer/refund/payroll outrank
+      // a generic spending category. Conversely, a bank's structural transfer
+      // category may correct an expense rule (ATM withdrawal, card payment,
+      // securities movement) that would otherwise double-count spending.
+      const explicitNonExpenseClass =
+        classification.classEvidence === "explicit" &&
+        classification.transactionClass !== "expense";
+      if (bankClass && !explicitNonExpenseClass) {
+        proposedClass = bankClass;
+        classEvidence = "explicit";
+        bankHintApplied = true;
+      }
+
+      if (proposedClass === "transfer") {
+        proposedCategory = "other";
+      } else if (proposedClass === "income") {
+        proposedCategory = "income";
+      } else if (
+        bankHint.category !== "other" &&
+        (proposedCategory === "other" ||
+          proposedClass === "refund" ||
+          bankHint.confidence > classification.labelConfidence)
+      ) {
+        proposedCategory = bankHint.category;
+        bankHintApplied = true;
+      }
+    }
+
+    const unverifiedIncome =
+      !(row.ambiguous ?? false) &&
+      flowType === "inflow" &&
+      proposedClass === "income" &&
+      classEvidence === "heuristic";
     const directionalClassification = reconcileTransactionDirection({
       flowType,
-      proposedClass: classification.transactionClass,
-      proposedCategory: classification.category,
-      fallbackClass: flowType === "inflow" ? "income" : "expense",
-      fallbackCategory: flowType === "inflow" ? "income" : "other",
+      proposedClass: unverifiedIncome ? "refund" : proposedClass,
+      proposedCategory: unverifiedIncome ? "other" : proposedCategory,
+      fallbackClass: unverifiedIncome
+        ? "refund"
+        : flowType === "inflow" ? "income" : "expense",
+      fallbackCategory: unverifiedIncome
+        ? "other"
+        : flowType === "inflow" ? "income" : "other",
     });
 
     // Union of both call-site needsAi conditions:
@@ -212,10 +316,19 @@ export async function classifyPipeline(
     const categoryNeedsAi =
       directionalClassification.category === "other" &&
       directionalClassification.transactionClass !== "transfer";
-    const aiAssisted =
+    let aiAssisted =
       classification.aiAssisted ||
       (row.ambiguous ?? false) ||
       categoryNeedsAi;
+    if (directionalClassification.transactionClass === "transfer") {
+      aiAssisted = false;
+    } else if (
+      bankHintApplied &&
+      directionalClassification.transactionClass === "income" &&
+      directionalClassification.category === "income"
+    ) {
+      aiAssisted = false;
+    }
     const needsAi =
       aiAssisted ||
       classification.labelConfidence < opts.aiConfidenceThreshold ||
@@ -228,12 +341,17 @@ export async function classifyPipeline(
       amount: effectiveAmount,
       flowType,
       transactionClass: directionalClassification.transactionClass,
+      classEvidence: unverifiedIncome ? "provisional" : classEvidence,
       category: directionalClassification.category,
       recurrenceType: classification.recurrenceType,
       recurrenceSource: classification.recurrenceSource,
       labelSource: classification.labelSource,
-      labelConfidence: classification.labelConfidence,
-      labelReason: classification.labelReason,
+      labelConfidence: bankHintApplied
+        ? Math.max(classification.labelConfidence, bankHint?.confidence ?? 0)
+        : classification.labelConfidence,
+      labelReason: bankHintApplied
+        ? `bank category → ${directionalClassification.category}`
+        : classification.labelReason,
       aiAssisted,
       fromCache: false,
       needsAi,
@@ -253,6 +371,7 @@ export async function classifyPipeline(
           row,
           rule.transactionClass ?? row.transactionClass,
           rule.category ?? row.category,
+          "user",
         );
         // Mirror the established policy: only reset recurrenceSource when the
         // rule explicitly overrides recurrenceType; otherwise preserve the
@@ -293,7 +412,12 @@ export async function classifyPipeline(
         const hit = cacheHits.get(key);
         if (!hit) continue;
 
-        applyDirectionalOverride(row, hit.transactionClass, hit.category);
+        applyDirectionalOverride(
+          row,
+          hit.transactionClass,
+          hit.category,
+          hit.source === "manual" ? "user" : "machine",
+        );
         row.recurrenceType = hit.recurrenceType;
         row.recurrenceSource = "none";
         row.labelConfidence = hit.labelConfidence;
@@ -445,6 +569,7 @@ export async function classifyPipeline(
         flowType: row.flowType,
         currentClass: row.transactionClass,
         currentCategory: row.category,
+        currentClassEvidence: row.classEvidence,
         proposedClass: aiResult.transactionClass,
         proposedCategory: aiResult.category,
       });

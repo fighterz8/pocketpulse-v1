@@ -80,10 +80,30 @@ export function reconcileAiTransactionClassification(input: {
   flowType: TransactionFlow;
   currentClass: string;
   currentCategory: string;
+  currentClassEvidence?: "explicit" | "heuristic" | "provisional";
   proposedClass: string;
   proposedCategory: string;
 }): DirectionalClassification {
-  if (input.flowType === "inflow" && input.currentClass === "refund") {
+  const explicitCurrentClass = input.currentClassEvidence !== "provisional";
+
+  if (
+    explicitCurrentClass &&
+    input.currentClass === "transfer"
+  ) {
+    return {
+      transactionClass: "transfer",
+      category:
+        input.proposedCategory === "income"
+          ? input.currentCategory
+          : input.proposedCategory,
+    };
+  }
+
+  if (
+    input.flowType === "inflow" &&
+    input.currentClass === "refund" &&
+    explicitCurrentClass
+  ) {
     const category =
       input.proposedCategory === "income"
         ? input.currentCategory
@@ -91,6 +111,23 @@ export function reconcileAiTransactionClassification(input: {
     return {
       transactionClass: "refund",
       category: category === "income" ? "other" : category,
+    };
+  }
+
+  // A confirmed inflow without semantic evidence of earnings is not income.
+  // The model may identify it as a transfer or enrich a refund category, but
+  // it may not promote "money came in" into salary/revenue by itself.
+  if (
+    input.flowType === "inflow" &&
+    input.currentClassEvidence === "provisional" &&
+    input.proposedClass === "income"
+  ) {
+    return {
+      transactionClass: "refund",
+      category:
+        input.proposedCategory === "income"
+          ? input.currentCategory
+          : input.proposedCategory,
     };
   }
 

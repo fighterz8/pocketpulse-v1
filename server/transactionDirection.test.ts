@@ -67,4 +67,30 @@ describe("transaction direction invariants", () => {
       }),
     ).toEqual({ transactionClass: "refund", category: "other" });
   });
+
+  it("does not promote a provisional merchant credit to income from direction alone", () => {
+    expect(
+      reconcileAiTransactionClassification({
+        flowType: "inflow",
+        currentClass: "refund",
+        currentCategory: "other",
+        currentClassEvidence: "provisional",
+        proposedClass: "income",
+        proposedCategory: "income",
+      }),
+    ).toEqual({ transactionClass: "refund", category: "other" });
+  });
+
+  it("allows AI to identify a provisional merchant credit as a transfer", () => {
+    expect(
+      reconcileAiTransactionClassification({
+        flowType: "inflow",
+        currentClass: "refund",
+        currentCategory: "other",
+        currentClassEvidence: "provisional",
+        proposedClass: "transfer",
+        proposedCategory: "other",
+      }),
+    ).toEqual({ transactionClass: "transfer", category: "other" });
+  });
 });

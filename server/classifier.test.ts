@@ -187,6 +187,12 @@ describe("classifyTransaction", () => {
       expect(result.flowType).toBe("outflow");
     });
 
+    it("does not let the word credit overwrite an explicit account transfer", () => {
+      const result = classifyTransaction("TRANSFER TO CREDIT CARD -", 200);
+      expect(result.transactionClass).toBe("transfer");
+      expect(result.category).toBe("other");
+    });
+
     it("returns merchant name from the classifier", () => {
       const result = classifyTransaction("SQ *STARBUCKS #12345 SAN DIEGO CA", -4.50);
       expect(result.merchant).toBeTruthy();

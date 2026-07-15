@@ -1283,7 +1283,28 @@ export function createApp(options?: CreateAppOptions) {
             file.originalname,
             cachedSpec ?? undefined,
           );
-          if (parseResult.ok && cachedSpec) appliedSpec = cachedSpec;
+          if (parseResult.ok && cachedSpec) {
+            // parseCSV may repair a stale cached mapping when the real header
+            // contains stronger evidence (for example Navy Federal's explicit
+            // Credit Debit Indicator next to a generic `type` column).
+            appliedSpec = parseResult.detectedSpec;
+            if (
+              headerFingerprint &&
+              JSON.stringify(parseResult.detectedSpec) !==
+                JSON.stringify(cachedSpec)
+            ) {
+              saveFormatSpec(
+                userId,
+                headerFingerprint,
+                parseResult.detectedSpec,
+                "heuristic",
+              ).catch((e) => {
+                console.warn(
+                  `[upload] corrected cached format spec could not be saved: ${e}`,
+                );
+              });
+            }
+          }
 
           // 3b. If a cached spec produced a failure (stale/invalid), retry heuristic.
           if (!parseResult.ok && cachedSpec) {
@@ -1428,6 +1449,7 @@ export function createApp(options?: CreateAppOptions) {
               rawDescription: r.description,
               amount: r.amount,
               ambiguous: r.ambiguous,
+              sourceCategory: r.sourceCategory,
             })),
             {
               userId,

@@ -89,6 +89,12 @@ Rules:
   separate Debit and Credit columns, set amountColumn=null.
 - If the bank uses a single Amount column, set amountColumn to its index and set
   debitColumn=null, creditColumn=null.
+- typeColumn must identify a column whose VALUES directly encode money
+  direction (Debit/Credit, DR/CR). If both an explicit direction header such as
+  "Credit Debit Indicator" and a generic mechanism column such as "type" are
+  present, always select the explicit direction column. Values like POS,
+  Transfer, ACH Debit, and ACH Credit describe transaction mechanisms and a
+  generic mechanism column must not outrank an explicit direction indicator.
 - signConvention="signed" when negative numbers indicate outflows.
 - signConvention="unsigned" when all amounts appear positive.
 - preambleRows is the count of rows before the header row (0 when header is row 0).
@@ -181,6 +187,21 @@ function findHeaderRowIndex(rawRows: string[][]): number {
     }
   }
   return -1;
+}
+
+export function _findExplicitDirectionColumn(headers: string[]): number {
+  const accepted = new Set([
+    "credit debit indicator",
+    "debit credit indicator",
+    "credit/debit indicator",
+    "debit/credit indicator",
+    "credit debit",
+    "debit credit",
+    "credit/debit",
+    "debit/credit",
+    "dr/cr",
+  ]);
+  return headers.findIndex((header) => accepted.has(header.toLowerCase().trim()));
 }
 
 /**
@@ -326,6 +347,12 @@ export async function detectCsvFormat(
     return null;
   }
 
+  const headerIdx = findHeaderRowIndex(sampleRows);
+  const explicitDirectionColumn =
+    headerIdx >= 0
+      ? _findExplicitDirectionColumn(sampleRows[headerIdx]!)
+      : -1;
+
   const spec: CsvFormatSpec = {
     preambleRows: candidate.preambleRows,
     hasHeader: candidate.hasHeader,
@@ -334,7 +361,13 @@ export async function detectCsvFormat(
     amountColumn: candidate.amountColumn,
     debitColumn: candidate.debitColumn,
     creditColumn: candidate.creditColumn,
-    typeColumn: candidate.typeColumn,
+    // Deterministic header evidence outranks the model. This also prevents a
+    // generic `type` mechanism column from being cached for Navy Federal-style
+    // exports when an explicit direction indicator is present.
+    typeColumn:
+      explicitDirectionColumn >= 0
+        ? explicitDirectionColumn
+        : candidate.typeColumn,
     signConvention: candidate.signConvention,
     ...(candidate.dateFormat ? { dateFormat: candidate.dateFormat } : {}),
   };

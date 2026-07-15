@@ -25,6 +25,8 @@ export type ClassificationResult = {
   labelSource: "rule";
   labelConfidence: number;
   labelReason: string;
+  /** Whether the class came from transaction semantics or only amount sign. */
+  classEvidence: "explicit" | "heuristic";
   aiAssisted: boolean;
 };
 
@@ -134,28 +136,37 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
   let recurrenceSource: "none" | "hint" | "detected" = "none";
   let category: V1Category = amount >= 0 ? "income" : "other";
   let labelReason = "amount-sign heuristic";
+  let classEvidence: ClassificationResult["classEvidence"] = "heuristic";
   let matchedRule = false;
   let labelConfidence = 0.92;
 
   // Pass 1: transfers
   if (TRANSFER_KW.some((kw) => lower.includes(kw))) {
     const exempt = isDebit && [...P2P_DEBIT_EXEMPT].some((kw) => lower.includes(kw));
-    if (!exempt) { tc = "transfer"; category = "other"; }
+    if (!exempt) { tc = "transfer"; category = "other"; classEvidence = "explicit"; }
   }
   // Pass 2: refunds
-  if (tc !== "transfer" && REFUND_KW.some((kw) => lower.includes(kw))) tc = "refund";
+  if (tc !== "transfer" && REFUND_KW.some((kw) => lower.includes(kw))) {
+    tc = "refund";
+    classEvidence = "explicit";
+  }
   // Pass 3: income
   if (tc !== "transfer" && tc !== "refund" && amount >= 0 && INCOME_KW.some((kw) => lower.includes(kw))) {
     tc = "income"; category = "income";
+    classEvidence = "explicit";
   }
   // Pass 3b: direction-hint correction
   if (tc === "income" && amount >= 0 && directionHint === "outflow") {
     tc = "expense"; flowType = "outflow"; category = "other";
+    classEvidence = "explicit";
     labelReason = "direction-hint correction";
   }
   // Pass 4: standalone "credit" keyword
   const hasIncomeCtx = INCOME_KW.some((kw) => lower.includes(kw));
-  if (/(^|\s)credit($|\s)/.test(lower) && amount > 0 && !hasIncomeCtx && tc !== "income") tc = "refund";
+  if (/(^|\s)credit($|\s)/.test(lower) && amount > 0 && !hasIncomeCtx && tc !== "transfer") {
+    tc = "refund";
+    classEvidence = "explicit";
+  }
   // Pass 5: transfer direction
   if (tc === "transfer" && directionHint) flowType = directionHint;
 
@@ -167,8 +178,13 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
       matchedRule = true;
       labelConfidence = rule.confidence;
       labelReason = `keyword "${rule.keywords[ki]!}" → ${category}`;
-      if (rule.transactionClass) tc = rule.transactionClass;
-      else if (EXP_CATS.has(rule.category) && tc === "income") tc = "expense";
+      if (rule.transactionClass) {
+        tc = rule.transactionClass;
+        classEvidence = "explicit";
+      } else if (EXP_CATS.has(rule.category) && tc === "income") {
+        tc = "expense";
+        classEvidence = "explicit";
+      }
       if (tc === "expense") flowType = "outflow";
       else if (tc === "income") flowType = "inflow";
       if (rule.recurrenceType) recurrenceType = rule.recurrenceType;
@@ -206,5 +222,6 @@ export function classifyTransaction(rawDescription: string, amount: number): Cla
   }
 
   return { transactionClass: tc, flowType, category, recurrenceType, recurrenceSource,
-    merchant: cleanedMerchant, labelSource: "rule", labelConfidence, labelReason, aiAssisted };
+    merchant: cleanedMerchant, labelSource: "rule", labelConfidence, labelReason,
+    classEvidence, aiAssisted };
 }
