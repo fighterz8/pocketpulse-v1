@@ -58,6 +58,7 @@ describeDatabase("AI accounting schema", () => {
     );
     const uploadId = upload.rows[0]!.id;
     const reservationId = `privacy-${suffix}`;
+    const periodDate = `${2200 + Math.floor(Math.random() * 7000)}-09-01`;
 
     await pool.query(
       `INSERT INTO ai_budget_reservations (
@@ -84,9 +85,9 @@ describeDatabase("AI accounting schema", () => {
          scope, user_id, period, period_start, configured_limit_microusd,
          reserved_cost_microusd, committed_cost_microusd
        ) VALUES
-         ('app', NULL, 'day', CURRENT_DATE, 500000, 0, 112),
-         ('user', $1, 'day', CURRENT_DATE, 50000, 0, 112)`,
-      [userId],
+         ('app', NULL, 'day', $2, 500000, 0, 112),
+         ('user', $1, 'day', $2, 50000, 0, 112)`,
+      [userId, periodDate],
     );
 
     await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
@@ -110,8 +111,9 @@ describeDatabase("AI accounting schema", () => {
 
     const buckets = await pool.query<{ scope: string }>(
       `SELECT scope FROM ai_budget_buckets
-       WHERE period_start = CURRENT_DATE AND committed_cost_microusd = 112
+       WHERE period_start = $1 AND committed_cost_microusd = 112
        ORDER BY scope`,
+      [periodDate],
     );
     expect(buckets.rows).toEqual([{ scope: "app" }]);
   });
