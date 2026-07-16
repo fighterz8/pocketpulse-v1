@@ -1666,6 +1666,62 @@ html.dark .upload-new-account-cancel:hover:not(:disabled) {
   font-size: 1rem;
 }
 
+.upload-format-assistance {
+  margin-top: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid color-mix(in srgb, #2563eb 28%, transparent);
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, #2563eb 6%, transparent);
+}
+
+.upload-format-assistance--notice {
+  border-color: color-mix(in srgb, currentColor 16%, transparent);
+  background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.upload-format-assistance-title,
+.upload-format-assistance-copy,
+.upload-format-assistance-alternative {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.upload-format-assistance-title {
+  font-weight: 650;
+}
+
+.upload-format-assistance-copy,
+.upload-format-assistance-alternative {
+  margin-top: 0.35rem;
+  font-size: 0.84rem;
+}
+
+.upload-format-assistance-alternative {
+  opacity: 0.72;
+}
+
+.upload-format-assistance-button {
+  min-height: 44px;
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, #2563eb 45%, transparent);
+  border-radius: 0.5rem;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.upload-format-assistance-button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.upload-format-assistance-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .upload-queue-item-result {
   margin: 0.4rem 0 0;
   font-size: 0.85rem;

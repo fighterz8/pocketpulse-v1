@@ -183,15 +183,24 @@ export function UploadCore({
     pendingQueue.every((q) => q.accountId !== null) &&
     !upload.isPending;
 
-  async function handleImport() {
-    if (!canImport) return;
+  async function submitItems(
+    items: QueuedFile[],
+    allowFormatAssistance = false,
+  ) {
+    if (
+      items.length === 0 ||
+      items.some((item) => item.accountId === null) ||
+      upload.isPending
+    ) {
+      return;
+    }
     setValidationErrors({});
 
     // Server keys metadata + result rows by `file.originalname`. Two
     // queued files with the same name would silently mis-attribute on
     // both halves of the round-trip — refuse up front.
     const seen = new Map<string, string[]>();
-    for (const q of pendingQueue) {
+    for (const q of items) {
       const list = seen.get(q.file.name) ?? [];
       list.push(q.key);
       seen.set(q.file.name, list);
@@ -208,10 +217,12 @@ export function UploadCore({
       return;
     }
 
-    const uploadingKeys = new Set(pendingQueue.map((q) => q.key));
+    const uploadingKeys = new Set(items.map((q) => q.key));
     setQueue((prev) =>
       prev.map((q) =>
-        uploadingKeys.has(q.key) ? { ...q, status: "uploading" } : q,
+        uploadingKeys.has(q.key)
+          ? { ...q, status: "uploading", result: undefined }
+          : q,
       ),
     );
 
@@ -226,14 +237,15 @@ export function UploadCore({
     }, PARSING_AFTER_MS);
 
     const metadata: Record<string, { accountId: number }> = {};
-    for (const q of pendingQueue) {
+    for (const q of items) {
       metadata[q.file.name] = { accountId: q.accountId! };
     }
 
     try {
       const response = await upload.mutateAsync({
-        files: pendingQueue.map((q) => q.file),
+        files: items.map((q) => q.file),
         metadata,
+        allowFormatAssistance,
       });
       clearTimeout(parsingTimer);
       const resultsByName = new Map<string, UploadFileResult>();
@@ -285,6 +297,23 @@ export function UploadCore({
         ),
       );
     }
+  }
+
+  async function handleImport() {
+    if (!canImport) return;
+    await submitItems(pendingQueue);
+  }
+
+  async function retryFormatAssistance(key: string) {
+    const item = queue.find((candidate) => candidate.key === key);
+    if (
+      !item ||
+      item.status !== "failed" ||
+      item.result?.formatAssistance?.state !== "available"
+    ) {
+      return;
+    }
+    await submitItems([item], true);
   }
 
   // Drag-depth counter prevents flicker when the cursor moves between
@@ -449,6 +478,7 @@ export function UploadCore({
                 onRemove={removeFile}
                 onSetAccount={setAccountForFile}
                 onTogglePreview={togglePreview}
+                onRetryFormatAssistance={retryFormatAssistance}
                 disabled={upload.isPending}
               />
             ))}
@@ -597,6 +627,7 @@ function QueueRow({
   onRemove,
   onSetAccount,
   onTogglePreview,
+  onRetryFormatAssistance,
   disabled,
 }: {
   item: QueuedFile;
@@ -604,6 +635,7 @@ function QueueRow({
   onRemove: (key: string) => void;
   onSetAccount: (key: string, accountId: number | null) => void;
   onTogglePreview: (key: string) => void;
+  onRetryFormatAssistance: (key: string) => void | Promise<void>;
   disabled: boolean;
 }) {
   const isFinished = item.status === "complete" || item.status === "failed";
@@ -632,13 +664,20 @@ function QueueRow({
       </div>
 
       {item.status === "failed" && item.result?.error && (
-        <p
-          className="upload-queue-item-error"
-          role="alert"
-          data-testid={`text-row-error-${item.key}`}
-        >
-          {item.result.error}
-        </p>
+        <>
+          <p
+            className="upload-queue-item-error"
+            role="alert"
+            data-testid={`text-row-error-${item.key}`}
+          >
+            {item.result.error}
+          </p>
+          <FormatAssistanceRecovery
+            item={item}
+            disabled={disabled}
+            onRetry={() => onRetryFormatAssistance(item.key)}
+          />
+        </>
       )}
 
       {item.status === "pending" && (
@@ -718,6 +757,81 @@ function QueueRow({
         </>
       )}
     </li>
+  );
+}
+
+function FormatAssistanceRecovery({
+  item,
+  disabled,
+  onRetry,
+}: {
+  item: QueuedFile;
+  disabled: boolean;
+  onRetry: () => void | Promise<void>;
+}) {
+  const assistance = item.result?.formatAssistance;
+  if (!assistance) return null;
+
+  if (assistance.state === "available") {
+    return (
+      <div
+        className="upload-format-assistance"
+        data-testid={`format-assistance-${item.key}`}
+      >
+        <p className="upload-format-assistance-title">
+          Need help reading this CSV?
+        </p>
+        <p className="upload-format-assistance-copy">
+          PocketPulse can inspect a masked structural sample to identify the
+          date, description, and amount columns. Merchant text and exact
+          amounts are not included.
+        </p>
+        <p className="upload-format-assistance-alternative">
+          This is optional. You can instead export a standard CSV with Date,
+          Description, and Amount columns.
+        </p>
+        <button
+          type="button"
+          className="upload-format-assistance-button"
+          disabled={disabled}
+          onClick={() => void onRetry()}
+          data-testid={`button-format-assistance-${item.key}`}
+        >
+          Try format assistance
+        </button>
+      </div>
+    );
+  }
+
+  const retryTime = assistance.retryAfter
+    ? new Date(assistance.retryAfter).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+  const message =
+    assistance.state === "cooldown" || assistance.state === "not_resolved"
+      ? `This layout could not be identified yet${retryTime ? `. Try again after ${retryTime}` : ""}.`
+      : assistance.state === "busy"
+        ? "This layout is already being checked. Try again shortly."
+        : assistance.state === "budget_blocked"
+          ? "Format assistance has reached its current usage limit. Try again later."
+          : assistance.state === "disabled"
+            ? "Format assistance is not turned on."
+            : "Format assistance could not run right now. Try again later.";
+
+  return (
+    <div
+      className="upload-format-assistance upload-format-assistance--notice"
+      role="status"
+      data-testid={`format-assistance-${item.key}`}
+    >
+      <p className="upload-format-assistance-copy">{message}</p>
+      <p className="upload-format-assistance-alternative">
+        You can export a standard CSV with Date, Description, and Amount
+        columns and upload it again.
+      </p>
+    </div>
   );
 }
 

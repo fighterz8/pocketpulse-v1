@@ -39,11 +39,23 @@ export type UploadFileResult = {
   unresolvedTransactionCount?: number;
   /** Unique normalized merchants represented by unresolved rows. */
   unresolvedMerchantCount?: number;
+  formatAssistance?: {
+    state:
+      | "available"
+      | "disabled"
+      | "cooldown"
+      | "busy"
+      | "budget_blocked"
+      | "not_resolved"
+      | "unavailable";
+    retryAfter?: string;
+  };
 };
 
 export type UploadInput = {
   files: File[];
   metadata: Record<string, { accountId: number }>;
+  allowFormatAssistance?: boolean;
 };
 
 async function readJsonError(res: Response): Promise<string> {
@@ -79,6 +91,9 @@ export function useUploads() {
         formData.append("files", file);
       }
       formData.append("metadata", JSON.stringify(input.metadata));
+      if (input.allowFormatAssistance === true) {
+        formData.append("allowFormatAssistance", "true");
+      }
 
       const res = await apiFetch("/api/upload", {
         method: "POST",

@@ -27,6 +27,7 @@ let mockUploadResponse: {
   status: 200,
   body: { results: [] },
 };
+let postedUploadBodies: FormData[] = [];
 
 function makeAccount(over: Partial<AccountRow> = {}): AccountRow {
   return {
@@ -71,6 +72,7 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
     );
   }
   if (url === "/api/upload" && init?.method === "POST") {
+    if (init.body instanceof FormData) postedUploadBodies.push(init.body);
     return Promise.resolve(
       new Response(JSON.stringify(mockUploadResponse.body), {
         status: mockUploadResponse.status,
@@ -89,6 +91,7 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
 beforeEach(() => {
   mockAccounts = [makeAccount()];
   mockUploadResponse = { status: 200, body: { results: [] } };
+  postedUploadBodies = [];
   vi.stubGlobal("fetch", vi.fn(mockFetch));
 });
 
@@ -612,5 +615,64 @@ describe("Per-file status pills", () => {
     ).toHaveTextContent(/Could not detect a date column/);
     // Failed rows get the upload-queue-item--failed modifier (red left border).
     expect(failedRow.className).toContain("upload-queue-item--failed");
+  });
+
+  it("retains a rejected file and retries format assistance only after an explicit click", async () => {
+    mockAccounts = [makeAccount({ id: 1 })];
+    mockUploadResponse = {
+      status: 200,
+      body: {
+        results: [
+          {
+            filename: "unfamiliar.csv",
+            uploadId: 81,
+            status: "failed",
+            rowCount: 0,
+            error: "Could not detect a date column",
+            formatAssistance: { state: "available" },
+          },
+        ],
+      },
+    };
+    renderUpload();
+    fireEvent.drop(await screen.findByTestId("upload-dropzone"), {
+      dataTransfer: {
+        files: [csvFile("unfamiliar.csv", "when,details,value\n2026-01-01,Cafe,-5")],
+      },
+    });
+    fireEvent.click(await screen.findByTestId("button-import"));
+
+    const retry = await screen.findByRole("button", {
+      name: /try format assistance/i,
+    });
+    expect(screen.getByText(/masked structural sample/i)).toBeInTheDocument();
+    expect(screen.getByText(/export a standard csv/i)).toBeInTheDocument();
+    expect(postedUploadBodies).toHaveLength(1);
+    expect(postedUploadBodies[0]!.get("allowFormatAssistance")).toBeNull();
+
+    mockUploadResponse = {
+      status: 200,
+      body: {
+        results: [
+          {
+            filename: "unfamiliar.csv",
+            uploadId: 82,
+            status: "complete",
+            rowCount: 1,
+            unresolvedMerchantCount: 0,
+          },
+        ],
+      },
+    };
+    fireEvent.click(retry);
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 new/i)).toBeInTheDocument();
+    });
+    expect(postedUploadBodies).toHaveLength(2);
+    expect(postedUploadBodies[1]!.get("allowFormatAssistance")).toBe("true");
+    expect((postedUploadBodies[1]!.get("files") as File).name).toBe(
+      "unfamiliar.csv",
+    );
   });
 });
