@@ -81,8 +81,25 @@ vi.mock("./csvParser.js", () => ({
   })),
 }));
 
-vi.mock("./csvFormatDetector.js", () => ({
-  detectCsvFormat: vi.fn(async () => null),
+vi.mock("./csvFormatAssistance.js", () => ({
+  processCsvFormatAssistance: vi.fn(async (input: {
+    acceptSpec: (spec: unknown) => boolean | Promise<boolean>;
+  }) => {
+    const spec = {
+      preambleRows: 0,
+      hasHeader: true,
+      dateColumn: 0,
+      descriptionColumn: 1,
+      amountColumn: 2,
+      debitColumn: null,
+      creditColumn: null,
+      typeColumn: null,
+      signConvention: "signed" as const,
+    };
+    return (await input.acceptSpec(spec))
+      ? { state: "resolved" as const, spec }
+      : { state: "not_resolved" as const, retryAfter: null };
+  }),
 }));
 
 vi.mock("./classifyPipeline.js", () => ({
@@ -146,7 +163,8 @@ vi.mock("./csrf.js", () => ({
 }));
 
 import { runUploadAiWorker } from "./aiWorker.js";
-import { detectCsvFormat } from "./csvFormatDetector.js";
+import { processCsvFormatAssistance } from "./csvFormatAssistance.js";
+import { parseCSV } from "./csvParser.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import { createApp } from "./routes.js";
 import {
@@ -233,7 +251,7 @@ describe("enhancement hardening Slice 0 routes", () => {
       unresolvedTransactionCount: 3,
       unresolvedMerchantCount: 2,
     });
-    expect(detectCsvFormat).not.toHaveBeenCalled();
+    expect(processCsvFormatAssistance).not.toHaveBeenCalled();
     expect(runUploadAiWorker).not.toHaveBeenCalled();
     expect(listNeedsAiTransactionsForUpload).not.toHaveBeenCalled();
     expect(updateUploadAiStatus).toHaveBeenCalledWith(
@@ -292,12 +310,16 @@ describe("enhancement hardening Slice 0 routes", () => {
       );
 
     expect(response.status).toBe(201);
-    expect(detectCsvFormat).not.toHaveBeenCalled();
+    expect(processCsvFormatAssistance).not.toHaveBeenCalled();
     expect(runUploadAiWorker).not.toHaveBeenCalled();
   });
 
   it("requires both the separate flag and explicit per-request CSV assistance consent", async () => {
     process.env.POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED = "true";
+    vi.mocked(parseCSV).mockResolvedValueOnce({
+      ok: false,
+      error: "Could not detect a date column",
+    });
     const agent = await authenticatedAgent();
 
     const response = await agent
@@ -311,8 +333,78 @@ describe("enhancement hardening Slice 0 routes", () => {
       );
 
     expect(response.status).toBe(201);
-    expect(detectCsvFormat).toHaveBeenCalledTimes(1);
+    expect(response.body.results[0]).toMatchObject({ status: "complete" });
+    expect(processCsvFormatAssistance).toHaveBeenCalledTimes(1);
     expect(runUploadAiWorker).not.toHaveBeenCalled();
+  });
+
+  it("offers explicit assistance after local parsing fails without starting it", async () => {
+    process.env.POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED = "true";
+    vi.mocked(parseCSV).mockResolvedValueOnce({
+      ok: false,
+      error: "Could not detect a date column",
+    });
+    const agent = await authenticatedAgent();
+
+    const response = await agent
+      .post("/api/upload")
+      .field("metadata", JSON.stringify({ "mystery.csv": { accountId: 7 } }))
+      .attach(
+        "files",
+        Buffer.from("foo,bar\n1,2"),
+        "mystery.csv",
+      );
+
+    expect(response.status).toBe(201);
+    expect(response.body.results[0]).toMatchObject({
+      status: "failed",
+      formatAssistance: { state: "available" },
+    });
+    expect(processCsvFormatAssistance).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when explicit assistance is requested while its flag is off", async () => {
+    vi.mocked(parseCSV).mockResolvedValueOnce({
+      ok: false,
+      error: "Could not detect a date column",
+    });
+    const agent = await authenticatedAgent();
+
+    const response = await agent
+      .post("/api/upload")
+      .field("allowFormatAssistance", "true")
+      .field("metadata", JSON.stringify({ "mystery.csv": { accountId: 7 } }))
+      .attach("files", Buffer.from("foo,bar\n1,2"), "mystery.csv");
+
+    expect(response.status).toBe(201);
+    expect(response.body.results[0]).toMatchObject({
+      status: "failed",
+      formatAssistance: { state: "disabled" },
+    });
+    expect(processCsvFormatAssistance).not.toHaveBeenCalled();
+  });
+
+  it("rejects ambiguous assistance consent and multi-file assisted retries", async () => {
+    process.env.POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED = "true";
+    const agent = await authenticatedAgent();
+
+    const ambiguous = await agent
+      .post("/api/upload")
+      .field("allowFormatAssistance", "yes")
+      .field("metadata", "{}")
+      .attach("files", Buffer.from("foo,bar\n1,2"), "mystery.csv");
+    expect(ambiguous.status).toBe(400);
+    expect(ambiguous.body).toMatchObject({ code: "INVALID_REQUEST" });
+
+    const multiFile = await agent
+      .post("/api/upload")
+      .field("allowFormatAssistance", "true")
+      .field("metadata", "{}")
+      .attach("files", Buffer.from("foo,bar\n1,2"), "one.csv")
+      .attach("files", Buffer.from("foo,bar\n3,4"), "two.csv");
+    expect(multiFile.status).toBe(400);
+    expect(multiFile.body).toMatchObject({ code: "INVALID_REQUEST" });
+    expect(processCsvFormatAssistance).not.toHaveBeenCalled();
   });
 
   it("fails closed before provider work when a paid flag is invalid", async () => {
@@ -325,7 +417,7 @@ describe("enhancement hardening Slice 0 routes", () => {
       .attach("files", Buffer.from("invalid"), "mystery.csv");
 
     expect(response.status).toBe(500);
-    expect(detectCsvFormat).not.toHaveBeenCalled();
+    expect(processCsvFormatAssistance).not.toHaveBeenCalled();
     expect(runUploadAiWorker).not.toHaveBeenCalled();
   });
 

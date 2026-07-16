@@ -16,7 +16,7 @@ import {
 import { hashPassword, verifyPassword } from "./auth.js";
 import { classifyPipeline } from "./classifyPipeline.js";
 import { parseCSV } from "./csvParser.js";
-import { detectCsvFormat } from "./csvFormatDetector.js";
+import { processCsvFormatAssistance } from "./csvFormatAssistance.js";
 import { ensureUserPreferences, pool } from "./db.js";
 import {
   AUTO_ESSENTIAL_CATEGORIES,
@@ -1481,12 +1481,30 @@ export function createApp(options?: CreateAppOptions) {
       try {
         const userId = req.session.userId!;
         const enhancementFlags = getEnhancementFeatureFlags();
-        const allowFormatAssistance =
-          req.body.allowFormatAssistance === "true";
+        const rawFormatAssistanceConsent = req.body.allowFormatAssistance;
+        if (
+          rawFormatAssistanceConsent !== undefined &&
+          rawFormatAssistanceConsent !== "true" &&
+          rawFormatAssistanceConsent !== "false"
+        ) {
+          res.status(400).json({
+            error: 'allowFormatAssistance must be exactly "true" or "false"',
+            code: "INVALID_REQUEST",
+          });
+          return;
+        }
+        const allowFormatAssistance = rawFormatAssistanceConsent === "true";
         const files = req.files as Express.Multer.File[] | undefined;
 
         if (!files || files.length === 0) {
           res.status(400).json({ error: "No CSV files provided" });
+          return;
+        }
+        if (allowFormatAssistance && files.length !== 1) {
+          res.status(400).json({
+            error: "CSV format assistance accepts exactly one file per request",
+            code: "INVALID_REQUEST",
+          });
           return;
         }
 
@@ -1520,6 +1538,17 @@ export function createApp(options?: CreateAppOptions) {
           warnings?: string[];
           unresolvedTransactionCount?: number;
           unresolvedMerchantCount?: number;
+          formatAssistance?: {
+            state:
+              | "available"
+              | "disabled"
+              | "cooldown"
+              | "busy"
+              | "budget_blocked"
+              | "not_resolved"
+              | "unavailable";
+            retryAfter?: string;
+          };
         }> = [];
 
         // Shared across all files in this request so that cross-file duplicates
@@ -1699,94 +1728,58 @@ export function createApp(options?: CreateAppOptions) {
             if (parseResult.ok) appliedSpec = parseResult.detectedSpec ?? null;
           }
 
-          // 3c. Low-confidence heuristic: trigger AI detection when the parse succeeded
-          //     but used the positional (headerless) fallback or skipped many rows.
-          //     "headerless positional" = hasHeader=false in detectedSpec.
-          //     "high skip rate" = more than 15% of rows produced date/amount warnings.
-          const isLowConfidenceParse =
-            parseResult.ok &&
-            !cachedSpec &&
-            (parseResult.detectedSpec?.hasHeader === false ||
-              parseResult.warnings.filter((w) => w.includes("skipped")).length >
-                Math.max(3, parseResult.rows.length * 0.15));
-
-          // 3d. If parse fully failed OR low-confidence, try AI format detection.
-          const needsAi = !parseResult.ok || isLowConfidenceParse;
-          if (
-            needsAi &&
-            enhancementFlags.csvFormatAssistance &&
-            allowFormatAssistance
-          ) {
-            const priorError = parseResult.ok ? null : parseResult.error;
-            try {
-              const sampleRecords = getSampleRows();
-              const apiKey = process.env.OPENAI_API_KEY?.trim();
-              const transport =
-                options?.csvFormatTransport ??
-                (apiKey ? createOpenAiChatTransport(apiKey) : null);
-              if (sampleRecords.length > 0 && transport) {
-                const aiSpec = (
-                  await detectCsvFormat(sampleRecords, {
-                    transport,
-                    isEnabled: true,
-                  })
-                )?.data;
-                if (aiSpec) {
-                  const aiParseResult = await parseCSV(
-                    file.buffer,
-                    file.originalname,
-                    aiSpec,
-                  );
-                  // Accept AI result only if it's better (ok, or same-ok with fewer skips)
-                  const aiIsBetter =
-                    aiParseResult.ok &&
-                    (!parseResult.ok ||
-                      aiParseResult.warnings.filter((w) =>
-                        w.includes("skipped"),
-                      ).length <
-                        parseResult.warnings.filter((w) =>
-                          w.includes("skipped"),
-                        ).length);
-
-                  if (aiIsBetter) {
-                    if (headerFingerprint) {
-                      saveFormatSpec(
-                        userId,
-                        headerFingerprint,
-                        aiSpec,
-                        "ai",
-                      ).catch((e) => {
-                        console.warn(
-                          `[upload] saveFormatSpec (ai) failed: ${e}`,
-                        );
-                      });
-                    }
-                    parseResult = aiParseResult;
-                    appliedSpec = aiSpec;
-                    console.log(
-                      `[upload] AI format detection improved parse for "${file.originalname}" ` +
-                        `(user=${userId}, fp=${headerFingerprint?.slice(0, 8)})`,
-                    );
-                  }
+          // 3c. A successful local parse always wins. Format assistance exists
+          // only as an explicit retry after local parsing fails; a flag alone
+          // never authorizes provider work.
+          let formatAssistance: (typeof results)[number]["formatAssistance"];
+          let assisted = false;
+          if (!parseResult.ok && allowFormatAssistance) {
+            const apiKey = process.env.OPENAI_API_KEY?.trim();
+            const transport =
+              options?.csvFormatTransport ??
+              (apiKey ? createOpenAiChatTransport(apiKey) : null);
+            if (!enhancementFlags.csvFormatAssistance) {
+              formatAssistance = { state: "disabled" };
+            } else if (!headerFingerprint || getSampleRows().length === 0 || !transport) {
+              formatAssistance = { state: "unavailable" };
+            } else {
+              const assistance = await processCsvFormatAssistance({
+                userId,
+                accountId: fileMeta.accountId,
+                uploadId: uploadRecord.id,
+                headerFingerprint,
+                sampleRows: getSampleRows(),
+                transport,
+                providerEnabled: true,
+                acceptSpec: async (spec) =>
+                  (await parseCSV(file.buffer, file.originalname, spec)).ok,
+              });
+              if (assistance.state === "resolved") {
+                const resolvedParse = await parseCSV(
+                  file.buffer,
+                  file.originalname,
+                  assistance.spec,
+                );
+                if (resolvedParse.ok) {
+                  parseResult = resolvedParse;
+                  appliedSpec = assistance.spec;
+                  assisted = true;
+                } else {
+                  formatAssistance = { state: "not_resolved" };
                 }
+              } else {
+                formatAssistance = {
+                  state: assistance.state,
+                  ...("retryAfter" in assistance && assistance.retryAfter
+                    ? { retryAfter: assistance.retryAfter.toISOString() }
+                    : {}),
+                };
               }
-            } catch (aiErr) {
-              console.warn(
-                `[upload] AI format detection threw for "${file.originalname}": ${aiErr}`,
-              );
             }
+          }
 
-            // If parse was already ok (low-confidence trigger), it remains ok.
-            // If it was failing and AI didn't fix it, restore original error.
-            if (!parseResult.ok && priorError !== null) {
-              parseResult = { ok: false, error: priorError };
-            }
-          } else if (
-            !cachedSpec &&
-            parseResult.ok &&
-            parseResult.detectedSpec
-          ) {
-            // 4. Heuristic succeeded with sufficient confidence — save spec for next time.
+          if (!cachedSpec && !assisted && parseResult.ok && parseResult.detectedSpec) {
+            // 4. Heuristic succeeded — save the local spec for next time.
             if (headerFingerprint) {
               saveFormatSpec(
                 userId,
@@ -1810,11 +1803,18 @@ export function createApp(options?: CreateAppOptions) {
           }
 
           if (!parseResult.ok) {
-            // DEV: log parse failures to the server console with the full error
-            // so the workflow logs give an actionable diagnosis. Remove before GA.
             console.error(
-              `[upload] parse FAILED for user=${userId} file="${file.originalname}": ${parseResult.error}`,
+              `[upload] parse failed for user=${userId} upload=${uploadRecord.id}: ${parseResult.error}`,
             );
+            if (
+              !allowFormatAssistance &&
+              enhancementFlags.csvFormatAssistance &&
+              headerFingerprint &&
+              getSampleRows().length > 0 &&
+              (options?.csvFormatTransport || process.env.OPENAI_API_KEY?.trim())
+            ) {
+              formatAssistance = { state: "available" };
+            }
             await updateUploadStatus(
               uploadRecord.id,
               "failed",
@@ -1827,6 +1827,7 @@ export function createApp(options?: CreateAppOptions) {
               status: "failed",
               rowCount: 0,
               error: parseResult.error,
+              ...(formatAssistance ? { formatAssistance } : {}),
             });
             continue;
           }
