@@ -1,53 +1,38 @@
 /**
- * AI-powered CSV format detector for PocketPulse.
+ * Privacy-bounded CSV format request builder.
  *
- * When the heuristic parser in csvParser.ts cannot identify the column layout
- * of a bank's CSV export, this module sends the header row + a handful of
- * ANONYMIZED sample data rows to the configured OpenAI model and asks it to identify the
- * column roles.
- *
- * Privacy: only column headers and type-classified sample values are sent.
- * Description/merchant cells are replaced with "[text]"; amount signs are
- * preserved but values are rounded; dates are sent verbatim (needed to detect
- * the date format). No bulk transaction data leaves the server.
- *
- * The returned spec is cached in `csv_format_specs` so repeat uploads from
- * the same bank format never incur a second AI call.
- *
- * Returns null on any failure so callers can fall back gracefully.
+ * This module does not create an OpenAI client, reserve budget, or decide when
+ * assistance is allowed. It only masks a small structural sample, validates a
+ * structured response, and executes through the shared bounded provider
+ * adapter supplied by the caller.
  */
-import OpenAI from "openai";
 import type { CsvFormatSpec } from "../shared/schema.js";
-
-let _client: OpenAI | null = null;
-
-function getClient(): OpenAI | null {
-  if (!process.env.OPENAI_API_KEY) return null;
-  if (!_client) {
-    _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return _client;
-}
+import {
+  executeOpenAiStructuredRequest,
+  type OpenAiChatTransport,
+  type OpenAiStructuredRequest,
+  type OpenAiStructuredResult,
+} from "./openaiProvider.js";
 
 const CSV_FORMAT_RESPONSE_FORMAT = {
-  type: "json_schema",
+  type: "json_schema" as const,
   json_schema: {
     name: "pocketpulse_csv_format_spec",
-    strict: true,
+    strict: true as const,
     schema: {
       type: "object",
       additionalProperties: false,
       properties: {
-        preambleRows: { type: "number" },
+        preambleRows: { type: "integer", minimum: 0 },
         hasHeader: { type: "boolean" },
-        dateColumn: { type: "number" },
-        descriptionColumn: { type: "number" },
-        amountColumn: { type: ["number", "null"] },
-        debitColumn: { type: ["number", "null"] },
-        creditColumn: { type: ["number", "null"] },
-        typeColumn: { type: ["number", "null"] },
+        dateColumn: { type: "integer", minimum: 0 },
+        descriptionColumn: { type: "integer", minimum: 0 },
+        amountColumn: { type: ["integer", "null"], minimum: 0 },
+        debitColumn: { type: ["integer", "null"], minimum: 0 },
+        creditColumn: { type: ["integer", "null"], minimum: 0 },
+        typeColumn: { type: ["integer", "null"], minimum: 0 },
         signConvention: { type: "string", enum: ["signed", "unsigned"] },
-        dateFormat: { type: ["string", "null"] },
+        dateFormat: { type: ["string", "null"], maxLength: 32 },
       },
       required: [
         "preambleRows",
@@ -63,130 +48,104 @@ const CSV_FORMAT_RESPONSE_FORMAT = {
       ],
     },
   },
-} as const;
+};
 
-const SYSTEM_PROMPT = `You are a CSV format analyzer for a financial transaction parser.
+const SYSTEM_PROMPT = `You analyze the structure of a financial transaction CSV.
+Text and merchant content is already masked. Identify only column roles and the date format.
+Use a combined amount column OR separate debit/credit columns, never both.
+typeColumn is only for values that directly encode money direction such as Debit/Credit or DR/CR.
+Return exactly the requested JSON object with no commentary.`;
 
-Given the first few rows of a bank CSV export (with text/merchant content already masked),
-identify the column structure and date format.
+const REQUIRED_SPEC_KEYS = new Set([
+  "preambleRows",
+  "hasHeader",
+  "dateColumn",
+  "descriptionColumn",
+  "amountColumn",
+  "debitColumn",
+  "creditColumn",
+  "typeColumn",
+  "signConvention",
+  "dateFormat",
+]);
 
-Return ONLY a JSON object with this exact shape (no extra keys):
-{
-  "preambleRows": <number of rows before the header row; 0 if header is first>,
-  "hasHeader": <true if there is a named header row, false for headerless/positional formats>,
-  "dateColumn": <0-based column index of the transaction date>,
-  "descriptionColumn": <0-based column index of the merchant/description>,
-  "amountColumn": <0-based column index of a combined amount column, or null>,
-  "debitColumn": <0-based column index of a debit/withdrawal column, or null>,
-  "creditColumn": <0-based column index of a credit/deposit column, or null>,
-  "typeColumn": <0-based column index of a transaction-type/DR-CR column, or null>,
-  "signConvention": <"signed" if negative=outflow, "unsigned" if all amounts are positive>,
-  "dateFormat": <format string like "MM/DD/YYYY", "YYYY-MM-DD", "MMM D YYYY", "D MMM YYYY", "MMM D, YYYY"; or null if standard format>
-}
+const HEADER_HINTS = [
+  "date",
+  "posted",
+  "posting",
+  "transaction",
+  "description",
+  "merchant",
+  "memo",
+  "amount",
+  "debit",
+  "credit",
+  "withdrawal",
+  "deposit",
+];
 
-Rules:
-- amountColumn and debit/creditColumn are mutually exclusive. If the bank uses
-  separate Debit and Credit columns, set amountColumn=null.
-- If the bank uses a single Amount column, set amountColumn to its index and set
-  debitColumn=null, creditColumn=null.
-- typeColumn must identify a column whose VALUES directly encode money
-  direction (Debit/Credit, DR/CR). If both an explicit direction header such as
-  "Credit Debit Indicator" and a generic mechanism column such as "type" are
-  present, always select the explicit direction column. Values like POS,
-  Transfer, ACH Debit, and ACH Credit describe transaction mechanisms and a
-  generic mechanism column must not outrank an explicit direction indicator.
-- signConvention="signed" when negative numbers indicate outflows.
-- signConvention="unsigned" when all amounts appear positive.
-- preambleRows is the count of rows before the header row (0 when header is row 0).
-  For headerless files, preambleRows=0 and hasHeader=false.
-- dateFormat: use standard tokens YYYY, MM, DD, MMM (3-letter month), MMMM (full month).
-  Set to null only when the date is in a standard format already handled (MM/DD/YYYY,
-  YYYY-MM-DD, MM-DD-YYYY, MM/DD/YY) — because those don't need special handling.
-  For all other formats (month names, ordinals, non-US ordering), provide the token string.
-- Return only valid JSON with no markdown fences, no commentary.`;
-
-/**
- * GPT-5 reasoning tokens count against the completion ceiling. Keep reasoning
- * minimal while leaving enough headroom for a complete structured format spec.
- */
-export function _csvFormatGenerationOptions(model: string) {
-  return model.startsWith("gpt-5")
-    ? {
-        reasoning_effort: "minimal" as const,
-        max_completion_tokens: 4000,
-      }
-    : {
-        temperature: 0 as const,
-        max_tokens: 350,
-      };
-}
-
-/**
- * Determine if a cell value looks like a date.
- * Used to decide whether to send the value verbatim (needed for date format detection).
- */
 function looksLikeDate(cell: string): boolean {
-  const t = cell.trim();
-  if (!t) return false;
+  const value = cell.trim();
+  if (!value) return false;
   return (
-    /^\d{1,4}[\/\-]\d{1,2}([\/\-]\d{2,4})?$/.test(t) ||
-    /^[A-Za-z]+(\.|\s)\s*\d{1,2}(st|nd|rd|th)?,?\s*\d{4}$/i.test(t) ||
-    /^\d{1,2}\s+[A-Za-z]+\s+\d{4}$/i.test(t) ||
-    /^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(t)
+    /^\d{1,4}[\/-]\d{1,2}([\/-]\d{2,4})?$/.test(value) ||
+    /^[A-Za-z]+(?:\.|\s)\s*\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}$/i.test(value) ||
+    /^\d{1,2}\s+[A-Za-z]+\s+\d{4}$/i.test(value)
   );
 }
 
-/**
- * Determine if a cell value looks like an amount.
- * Amount cells are sent verbatim so the AI can detect sign convention.
- */
 function looksLikeAmount(cell: string): boolean {
-  const t = cell.trim();
-  if (!t) return false;
-  return /^-?\$?[\d,]+\.?\d*$/.test(t) || /^\([0-9,]+\.?\d*\)$/.test(t);
+  const value = cell.trim();
+  if (!value) return false;
+  return /^-?\$?[\d,]+\.?\d*$/.test(value) || /^\([0-9,]+\.?\d*\)$/.test(value);
 }
 
-/**
- * Mask a single cell for the AI payload:
- * - Date-like values → sent verbatim (needed for format detection)
- * - Amount-like values → sent verbatim, but truncated to 2dp (sign matters)
- * - Empty cells → sent as empty string
- * - Everything else (descriptions, names, merchants) → masked as "[text]"
- */
 function maskCell(cell: string): string {
-  const t = cell.trim();
-  if (!t) return '""';
-  if (looksLikeDate(t)) return JSON.stringify(t);
-  if (looksLikeAmount(t)) {
-    // Keep sign and general magnitude but round to avoid precision leakage
-    const num = parseFloat(t.replace(/[^0-9.\-]/g, ""));
-    if (!isNaN(num)) return JSON.stringify(num.toFixed(2));
-    return JSON.stringify(t);
+  const value = cell.trim();
+  if (!value) return '""';
+  if (looksLikeDate(value)) return JSON.stringify(value);
+  if (looksLikeAmount(value)) {
+    const negative = value.startsWith("-") || /^\(.+\)$/.test(value);
+    return JSON.stringify(negative ? "-1.00" : "1.00");
   }
-  // Mask text content — the AI only needs to know "this is a text column"
   return '"[text]"';
 }
 
-/**
- * Find the index of the true header row: the first row where ALL non-empty
- * cells are text-like (no dates, no amounts). Only this single row is sent
- * verbatim to the AI — all other rows (preamble and data) are masked.
- * Returns -1 when no header row is found (headerless format).
- */
-function findHeaderRowIndex(rawRows: string[][]): number {
-  for (let i = 0; i < rawRows.length && i < 10; i++) {
-    const row = rawRows[i];
-    const nonEmpty = row.filter((c) => c.trim());
-    if (nonEmpty.length < 2) continue;
-    if (
-      nonEmpty.every(
-        (c) => !looksLikeDate(c.trim()) && !looksLikeAmount(c.trim()),
-      )
-    ) {
-      return i;
-    }
+function isStructuralHeader(row: string[]): boolean {
+  const normalized = row
+    .map((cell) => cell.toLowerCase().trim())
+    .filter(Boolean);
+  if (normalized.length < 2) return false;
+  if (normalized.some((cell) => looksLikeDate(cell) || looksLikeAmount(cell))) {
+    return false;
   }
-  return -1;
+  const matches = normalized.filter((cell) =>
+    HEADER_HINTS.some((hint) => cell.includes(hint)),
+  );
+  const hasDate = normalized.some((cell) =>
+    ["date", "posted", "posting"].some((hint) => cell.includes(hint)),
+  );
+  const hasMoney = normalized.some((cell) =>
+    ["amount", "debit", "credit", "withdrawal", "deposit"].some((hint) =>
+      cell.includes(hint),
+    ),
+  );
+  return matches.length >= 2 && hasDate && hasMoney;
+}
+
+function findHeaderRowIndex(rawRows: string[][]): number {
+  return rawRows.slice(0, 10).findIndex(isStructuralHeader);
+}
+
+function buildMaskedSampleText(rawRows: string[][]): string {
+  const headerIndex = findHeaderRowIndex(rawRows);
+  return rawRows
+    .map((row, index) => {
+      const cells =
+        index === headerIndex ? row.map((cell) => JSON.stringify(cell)) : row.map(maskCell);
+      return `[row ${index}]: ${cells.join(", ")}`;
+    })
+    .join("\n");
 }
 
 export function _findExplicitDirectionColumn(headers: string[]): number {
@@ -204,174 +163,137 @@ export function _findExplicitDirectionColumn(headers: string[]): number {
   return headers.findIndex((header) => accepted.has(header.toLowerCase().trim()));
 }
 
-/**
- * Build a privacy-safe, compact representation of sample rows for the AI.
- *
- * Privacy rules (strict):
- * - Only the single detected header row is sent verbatim (column names are not PII).
- * - ALL other rows — including bank preamble rows that may contain account holder
- *   names, addresses, or statement metadata — have every text cell masked as "[text]".
- * - Date-like cells in data rows are sent verbatim (needed for format detection).
- * - Amount-like cells in data rows are sent rounded (sign needed for convention detection).
- */
-function buildMaskedSampleText(rawRows: string[][]): string {
-  const headerIdx = findHeaderRowIndex(rawRows);
-
-  return rawRows
-    .map((row, i) => {
-      const cells =
-        i === headerIdx
-          ? row.map((c) => JSON.stringify(c)) // header row only — verbatim
-          : row.map(maskCell); // preamble + data rows — mask text
-
-      return `[row ${i}]: ${cells.join(", ")}`;
-    })
-    .join("\n");
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("CSV format result must be an object");
+  }
+  return value as Record<string, unknown>;
 }
 
-type RawSpec = {
-  preambleRows: unknown;
-  hasHeader: unknown;
-  dateColumn: unknown;
-  descriptionColumn: unknown;
-  amountColumn: unknown;
-  debitColumn: unknown;
-  creditColumn: unknown;
-  typeColumn: unknown;
-  signConvention: unknown;
-  dateFormat: unknown;
-};
-
-function isNullableNumber(v: unknown): v is number | null {
-  return v === null || typeof v === "number";
+function columnIndex(value: unknown, maxColumns: number, name: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) >= maxColumns) {
+    throw new Error(`${name} is outside the sampled CSV column range`);
+  }
+  return Number(value);
 }
 
-function isValidSpec(raw: RawSpec): raw is {
-  preambleRows: number;
-  hasHeader: boolean;
-  dateColumn: number;
-  descriptionColumn: number;
-  amountColumn: number | null;
-  debitColumn: number | null;
-  creditColumn: number | null;
-  typeColumn: number | null;
-  signConvention: "signed" | "unsigned";
-  dateFormat: string | null;
-} {
-  if (typeof raw.preambleRows !== "number" || raw.preambleRows < 0)
-    return false;
-  if (typeof raw.hasHeader !== "boolean") return false;
-  if (typeof raw.dateColumn !== "number" || raw.dateColumn < 0) return false;
-  if (typeof raw.descriptionColumn !== "number" || raw.descriptionColumn < 0)
-    return false;
-  if (!isNullableNumber(raw.amountColumn)) return false;
-  if (!isNullableNumber(raw.debitColumn)) return false;
-  if (!isNullableNumber(raw.creditColumn)) return false;
-  if (!isNullableNumber(raw.typeColumn)) return false;
-  if (raw.signConvention !== "signed" && raw.signConvention !== "unsigned")
-    return false;
-  if (raw.dateFormat !== null && typeof raw.dateFormat !== "string")
-    return false;
-  // Must have at least one amount-related column
+function nullableColumnIndex(
+  value: unknown,
+  maxColumns: number,
+  name: string,
+): number | null {
+  return value === null ? null : columnIndex(value, maxColumns, name);
+}
+
+function validateSpec(value: unknown, sampleRows: string[][]): CsvFormatSpec {
+  const row = asRecord(value);
   if (
-    raw.amountColumn === null &&
-    raw.debitColumn === null &&
-    raw.creditColumn === null
-  )
-    return false;
-  return true;
+    Object.keys(row).length !== REQUIRED_SPEC_KEYS.size ||
+    Object.keys(row).some((key) => !REQUIRED_SPEC_KEYS.has(key))
+  ) {
+    throw new Error("CSV format result has unexpected fields");
+  }
+  const maxColumns = Math.max(...sampleRows.map((sample) => sample.length));
+  const headerIndex = findHeaderRowIndex(sampleRows);
+  const preambleRows = headerIndex >= 0 ? headerIndex : 0;
+  const hasHeader = headerIndex >= 0;
+  const dateColumn = columnIndex(row.dateColumn, maxColumns, "dateColumn");
+  const descriptionColumn = columnIndex(
+    row.descriptionColumn,
+    maxColumns,
+    "descriptionColumn",
+  );
+  const amountColumn = nullableColumnIndex(row.amountColumn, maxColumns, "amountColumn");
+  const debitColumn = nullableColumnIndex(row.debitColumn, maxColumns, "debitColumn");
+  const creditColumn = nullableColumnIndex(row.creditColumn, maxColumns, "creditColumn");
+  const modelTypeColumn = nullableColumnIndex(row.typeColumn, maxColumns, "typeColumn");
+  if (dateColumn === descriptionColumn) {
+    throw new Error("date and description columns must differ");
+  }
+  if (amountColumn !== null && (debitColumn !== null || creditColumn !== null)) {
+    throw new Error("combined and split amount columns are mutually exclusive");
+  }
+  if (amountColumn === null && debitColumn === null && creditColumn === null) {
+    throw new Error("at least one amount column is required");
+  }
+  const moneyColumns = [amountColumn, debitColumn, creditColumn].filter(
+    (column): column is number => column !== null,
+  );
+  if (new Set(moneyColumns).size !== moneyColumns.length) {
+    throw new Error("money columns must be distinct");
+  }
+  if (moneyColumns.includes(dateColumn) || moneyColumns.includes(descriptionColumn)) {
+    throw new Error("money columns cannot overlap date or description");
+  }
+  if (row.signConvention !== "signed" && row.signConvention !== "unsigned") {
+    throw new Error("signConvention is invalid");
+  }
+  if (
+    row.dateFormat !== null &&
+    (typeof row.dateFormat !== "string" ||
+      !/^[A-Za-z, ./-]{1,32}$/.test(row.dateFormat))
+  ) {
+    throw new Error("dateFormat is invalid");
+  }
+  const explicitDirectionColumn =
+    headerIndex >= 0 ? _findExplicitDirectionColumn(sampleRows[headerIndex]!) : -1;
+  return {
+    preambleRows,
+    hasHeader,
+    dateColumn,
+    descriptionColumn,
+    amountColumn,
+    debitColumn,
+    creditColumn,
+    typeColumn:
+      explicitDirectionColumn >= 0 ? explicitDirectionColumn : modelTypeColumn,
+    signConvention: row.signConvention,
+    ...(row.dateFormat ? { dateFormat: row.dateFormat } : {}),
+  };
 }
 
-/**
- * Ask the configured OpenAI model to identify the column layout of a CSV.
- *
- * @param allRows  The first N raw parsed rows (header + preamble + a few data rows),
- *                 already split into cells by csv-parse. Max 12 rows.
- * @returns        A validated CsvFormatSpec, or null on failure.
- */
+function providerRequest(
+  sampleRows: string[][],
+  model: string,
+): OpenAiStructuredRequest<CsvFormatSpec> {
+  const sampleText = buildMaskedSampleText(sampleRows);
+  return {
+    operation: "csv_format_detection",
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `Identify the CSV structure from this masked sample:\n\n${sampleText}`,
+      },
+    ],
+    responseFormat: CSV_FORMAT_RESPONSE_FORMAT,
+    validate: (value) => validateSpec(value, sampleRows),
+  };
+}
+
 export async function detectCsvFormat(
   allRows: string[][],
-): Promise<CsvFormatSpec | null> {
-  const client = getClient();
-  if (!client) return null;
-  if (allRows.length === 0) return null;
-
-  const MAX_SAMPLE_ROWS = 8; // header/preamble rows + at most 4-5 data rows
-  const sampleRows = allRows.slice(0, MAX_SAMPLE_ROWS);
-  const sampleText = buildMaskedSampleText(sampleRows);
-
-  let raw: string | null = null;
-  try {
-    const model = process.env.OPENAI_CSV_FORMAT_MODEL ?? "gpt-5-nano";
-    const request = {
-      model,
-      response_format: CSV_FORMAT_RESPONSE_FORMAT,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Identify the column layout and date format from these CSV rows:\n\n${sampleText}`,
-        },
-      ],
-      ..._csvFormatGenerationOptions(model),
-    } as const;
-
-    const response = await client.chat.completions.create(request as any);
-    raw = response.choices[0]?.message?.content ?? null;
-  } catch (err) {
-    console.warn(
-      `[csvFormatDetector] OpenAI call failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
+  options: {
+    transport: OpenAiChatTransport;
+    isEnabled: boolean;
+    signal?: AbortSignal;
+    model?: string;
+  },
+): Promise<OpenAiStructuredResult<CsvFormatSpec>> {
+  const sampleRows = allRows.slice(0, 8);
+  if (sampleRows.length === 0 || sampleRows.every((row) => row.length === 0)) {
+    throw new RangeError("CSV sample must contain at least one column");
   }
-
-  if (!raw) return null;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    console.warn(
-      `[csvFormatDetector] Could not parse AI response as JSON: ${raw.slice(0, 200)}`,
-    );
-    return null;
-  }
-
-  if (typeof parsed !== "object" || parsed === null) return null;
-
-  const candidate = parsed as RawSpec;
-  if (!isValidSpec(candidate)) {
-    console.warn(
-      `[csvFormatDetector] AI response failed validation: ${JSON.stringify(candidate).slice(0, 300)}`,
-    );
-    return null;
-  }
-
-  const headerIdx = findHeaderRowIndex(sampleRows);
-  const explicitDirectionColumn =
-    headerIdx >= 0
-      ? _findExplicitDirectionColumn(sampleRows[headerIdx]!)
-      : -1;
-
-  const spec: CsvFormatSpec = {
-    preambleRows: candidate.preambleRows,
-    hasHeader: candidate.hasHeader,
-    dateColumn: candidate.dateColumn,
-    descriptionColumn: candidate.descriptionColumn,
-    amountColumn: candidate.amountColumn,
-    debitColumn: candidate.debitColumn,
-    creditColumn: candidate.creditColumn,
-    // Deterministic header evidence outranks the model. This also prevents a
-    // generic `type` mechanism column from being cached for Navy Federal-style
-    // exports when an explicit direction indicator is present.
-    typeColumn:
-      explicitDirectionColumn >= 0
-        ? explicitDirectionColumn
-        : candidate.typeColumn,
-    signConvention: candidate.signConvention,
-    ...(candidate.dateFormat ? { dateFormat: candidate.dateFormat } : {}),
-  };
-
-  console.log(`[csvFormatDetector] AI spec detected: ${JSON.stringify(spec)}`);
-  return spec;
+  return executeOpenAiStructuredRequest(
+    providerRequest(
+      sampleRows,
+      options.model ?? process.env.OPENAI_CSV_FORMAT_MODEL ?? "gpt-5-nano",
+    ),
+    {
+      transport: options.transport,
+      isEnabled: options.isEnabled,
+      signal: options.signal,
+    },
+  );
 }

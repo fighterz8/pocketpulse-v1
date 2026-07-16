@@ -322,6 +322,8 @@ export type CreateAppOptions = {
   runStartupJobs?: boolean;
   /** Test-only provider injection. Production constructs the bounded adapter lazily. */
   enhancementTransport?: OpenAiChatTransport;
+  /** Test-only CSV-format transport injection; production uses the same bounded adapter. */
+  csvFormatTransport?: OpenAiChatTransport;
   /** Test-only semaphore injection; production always uses the DB-backed lease. */
   enhancementLeaseProvider?: AiEnhancementLeaseProvider;
   /** Test seam for deterministic entitlement states. Production reads PostgreSQL. */
@@ -1718,8 +1720,17 @@ export function createApp(options?: CreateAppOptions) {
             const priorError = parseResult.ok ? null : parseResult.error;
             try {
               const sampleRecords = getSampleRows();
-              if (sampleRecords.length > 0) {
-                const aiSpec = await detectCsvFormat(sampleRecords);
+              const apiKey = process.env.OPENAI_API_KEY?.trim();
+              const transport =
+                options?.csvFormatTransport ??
+                (apiKey ? createOpenAiChatTransport(apiKey) : null);
+              if (sampleRecords.length > 0 && transport) {
+                const aiSpec = (
+                  await detectCsvFormat(sampleRecords, {
+                    transport,
+                    isEnabled: true,
+                  })
+                )?.data;
                 if (aiSpec) {
                   const aiParseResult = await parseCSV(
                     file.buffer,
