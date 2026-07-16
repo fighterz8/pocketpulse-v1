@@ -167,4 +167,140 @@ describeDatabase("AI enhancement job creation", () => {
       }),
     ).rejects.toBeInstanceOf(jobs.AiEnhancementUploadNotFoundError);
   });
+
+  it("claims at most 25 unique merchants and permits only one live batch", async () => {
+    const owner = await createUpload("batch-claim");
+    await addUnresolved(
+      owner,
+      Array.from({ length: 30 }, (_, index) => `Unresolved Vendor code${index}x`),
+    );
+    const job = await jobs.createAiEnhancementJob({
+      userId: owner.userId,
+      uploadId: owner.uploadId,
+      idempotencyKey: `batch-${owner.uploadId}`,
+    });
+
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        jobs.claimAiEnhancementBatch({ userId: owner.userId, jobId: job.id }),
+      ),
+    );
+    const claimed = attempts.filter((attempt) => attempt.state === "claimed");
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]!.items).toHaveLength(25);
+    expect(new Set(claimed[0]!.items.map((item) => item.merchantKey)).size).toBe(25);
+    expect(attempts.filter((attempt) => attempt.state === "busy")).toHaveLength(7);
+
+    const counts = await pool.query<{ status: string; count: string }>(
+      `SELECT status, COUNT(*)::text AS count
+       FROM ai_enhancement_job_items WHERE job_id = $1
+       GROUP BY status ORDER BY status`,
+      [job.id],
+    );
+    expect(counts.rows).toEqual([
+      { status: "pending", count: "5" },
+      { status: "processing", count: "25" },
+    ]);
+  });
+
+  it("recovers a pre-authorization expired claim without consuming an attempt", async () => {
+    const owner = await createUpload("claim-recovery");
+    await addUnresolved(owner, ["Recoverable Vendor"]);
+    const job = await jobs.createAiEnhancementJob({
+      userId: owner.userId,
+      uploadId: owner.uploadId,
+      idempotencyKey: `recover-${owner.uploadId}`,
+    });
+    const first = await jobs.claimAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: job.id,
+    });
+    expect(first.state).toBe("claimed");
+    await pool.query(
+      `UPDATE ai_enhancement_job_items
+       SET lease_expires_at = clock_timestamp() - interval '1 second'
+       WHERE job_id = $1`,
+      [job.id],
+    );
+
+    const recovered = await jobs.claimAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: job.id,
+    });
+    expect(recovered.state).toBe("claimed");
+    if (first.state === "claimed" && recovered.state === "claimed") {
+      expect(recovered.leaseToken).not.toBe(first.leaseToken);
+      expect(recovered.items[0]!.attemptCount).toBe(0);
+    }
+  });
+
+  it("never reclaims an authorized attempt after its item lease expires", async () => {
+    const owner = await createUpload("authorized-expiry");
+    await addUnresolved(owner, ["Charged Once Vendor"]);
+    const job = await jobs.createAiEnhancementJob({
+      userId: owner.userId,
+      uploadId: owner.uploadId,
+      idempotencyKey: `authorized-${owner.uploadId}`,
+    });
+    const claim = await jobs.claimAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: job.id,
+    });
+    expect(claim.state).toBe("claimed");
+    if (claim.state !== "claimed") throw new Error("expected claimed batch");
+
+    const accounting = await import("./aiAccounting.js");
+    await accounting.reserveAiBudget({
+      reservationId: claim.batchKey,
+      userId: owner.userId,
+      accountId: owner.accountId,
+      uploadId: owner.uploadId,
+      jobId: job.id,
+      operation: "transaction_classification",
+      model: "gpt-5-nano",
+    });
+    await jobs.attachAiEnhancementReservation({
+      userId: owner.userId,
+      jobId: job.id,
+      batchKey: claim.batchKey,
+      leaseToken: claim.leaseToken,
+      reservationId: claim.batchKey,
+    });
+    await pool.query(
+      `UPDATE ai_enhancement_job_items
+       SET lease_expires_at = clock_timestamp() - interval '1 second'
+       WHERE job_id = $1`,
+      [job.id],
+    );
+
+    const recovered = await jobs.claimAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: job.id,
+    });
+    expect(recovered.state).toBe("empty");
+    expect(recovered.unknownReservationIds).toEqual([claim.batchKey]);
+    const item = await pool.query<{ status: string; attempt_count: number }>(
+      `SELECT status, attempt_count FROM ai_enhancement_job_items WHERE job_id = $1`,
+      [job.id],
+    );
+    expect(item.rows[0]).toEqual({ status: "failed", attempt_count: 1 });
+  });
+
+  it("does not claim future work after cancellation", async () => {
+    const owner = await createUpload("cancelled-claim");
+    await addUnresolved(owner, ["Cancelled Vendor"]);
+    const job = await jobs.createAiEnhancementJob({
+      userId: owner.userId,
+      uploadId: owner.uploadId,
+      idempotencyKey: `cancelled-${owner.uploadId}`,
+    });
+    await jobs.cancelAiEnhancementJob({ userId: owner.userId, jobId: job.id });
+
+    const claim = await jobs.claimAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: job.id,
+    });
+    expect(claim.state).toBe("terminal");
+    expect(claim.job.status).toBe("cancelled");
+  });
 });
