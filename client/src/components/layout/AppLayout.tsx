@@ -57,6 +57,15 @@ function IconAccuracy() {
   );
 }
 
+function IconAccount() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10" cy="7" r="3" />
+      <path d="M4 17c.7-3 2.7-4.5 6-4.5s5.3 1.5 6 4.5" />
+    </svg>
+  );
+}
+
 const NAV_ITEMS = [
   { href: "/",            label: "Dashboard",     Icon: IconDashboard },
   { href: "/transactions", label: "Ledger",        Icon: IconLedger    },
@@ -137,6 +146,17 @@ export function AppLayout({
           </Link>
         </li>
       )}
+      <li>
+        <Link
+          href="/account"
+          data-testid="nav-link-account"
+          className={cn("app-nav-link", location === "/account" && "app-nav-link--active")}
+          onClick={closeSidebar}
+        >
+          <IconAccount />
+          Account
+        </Link>
+      </li>
     </>
   );
 

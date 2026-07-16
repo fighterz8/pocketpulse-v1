@@ -47,4 +47,11 @@ describe("AppLayout", () => {
     expect(leakLink).toHaveTextContent("Leak Hunter");
     expect(screen.queryByText("Leak Detection")).not.toBeInTheDocument();
   });
+
+  it("includes account management in the authenticated navigation", () => {
+    renderLayout("/account");
+    const accountLink = screen.getByTestId("nav-link-account");
+    expect(accountLink).toHaveTextContent("Account");
+    expect(accountLink).toHaveClass("app-nav-link--active");
+  });
 });

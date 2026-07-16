@@ -5777,6 +5777,207 @@ html.dark .welcome-overlay-eyebrow { color: #94a3b8; }
 html.dark .welcome-overlay-body { color: #cbd5e1; }
 html.dark .welcome-overlay-body strong { color: #f8fafc; }
 
+/* ─── Account and subscription page ───────────────────────────────────── */
+.account-page {
+  width: min(100%, 64rem);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.account-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.account-header .app-page-title { margin-bottom: 0.2rem; }
+
+.account-eyebrow,
+.account-card-kicker {
+  margin: 0 0 0.3rem;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-subtitle,
+.account-plan-copy,
+.account-recurring-note,
+.account-availability-note,
+.account-action-error {
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.account-pricing-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  color: #1d4ed8;
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.account-plan-card { padding: 1.5rem; }
+
+.account-plan-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.account-plan-heading h2,
+.account-benefit-grid h2 {
+  margin: 0.45rem 0 0;
+  color: #0f172a;
+  font-size: 1.15rem;
+}
+
+.account-status {
+  display: inline-flex;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid rgb(37 99 235 / 0.2);
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: rgb(219 234 254 / 0.75);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.account-status--past_due,
+.account-status--expired {
+  border-color: rgb(180 83 9 / 0.22);
+  color: #92400e;
+  background: rgb(254 243 199 / 0.8);
+}
+
+.account-price {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.account-price strong {
+  color: #0f172a;
+  font-size: 1.55rem;
+  letter-spacing: -0.03em;
+}
+
+.account-price span { color: #64748b; font-size: 0.82rem; }
+.account-plan-copy { margin-top: 1rem; max-width: 48rem; }
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.15rem;
+}
+
+.account-primary-action,
+.account-secondary-action,
+.account-error button {
+  min-height: 44px;
+  padding: 0.6rem 1rem;
+  border-radius: 0.55rem;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.account-primary-action {
+  border: 1px solid #2563eb;
+  color: #fff;
+  background: #2563eb;
+}
+
+.account-primary-action:hover:not(:disabled) { background: #1d4ed8; }
+
+.account-secondary-action,
+.account-error button {
+  border: 1px solid rgb(15 23 42 / 0.16);
+  color: #334155;
+  background: rgb(255 255 255 / 0.72);
+}
+
+.account-primary-action:disabled,
+.account-secondary-action:disabled { opacity: 0.6; cursor: wait; }
+
+.account-primary-action:focus-visible,
+.account-secondary-action:focus-visible,
+.account-pricing-link:focus-visible,
+.account-error button:focus-visible {
+  outline: 3px solid rgb(147 197 253 / 0.9);
+  outline-offset: 2px;
+}
+
+.account-recurring-note,
+.account-availability-note {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgb(15 23 42 / 0.1);
+  font-size: 0.82rem;
+}
+
+.account-action-error { margin-top: 0.8rem; color: #b91c1c; font-weight: 600; }
+
+.account-benefit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.account-benefit-grid ul {
+  margin: 1rem 0 0;
+  padding-left: 1.2rem;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.account-error p { margin-top: 0; }
+.account-skeleton {
+  height: 16rem;
+  border-radius: 1rem;
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.45), rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.45));
+  background-size: 200% 100%;
+  animation: enhancement-shimmer 1.4s infinite linear;
+}
+
+html.dark .account-eyebrow,
+html.dark .account-card-kicker,
+html.dark .account-pricing-link { color: #93c5fd; }
+html.dark .account-subtitle,
+html.dark .account-plan-copy,
+html.dark .account-recurring-note,
+html.dark .account-availability-note,
+html.dark .account-benefit-grid ul { color: #cbd5e1; }
+html.dark .account-plan-heading h2,
+html.dark .account-benefit-grid h2,
+html.dark .account-price strong { color: #f8fafc; }
+html.dark .account-secondary-action { color: #e2e8f0; border-color: rgb(148 163 184 / 0.3); background: rgb(15 23 42 / 0.5); }
+html.dark .account-status--past_due,
+html.dark .account-status--expired { color: #fde68a; background: rgb(146 64 14 / 0.32); }
+
+@media (max-width: 640px) {
+  .account-header,
+  .account-plan-heading { align-items: flex-start; flex-direction: column; }
+  .account-benefit-grid { grid-template-columns: 1fr; }
+  .account-plan-card { padding: 1.15rem; }
+  .account-actions > * { width: 100%; }
+}
+
 /* ─── Public landing page routes (/ and /landing) ─────────────────────── */
 .landing-main {
   --landing-ink: #071426;

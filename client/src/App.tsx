@@ -7,6 +7,7 @@ import { useAuth, type AuthAccount } from "./hooks/use-auth";
 import { useInactivityLogout } from "./hooks/use-inactivity-logout";
 import { useTheme } from "./hooks/use-theme";
 import { AccountSetup } from "./pages/AccountSetup";
+import { Account } from "./pages/Account";
 import { Auth } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
 import { Landing } from "./pages/Landing";
@@ -44,6 +45,9 @@ function AppAuthenticated() {
         </Route>
         <Route path="/leaks">
           <Leaks />
+        </Route>
+        <Route path="/account">
+          <Account />
         </Route>
         <Route path="/dev/test-suite">
           {canAccessDev ? <TestSuiteIndex /> : <NotFoundPage />}

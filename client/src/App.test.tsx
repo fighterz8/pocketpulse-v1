@@ -74,6 +74,9 @@ vi.mock("./pages/AccountSetup", () => ({
     </div>
   ),
 }));
+vi.mock("./pages/Account", () => ({
+  Account: () => <div data-testid="stub-account">ACCOUNT</div>,
+}));
 vi.mock("./pages/OnboardingUpload", () => ({
   OnboardingUpload: ({
     account,
@@ -230,6 +233,12 @@ describe("AppGate routing state machine", () => {
     authState.accounts = [account];
     renderGate();
     expect(screen.getByTestId("stub-dashboard")).toBeInTheDocument();
+  });
+
+  it("routes authenticated users to account plan management", () => {
+    authState.accounts = [account];
+    renderGate("/account");
+    expect(screen.getByTestId("stub-account")).toBeInTheDocument();
   });
 
   it("renders the authenticated app when accounts is empty but skipped flag is set", () => {
