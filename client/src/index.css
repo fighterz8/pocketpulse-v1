@@ -969,8 +969,8 @@ body {
 
 .upload-queue-remove {
   flex-shrink: 0;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
   display: flex;
   align-items: center;
   justify-content: center;
