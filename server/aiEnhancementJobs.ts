@@ -48,6 +48,7 @@ export type AiEnhancementAvailability = {
   activeJobId?: number;
   blockedReason?:
     | "FEATURE_DISABLED"
+    | "PLUS_REQUIRED"
     | "ACTIVE_JOB_EXISTS"
     | "USER_LIMIT_REACHED"
     | "PROVIDER_UNAVAILABLE";

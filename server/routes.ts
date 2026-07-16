@@ -87,6 +87,12 @@ import {
 import { getEnhancementFeatureFlags } from "./enhancementConfig.js";
 import { summarizeUnresolvedTransactions } from "./enhancementAvailability.js";
 import {
+  assertPlusEntitlement,
+  getBillingEntitlement,
+  PlusEntitlementRequiredError,
+  type BillingEntitlement,
+} from "./billingEntitlements.js";
+import {
   AiEnhancementActiveJobError,
   AiEnhancementDailyJobLimitError,
   AiEnhancementIdempotencyMismatchError,
@@ -184,6 +190,17 @@ function sendEnhancementError(
     res.status(409).json({
       error: "This request key was already used for another upload",
       code: "IDEMPOTENCY_MISMATCH",
+    });
+    return true;
+  }
+  if (error instanceof PlusEntitlementRequiredError) {
+    res.status(402).json({
+      error: error.message,
+      code: "PLUS_REQUIRED",
+      access: {
+        state: error.entitlement.state,
+        trialAvailable: error.entitlement.trialAvailable,
+      },
     });
     return true;
   }
@@ -292,6 +309,8 @@ export type CreateAppOptions = {
   enhancementTransport?: OpenAiChatTransport;
   /** Test-only semaphore injection; production always uses the DB-backed lease. */
   enhancementLeaseProvider?: AiEnhancementLeaseProvider;
+  /** Test seam for deterministic entitlement states. Production reads PostgreSQL. */
+  billingEntitlementReader?: (userId: number) => Promise<BillingEntitlement>;
 };
 
 function defaultSessionStore() {
@@ -610,6 +629,8 @@ export function createApp(options?: CreateAppOptions) {
   const store = options?.sessionStore ?? defaultSessionStore();
   const app = express();
   const isProduction = process.env.NODE_ENV === "production";
+  const readBillingEntitlement =
+    options?.billingEntitlementReader ?? getBillingEntitlement;
   app.set("trust proxy", 1);
   app.use(
     isProduction
@@ -758,6 +779,23 @@ export function createApp(options?: CreateAppOptions) {
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.get("/api/billing/entitlement", requireAuth, async (req, res, next) => {
+    try {
+      const entitlement = await readBillingEntitlement(req.session.userId!);
+      res.json({
+        access: {
+          state: entitlement.state,
+          trialAvailable: entitlement.trialAvailable,
+          ...(entitlement.expiresAt
+            ? { expiresAt: entitlement.expiresAt }
+            : {}),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/auth/me", async (req, res, next) => {
@@ -1730,13 +1768,26 @@ export function createApp(options?: CreateAppOptions) {
           return;
         }
         const flags = getEnhancementFeatureFlags();
-        const availability = await getAiEnhancementAvailability({
-          userId: req.session.userId!,
-          uploadId,
-          featureEnabled: flags.transactionEnhancement,
-          providerAvailable: Boolean(process.env.OPENAI_API_KEY?.trim()),
+        const [availability, access] = await Promise.all([
+          getAiEnhancementAvailability({
+            userId: req.session.userId!,
+            uploadId,
+            featureEnabled: flags.transactionEnhancement,
+            providerAvailable: Boolean(process.env.OPENAI_API_KEY?.trim()),
+          }),
+          readBillingEntitlement(req.session.userId!),
+        ]);
+        res.json({
+          ...availability,
+          ...(availability.state === "available" && !access.entitled
+            ? { state: "blocked", blockedReason: "PLUS_REQUIRED" }
+            : {}),
+          access: {
+            state: access.state,
+            trialAvailable: access.trialAvailable,
+            ...(access.expiresAt ? { expiresAt: access.expiresAt } : {}),
+          },
         });
-        res.json(availability);
       } catch (error) {
         if (!sendEnhancementError(error, res)) next(error);
       }
@@ -1761,6 +1812,10 @@ export function createApp(options?: CreateAppOptions) {
         });
         return;
       }
+      await assertPlusEntitlement(
+        req.session.userId!,
+        readBillingEntitlement,
+      );
       const body = req.body as Record<string, unknown> | undefined;
       if (
         !body ||
@@ -1884,6 +1939,10 @@ export function createApp(options?: CreateAppOptions) {
           });
           return;
         }
+        await assertPlusEntitlement(
+          req.session.userId!,
+          readBillingEntitlement,
+        );
         const jobId = parsePositiveRouteId(req.params.id);
         if (jobId === null) {
           res.status(400).json({ error: "Invalid enhancement job id" });

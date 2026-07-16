@@ -6,6 +6,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenAiChatTransport } from "./openaiProvider.js";
 import type { AiEnhancementLeaseProvider } from "./aiEnhancementProcessor.js";
+import type { BillingEntitlement } from "./billingEntitlements.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -39,17 +40,31 @@ describeDatabase("AI enhancement job routes", () => {
     await pool?.end();
   });
 
-  function app(enhancementTransport?: OpenAiChatTransport) {
+  const activeEntitlement: BillingEntitlement = {
+    state: "active",
+    trialAvailable: false,
+    entitled: true,
+  };
+
+  function app(
+    enhancementTransport?: OpenAiChatTransport,
+    billingEntitlementReader: (userId: number) => Promise<BillingEntitlement> =
+      async () => activeEntitlement,
+  ) {
     return createApp({
       sessionStore: new session.MemoryStore(),
       runStartupJobs: false,
       enhancementTransport,
       enhancementLeaseProvider: availableLeases,
+      billingEntitlementReader,
     });
   }
 
-  async function register(enhancementTransport?: OpenAiChatTransport) {
-    const agent = request.agent(app(enhancementTransport));
+  async function register(
+    enhancementTransport?: OpenAiChatTransport,
+    billingEntitlementReader?: (userId: number) => Promise<BillingEntitlement>,
+  ) {
+    const agent = request.agent(app(enhancementTransport, billingEntitlementReader));
     const csrf = (await agent.get("/api/csrf-token")).body.token as string;
     const email = `enhancement-route-${crypto.randomUUID()}@example.test`;
     const registration = await agent
@@ -121,7 +136,38 @@ describeDatabase("AI enhancement job routes", () => {
       unresolvedTransactionCount: 3,
       unresolvedMerchantCount: 2,
       blockedReason: "FEATURE_DISABLED",
+      access: { state: "active", trialAvailable: false },
     });
+  });
+
+  it("denies job creation to a free user without creating provider work", async () => {
+    const free = vi.fn(async (): Promise<BillingEntitlement> => ({
+      state: "free",
+      trialAvailable: true,
+      entitled: false,
+    }));
+    const actor = await register(undefined, free);
+    const upload = await createUpload(actor.userId);
+    process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED = "true";
+    process.env.OPENAI_API_KEY = "configured-but-unused";
+
+    const response = await actor.agent
+      .post("/api/enhancement-jobs")
+      .set("X-CSRF-Token", actor.csrf)
+      .set("Idempotency-Key", `free-${upload.uploadId}`)
+      .send({ uploadId: upload.uploadId });
+
+    expect(response.status).toBe(402);
+    expect(response.body).toMatchObject({
+      code: "PLUS_REQUIRED",
+      access: { state: "free", trialAvailable: true },
+    });
+    expect(free).toHaveBeenCalledWith(actor.userId);
+    const jobs = await pool.query(
+      `SELECT id FROM ai_enhancement_jobs WHERE user_id = $1`,
+      [actor.userId],
+    );
+    expect(jobs.rowCount).toBe(0);
   });
 
   it("creates, reads, and idempotently cancels an owned job", async () => {
@@ -247,6 +293,7 @@ describeDatabase("AI enhancement job routes", () => {
       runStartupJobs: false,
       enhancementTransport: transport,
       enhancementLeaseProvider: availableLeases,
+      billingEntitlementReader: async () => activeEntitlement,
     });
     const agent = request.agent(application);
     const csrf = (await agent.get("/api/csrf-token")).body.token as string;
@@ -310,6 +357,40 @@ describeDatabase("AI enhancement job routes", () => {
       .send({});
     expect(disabled.status).toBe(503);
     expect(disabled.body.code).toBe("FEATURE_DISABLED");
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("rechecks entitlement before every batch and blocks after revocation", async () => {
+    const transport: OpenAiChatTransport = vi.fn(async () => {
+      throw new Error("provider must not be called after entitlement revocation");
+    });
+    let entitlement = activeEntitlement;
+    const actor = await register(transport, async () => entitlement);
+    const upload = await createUpload(actor.userId);
+    process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED = "true";
+    process.env.OPENAI_API_KEY = "configured-but-mocked";
+    const created = await actor.agent
+      .post("/api/enhancement-jobs")
+      .set("X-CSRF-Token", actor.csrf)
+      .set("Idempotency-Key", `revoked-${upload.uploadId}`)
+      .send({ uploadId: upload.uploadId });
+    expect(created.status).toBe(202);
+
+    entitlement = {
+      state: "past_due",
+      trialAvailable: false,
+      entitled: false,
+    };
+    const blocked = await actor.agent
+      .post(`/api/enhancement-jobs/${created.body.job.id}/batches`)
+      .set("X-CSRF-Token", actor.csrf)
+      .send({});
+
+    expect(blocked.status).toBe(402);
+    expect(blocked.body).toMatchObject({
+      code: "PLUS_REQUIRED",
+      access: { state: "past_due" },
+    });
     expect(transport).not.toHaveBeenCalled();
   });
 });

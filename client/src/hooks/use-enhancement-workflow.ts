@@ -28,15 +28,12 @@ export type EnhancementAvailability = {
   activeJobId?: number;
   blockedReason?:
     | "FEATURE_DISABLED"
+    | "PLUS_REQUIRED"
     | "ACTIVE_JOB_EXISTS"
     | "USER_LIMIT_REACHED"
     | "PROVIDER_UNAVAILABLE";
   resetAt?: string;
-  /**
-   * Slice 4 presentation contract. The live server does not grant paid access
-   * yet, so an absent value safely resolves to the free preview. Slice 6 will
-   * replace this compatibility default with the verified server entitlement.
-   */
+  /** Verified server entitlement. The fallback is fail-closed for stale clients. */
   access?: EnhancementAccess;
 };
 

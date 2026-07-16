@@ -53,6 +53,180 @@ export const users = pgTable("users", {
     .defaultNow(),
 });
 
+export const BILLING_PROVIDERS = ["stripe"] as const;
+export type BillingProvider = (typeof BILLING_PROVIDERS)[number];
+
+export const BILLING_ACCESS_STATES = [
+  "trialing",
+  "active",
+  "past_due",
+  "expired",
+] as const;
+export type BillingAccessState = (typeof BILLING_ACCESS_STATES)[number];
+
+/** Provider customer identity. Payment details remain provider-hosted. */
+export const billingCustomers = pgTable(
+  "billing_customers",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<BillingProvider>().notNull(),
+    externalCustomerId: text("external_customer_id").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("billing_customers_user_provider_unique").on(
+      t.userId,
+      t.provider,
+    ),
+    uniqueIndex("billing_customers_provider_external_unique").on(
+      t.provider,
+      t.externalCustomerId,
+    ),
+    check("billing_customers_provider_check", sql`${t.provider} = 'stripe'`),
+  ],
+);
+
+/** Durable one-trial ledger. A row means the user has consumed eligibility. */
+export const billingTrials = pgTable(
+  "billing_trials",
+  {
+    userId: integer("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<BillingProvider>().notNull(),
+    externalCheckoutSessionId: text("external_checkout_session_id"),
+    reservedAt: timestamp("reserved_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    startedAt: timestamp("started_at", { mode: "date", withTimezone: true }),
+    endedAt: timestamp("ended_at", { mode: "date", withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("billing_trials_provider_checkout_unique")
+      .on(t.provider, t.externalCheckoutSessionId)
+      .where(sql`${t.externalCheckoutSessionId} IS NOT NULL`),
+    check("billing_trials_provider_check", sql`${t.provider} = 'stripe'`),
+    check(
+      "billing_trials_timestamps_check",
+      sql`${t.endedAt} IS NULL OR (${t.startedAt} IS NOT NULL AND ${t.endedAt} >= ${t.startedAt})`,
+    ),
+  ],
+);
+
+/** Provider-neutral projection used for PocketPulse authorization decisions. */
+export const billingSubscriptions = pgTable(
+  "billing_subscriptions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<BillingProvider>().notNull(),
+    externalSubscriptionId: text("external_subscription_id").notNull(),
+    externalCustomerId: text("external_customer_id"),
+    planKey: text("plan_key").notNull().default("plus"),
+    providerStatus: text("provider_status").notNull(),
+    accessState: text("access_state").$type<BillingAccessState>().notNull(),
+    trialStartsAt: timestamp("trial_starts_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    trialEndsAt: timestamp("trial_ends_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    currentPeriodEndsAt: timestamp("current_period_ends_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    latestProviderEventId: text("latest_provider_event_id").notNull(),
+    latestProviderEventCreatedAt: timestamp("latest_provider_event_created_at", {
+      mode: "date",
+      withTimezone: true,
+    }).notNull(),
+    latestProviderObjectUpdatedAt: timestamp(
+      "latest_provider_object_updated_at",
+      { mode: "date", withTimezone: true },
+    ),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("billing_subscriptions_provider_external_unique").on(
+      t.provider,
+      t.externalSubscriptionId,
+    ),
+    uniqueIndex("billing_subscriptions_one_current_plus_user_unique")
+      .on(t.userId, t.planKey)
+      .where(sql`${t.accessState} IN ('trialing', 'active', 'past_due')`),
+    index("billing_subscriptions_user_id_idx").on(t.userId),
+    check("billing_subscriptions_provider_check", sql`${t.provider} = 'stripe'`),
+    check("billing_subscriptions_plan_check", sql`${t.planKey} = 'plus'`),
+    check(
+      "billing_subscriptions_access_state_check",
+      sql`${t.accessState} IN ('trialing', 'active', 'past_due', 'expired')`,
+    ),
+    check(
+      "billing_subscriptions_trial_timestamps_check",
+      sql`${t.trialEndsAt} IS NULL OR (${t.trialStartsAt} IS NOT NULL AND ${t.trialEndsAt} >= ${t.trialStartsAt})`,
+    ),
+  ],
+);
+
+/** Privacy-minimized webhook receipt ledger for idempotency and diagnosis. */
+export const billingWebhookEvents = pgTable(
+  "billing_webhook_events",
+  {
+    id: serial("id").primaryKey(),
+    provider: text("provider").$type<BillingProvider>().notNull(),
+    externalEventId: text("external_event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    externalObjectId: text("external_object_id"),
+    userId: integer("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    payloadSha256: text("payload_sha256").notNull(),
+    eventCreatedAt: timestamp("event_created_at", {
+      mode: "date",
+      withTimezone: true,
+    }).notNull(),
+    outcome: text("outcome").notNull(),
+    processedAt: timestamp("processed_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("billing_webhook_events_provider_event_unique").on(
+      t.provider,
+      t.externalEventId,
+    ),
+    index("billing_webhook_events_user_id_idx").on(t.userId),
+    index("billing_webhook_events_created_at_idx").on(t.eventCreatedAt),
+    check("billing_webhook_events_provider_check", sql`${t.provider} = 'stripe'`),
+    check(
+      "billing_webhook_events_payload_hash_check",
+      sql`char_length(${t.payloadSha256}) = 64`,
+    ),
+    check(
+      "billing_webhook_events_outcome_check",
+      sql`${t.outcome} IN ('applied', 'ignored_stale', 'ignored_unmapped')`,
+    ),
+  ],
+);
+
 export const userPreferences = pgTable("user_preferences", {
   userId: integer("user_id")
     .primaryKey()
