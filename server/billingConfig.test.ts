@@ -54,4 +54,13 @@ describe("billing configuration", () => {
       getBillingConfig({ ...valid, [BILLING_ENV.trialDays]: days }),
     ).toThrow(InvalidBillingConfigError);
   });
+
+  it("rejects an invalid public monthly-price display", () => {
+    expect(() =>
+      getBillingConfig({
+        ...valid,
+        POCKETPULSE_PLUS_MONTHLY_PRICE_CENTS: "free",
+      }),
+    ).toThrow(InvalidBillingConfigError);
+  });
 });

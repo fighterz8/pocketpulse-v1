@@ -88,11 +88,14 @@ import { getEnhancementFeatureFlags } from "./enhancementConfig.js";
 import { summarizeUnresolvedTransactions } from "./enhancementAvailability.js";
 import {
   assertPlusEntitlement,
+  getBillingAccountSummary,
   getBillingEntitlement,
+  type BillingAccountSummary,
   PlusEntitlementRequiredError,
   type BillingEntitlement,
 } from "./billingEntitlements.js";
 import { getBillingConfig, type BillingConfig } from "./billingConfig.js";
+import { getPlusPlan, type PlusPlan } from "./billingPlan.js";
 import {
   BillingWebhookVerificationError,
   type BillingProviderAdapter,
@@ -323,8 +326,11 @@ export type CreateAppOptions = {
   enhancementLeaseProvider?: AiEnhancementLeaseProvider;
   /** Test seam for deterministic entitlement states. Production reads PostgreSQL. */
   billingEntitlementReader?: (userId: number) => Promise<BillingEntitlement>;
+  /** Test seam for account-facing subscription state. */
+  billingAccountReader?: (userId: number) => Promise<BillingAccountSummary>;
   /** Test seams; production uses fail-closed environment config and Stripe adapter. */
   billingConfig?: BillingConfig;
+  plusPlan?: PlusPlan;
   billingProvider?: BillingProviderAdapter;
 };
 
@@ -646,7 +652,13 @@ export function createApp(options?: CreateAppOptions) {
   const isProduction = process.env.NODE_ENV === "production";
   const readBillingEntitlement =
     options?.billingEntitlementReader ?? getBillingEntitlement;
+  const readBillingAccount =
+    options?.billingAccountReader ?? getBillingAccountSummary;
   const billingConfig = options?.billingConfig ?? getBillingConfig();
+  const configuredPlan = options?.plusPlan ?? getPlusPlan();
+  const plusPlan = billingConfig.enabled
+    ? { ...configuredPlan, trialDays: billingConfig.trialDays }
+    : configuredPlan;
   const billingProvider = billingConfig.enabled
     ? options?.billingProvider ?? createStripeBillingProvider(billingConfig)
     : null;
@@ -835,16 +847,39 @@ export function createApp(options?: CreateAppOptions) {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/billing/plan", (_req, res) => {
+    res.json({
+      plan: plusPlan,
+      checkoutAvailable: billingConfig.enabled,
+    });
+  });
+
   app.get("/api/billing/entitlement", requireAuth, async (req, res, next) => {
     try {
-      const entitlement = await readBillingEntitlement(req.session.userId!);
+      const account = await readBillingAccount(req.session.userId!);
+      const entitlement = account.access;
+      const canStartCheckout =
+        billingConfig.enabled &&
+        (entitlement.state === "free" || entitlement.state === "expired");
       res.json({
+        plan: plusPlan,
         access: {
           state: entitlement.state,
           trialAvailable: entitlement.trialAvailable,
           ...(entitlement.expiresAt
             ? { expiresAt: entitlement.expiresAt }
             : {}),
+        },
+        subscription: {
+          cancelAtPeriodEnd: account.cancelAtPeriodEnd,
+          ...(account.trialEndsAt ? { trialEndsAt: account.trialEndsAt } : {}),
+          ...(account.currentPeriodEndsAt
+            ? { currentPeriodEndsAt: account.currentPeriodEndsAt }
+            : {}),
+        },
+        actions: {
+          canStartCheckout,
+          canManageBilling: billingConfig.enabled && account.customerExists,
         },
       });
     } catch (error) {

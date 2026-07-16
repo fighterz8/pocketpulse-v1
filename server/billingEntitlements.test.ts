@@ -6,6 +6,7 @@ import {
   PlusEntitlementRequiredError,
   assertPlusEntitlement,
   resolveBillingEntitlement,
+  resolveBillingAccountSummary,
 } from "./billingEntitlements.js";
 
 const now = new Date("2026-07-16T18:00:00.000Z");
@@ -106,5 +107,31 @@ describe("Plus entitlement resolution", () => {
         entitled: false,
       })),
     ).rejects.toBeInstanceOf(PlusEntitlementRequiredError);
+  });
+
+  it("keeps account-facing renewal and cancellation state separate from authorization", () => {
+    expect(
+      resolveBillingAccountSummary({
+        subscription: {
+          accessState: "active",
+          trialEndsAt: null,
+          currentPeriodEndsAt: new Date("2026-08-16T18:00:00.000Z"),
+          cancelAtPeriodEnd: true,
+        },
+        trialConsumed: true,
+        customerExists: true,
+        now,
+      }),
+    ).toEqual({
+      access: {
+        state: "active",
+        trialAvailable: false,
+        entitled: true,
+        expiresAt: "2026-08-16T18:00:00.000Z",
+      },
+      cancelAtPeriodEnd: true,
+      customerExists: true,
+      currentPeriodEndsAt: "2026-08-16T18:00:00.000Z",
+    });
   });
 });

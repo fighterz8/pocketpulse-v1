@@ -1,10 +1,12 @@
+import { getPlusPlan, PLUS_PLAN_ENV } from "./billingPlan.js";
+
 export const BILLING_ENV = {
   enabled: "POCKETPULSE_BILLING_ENABLED",
   stripeSecretKey: "STRIPE_SECRET_KEY",
   stripeWebhookSecret: "STRIPE_WEBHOOK_SECRET",
   stripePlusPriceId: "STRIPE_PLUS_PRICE_ID",
   appBaseUrl: "POCKETPULSE_APP_BASE_URL",
-  trialDays: "POCKETPULSE_PLUS_TRIAL_DAYS",
+  trialDays: PLUS_PLAN_ENV.trialDays,
 } as const;
 
 export type BillingConfig =
@@ -80,11 +82,12 @@ export function getBillingConfig(
     );
   }
 
-  const rawTrialDays = env[BILLING_ENV.trialDays]?.trim() || "7";
-  const trialDays = Number(rawTrialDays);
-  if (!Number.isSafeInteger(trialDays) || trialDays < 1 || trialDays > 30) {
+  let trialDays: number;
+  try {
+    trialDays = getPlusPlan(env).trialDays;
+  } catch (error) {
     throw new InvalidBillingConfigError(
-      `${BILLING_ENV.trialDays} must be an integer from 1 through 30`,
+      error instanceof Error ? error.message : "Invalid Plus plan configuration",
     );
   }
 

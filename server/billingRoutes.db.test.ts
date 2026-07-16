@@ -68,6 +68,19 @@ describeDatabase("billing routes", () => {
       billingConfig: config,
       billingProvider: adapter,
     });
+    const publicPlan = await request(app).get("/api/billing/plan");
+    expect(publicPlan.status).toBe(200);
+    expect(publicPlan.body).toEqual({
+      plan: {
+        key: "plus",
+        name: "PocketPulse Plus",
+        monthlyPriceCents: 500,
+        currency: "USD",
+        interval: "month",
+        trialDays: 7,
+      },
+      checkoutAvailable: true,
+    });
     const agent = request.agent(app);
     const csrf = (await agent.get("/api/csrf-token")).body.token as string;
     const email = `billing-route-${Date.now()}-${Math.random()}@example.test`;
@@ -174,9 +187,23 @@ describeDatabase("billing routes", () => {
       .send(activePayload);
     expect(duplicate.body).toEqual({ received: true, duplicate: true });
     const entitlement = await agent.get("/api/billing/entitlement");
+    expect(entitlement.status).toBe(200);
+    expect(entitlement.body.plan).toMatchObject({
+      key: "plus",
+      monthlyPriceCents: 500,
+      trialDays: 7,
+    });
     expect(entitlement.body.access).toMatchObject({
       state: "active",
       trialAvailable: false,
+    });
+    expect(entitlement.body.subscription).toMatchObject({
+      cancelAtPeriodEnd: false,
+      currentPeriodEndsAt: "2099-01-01T00:00:00.000Z",
+    });
+    expect(entitlement.body.actions).toEqual({
+      canStartCheckout: false,
+      canManageBilling: true,
     });
 
     const invalid = await request(app)
