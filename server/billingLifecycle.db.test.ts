@@ -14,6 +14,7 @@ const describeDatabase = databaseUrl ? describe : describe.skip;
 
 const config: Extract<BillingConfig, { enabled: true }> = {
   enabled: true,
+  checkoutEnabled: true,
   provider: "stripe",
   stripeSecretKey: "sk_test_lifecycle",
   stripeWebhookSecret: "whsec_lifecycle",
@@ -223,7 +224,7 @@ describeDatabase("billing lifecycle", () => {
     });
   }, 30_000);
 
-  it("atomically grants at most one trial across concurrent checkout requests", async () => {
+  it("atomically reuses one unconsumed trial checkout across concurrent and replacement keys", async () => {
     const userId = await createUser("trial-race");
     const createCheckoutSession = vi.fn(async (request) => ({
       id: `cs_${request.idempotencyKey}`,
@@ -252,7 +253,8 @@ describeDatabase("billing lifecycle", () => {
         adapter,
       }),
     ]);
-    expect(attempts.filter((attempt) => attempt.trialIncluded)).toHaveLength(1);
+    expect(attempts.every((attempt) => attempt.trialIncluded)).toBe(true);
+    expect(new Set(attempts.map((attempt) => attempt.id)).size).toBe(1);
     expect(createCheckoutSession).toHaveBeenCalledTimes(2);
     const trials = await pool.query(
       `SELECT user_id FROM billing_trials WHERE user_id = $1`,
@@ -263,11 +265,12 @@ describeDatabase("billing lifecycle", () => {
     const replay = await service.createHostedCheckout({
       userId,
       email: "race@example.test",
-      idempotencyKey: attempts[0]!.trialIncluded ? "race-a" : "race-b",
+      idempotencyKey: "replacement-tab-key",
       config,
       adapter,
     });
     expect(replay.trialIncluded).toBe(true);
+    expect(replay.id).toBe(attempts[0]!.id);
   }, 30_000);
 
   it("removes private billing projections on account deletion but keeps minimized event receipts", async () => {

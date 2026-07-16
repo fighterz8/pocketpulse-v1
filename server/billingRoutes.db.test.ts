@@ -17,6 +17,7 @@ const describeDatabase = databaseUrl ? describe : describe.skip;
 
 const config: Extract<BillingConfig, { enabled: true }> = {
   enabled: true,
+  checkoutEnabled: true,
   provider: "stripe",
   stripeSecretKey: "sk_test_routes",
   stripeWebhookSecret: "whsec_routes",
@@ -62,6 +63,16 @@ describeDatabase("billing routes", () => {
       createPortalSession,
       verifyAndNormalizeWebhook,
     } satisfies BillingProviderAdapter;
+    const closedCheckoutApp = createApp({
+      sessionStore: new session.MemoryStore(),
+      runStartupJobs: false,
+      billingConfig: { ...config, checkoutEnabled: false },
+      billingProvider: adapter,
+    });
+    const closedPublicPlan = await request(closedCheckoutApp).get("/api/billing/plan");
+    expect(closedPublicPlan.status).toBe(200);
+    expect(closedPublicPlan.body.checkoutAvailable).toBe(false);
+
     const app = createApp({
       sessionStore: new session.MemoryStore(),
       runStartupJobs: false,
@@ -112,6 +123,19 @@ describeDatabase("billing routes", () => {
     expect(createCheckoutSession).toHaveBeenCalledWith(
       expect.objectContaining({ userId, includeTrial: true }),
     );
+
+    config.checkoutEnabled = false;
+    const gatedEntitlement = await agent.get("/api/billing/entitlement");
+    expect(gatedEntitlement.body.actions.canStartCheckout).toBe(false);
+    const gatedCheckout = await agent
+      .post("/api/billing/checkout")
+      .set("X-CSRF-Token", csrf)
+      .set("Idempotency-Key", "route-checkout-gated")
+      .send({});
+    expect(gatedCheckout.status).toBe(503);
+    expect(gatedCheckout.body.code).toBe("BILLING_DISABLED");
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+    config.checkoutEnabled = true;
 
     const portalBeforeCustomer = await agent
       .post("/api/billing/portal")

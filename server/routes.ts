@@ -850,7 +850,8 @@ export function createApp(options?: CreateAppOptions) {
   app.get("/api/billing/plan", (_req, res) => {
     res.json({
       plan: plusPlan,
-      checkoutAvailable: billingConfig.enabled,
+      checkoutAvailable:
+        billingConfig.enabled && billingConfig.checkoutEnabled,
     });
   });
 
@@ -860,6 +861,7 @@ export function createApp(options?: CreateAppOptions) {
       const entitlement = account.access;
       const canStartCheckout =
         billingConfig.enabled &&
+        billingConfig.checkoutEnabled &&
         (entitlement.state === "free" || entitlement.state === "expired");
       res.json({
         plan: plusPlan,
@@ -888,7 +890,11 @@ export function createApp(options?: CreateAppOptions) {
   });
 
   app.post("/api/billing/checkout", requireAuth, async (req, res, next) => {
-    if (!billingConfig.enabled || !billingProvider) {
+    if (
+      !billingConfig.enabled ||
+      !billingConfig.checkoutEnabled ||
+      !billingProvider
+    ) {
       res.status(503).json({
         error: "Billing is not available",
         code: "BILLING_DISABLED",

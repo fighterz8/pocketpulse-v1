@@ -54,13 +54,22 @@ export async function createHostedCheckout(input: {
   const existingReservation =
     reserved.rowCount === 1
       ? null
-      : await pool.query<{ checkout_idempotency_key: string | null }>(
-          `SELECT checkout_idempotency_key FROM billing_trials WHERE user_id = $1`,
+      : await pool.query<{
+          checkout_idempotency_key: string | null;
+          started_at: Date | null;
+        }>(
+          `SELECT checkout_idempotency_key, started_at
+           FROM billing_trials WHERE user_id = $1`,
           [input.userId],
         );
-  const includeTrial =
-    reserved.rowCount === 1 ||
-    existingReservation?.rows[0]?.checkout_idempotency_key === idempotencyKey;
+  const reusableTrialKey =
+    existingReservation?.rows[0]?.started_at === null
+      ? existingReservation.rows[0].checkout_idempotency_key
+      : null;
+  const trialReservationKey =
+    reserved.rowCount === 1 ? idempotencyKey : reusableTrialKey;
+  const includeTrial = trialReservationKey !== null;
+  const providerIdempotencyKey = trialReservationKey ?? idempotencyKey;
 
   try {
     const session = await input.adapter.createCheckoutSession({
@@ -71,14 +80,14 @@ export async function createHostedCheckout(input: {
       appBaseUrl: input.config.appBaseUrl,
       trialDays: input.config.trialDays,
       includeTrial,
-      idempotencyKey: `checkout:${input.userId}:${idempotencyKey}`,
+      idempotencyKey: `checkout:${input.userId}:${providerIdempotencyKey}`,
     });
     if (includeTrial) {
       await pool.query(
         `UPDATE billing_trials SET external_checkout_session_id = $2
          WHERE user_id = $1 AND checkout_idempotency_key = $3
            AND external_checkout_session_id IS NULL`,
-        [input.userId, session.id, idempotencyKey],
+        [input.userId, session.id, providerIdempotencyKey],
       );
     }
     return { ...session, trialIncluded: includeTrial };
@@ -88,7 +97,7 @@ export async function createHostedCheckout(input: {
          `DELETE FROM billing_trials
          WHERE user_id = $1 AND external_checkout_session_id IS NULL
            AND started_at IS NULL AND checkout_idempotency_key = $2`,
-        [input.userId, idempotencyKey],
+        [input.userId, providerIdempotencyKey],
       );
     }
     throw error;

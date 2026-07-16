@@ -2,6 +2,7 @@ import { getPlusPlan, PLUS_PLAN_ENV } from "./billingPlan.js";
 
 export const BILLING_ENV = {
   enabled: "POCKETPULSE_BILLING_ENABLED",
+  checkoutEnabled: "POCKETPULSE_BILLING_CHECKOUT_ENABLED",
   stripeSecretKey: "STRIPE_SECRET_KEY",
   stripeWebhookSecret: "STRIPE_WEBHOOK_SECRET",
   stripePlusPriceId: "STRIPE_PLUS_PRICE_ID",
@@ -13,6 +14,7 @@ export type BillingConfig =
   | { enabled: false }
   | {
       enabled: true;
+      checkoutEnabled: boolean;
       provider: "stripe";
       stripeSecretKey: string;
       stripeWebhookSecret: string;
@@ -44,6 +46,13 @@ export function getBillingConfig(
   if (enabled !== "true") {
     throw new InvalidBillingConfigError(
       `${BILLING_ENV.enabled} must be exactly "true" or "false"`,
+    );
+  }
+
+  const checkoutFlag = env[BILLING_ENV.checkoutEnabled]?.trim();
+  if (checkoutFlag && checkoutFlag !== "true" && checkoutFlag !== "false") {
+    throw new InvalidBillingConfigError(
+      `${BILLING_ENV.checkoutEnabled} must be exactly "true" or "false"`,
     );
   }
 
@@ -93,6 +102,7 @@ export function getBillingConfig(
 
   return {
     enabled: true,
+    checkoutEnabled: checkoutFlag === "true",
     provider: "stripe",
     stripeSecretKey,
     stripeWebhookSecret,

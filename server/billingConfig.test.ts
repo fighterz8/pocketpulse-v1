@@ -22,10 +22,26 @@ describe("billing configuration", () => {
   it("accepts complete sandbox-only configuration", () => {
     expect(getBillingConfig(valid)).toMatchObject({
       enabled: true,
+      checkoutEnabled: false,
       provider: "stripe",
       trialDays: 7,
       appBaseUrl: "https://sandbox.pocketpulse.test",
     });
+  });
+
+  it("keeps checkout behind a separate exact opt-in", () => {
+    expect(
+      getBillingConfig({
+        ...valid,
+        [BILLING_ENV.checkoutEnabled]: "true",
+      }),
+    ).toMatchObject({ enabled: true, checkoutEnabled: true });
+    expect(() =>
+      getBillingConfig({
+        ...valid,
+        [BILLING_ENV.checkoutEnabled]: "yes",
+      }),
+    ).toThrow(InvalidBillingConfigError);
   });
 
   it("rejects live Stripe keys in the Slice 6 foundation", () => {

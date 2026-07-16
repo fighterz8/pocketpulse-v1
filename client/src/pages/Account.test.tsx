@@ -55,6 +55,8 @@ describe("Account billing UX", () => {
     renderAccount();
 
     expect(await screen.findByText("You are using PocketPulse Free")).toBeInTheDocument();
+    expect(screen.getByText("$0")).toBeInTheDocument();
+    expect(screen.getByText("current plan")).toBeInTheDocument();
     expect(screen.getByText(/checkout is not open yet/i)).toBeInTheDocument();
     expect(screen.getByText(/dashboard, ledger, and manual corrections/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start/i })).not.toBeInTheDocument();
@@ -69,7 +71,7 @@ describe("Account billing UX", () => {
       if (url === "/api/csrf-token") return json({ token: "csrf" });
       if (url === "/api/billing/checkout" && init?.method === "POST") {
         expect(new Headers(init.headers).get("Idempotency-Key")).toBeTruthy();
-        return json({ checkoutUrl: "https://checkout.stripe.test/session" }, 201);
+        return json({ checkoutUrl: "https://checkout.stripe.com/session" }, 201);
       }
       return json({ error: `Unhandled ${url}` }, 500);
     });
@@ -81,9 +83,27 @@ describe("Account billing UX", () => {
 
     await waitFor(() =>
       expect(view.redirectToHostedPage).toHaveBeenCalledWith(
-        "https://checkout.stripe.test/session",
+        "https://checkout.stripe.com/session",
       ),
     );
+    expect(window.sessionStorage.getItem("pp_billing_checkout_idempotency")).toBeTruthy();
+  });
+
+  it("does not promise renewal after a trial was already cancelled", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({
+      ...base,
+      access: { state: "trialing", trialAvailable: false },
+      subscription: {
+        cancelAtPeriodEnd: true,
+        trialEndsAt: "2026-07-23T00:00:00.000Z",
+      },
+      actions: { canStartCheckout: false, canManageBilling: true },
+    })));
+    renderAccount();
+
+    expect(await screen.findByText("Your Plus trial will not renew")).toBeInTheDocument();
+    expect(screen.getByText(/trial access remains through July 23, 2026/i)).toBeInTheDocument();
+    expect(screen.queryByText(/renews at/i)).not.toBeInTheDocument();
   });
 
   it("distinguishes renewal from cancellation at period end", async () => {
@@ -117,7 +137,7 @@ describe("Account billing UX", () => {
       });
       if (url === "/api/csrf-token") return json({ token: "csrf" });
       if (url === "/api/billing/portal" && init?.method === "POST") {
-        return json({ portalUrl: "https://billing.stripe.test/session" }, 201);
+        return json({ portalUrl: "https://billing.stripe.com/session" }, 201);
       }
       return json({ error: `Unhandled ${url}` }, 500);
     });
@@ -129,9 +149,10 @@ describe("Account billing UX", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage billing" }));
     await waitFor(() =>
       expect(view.redirectToHostedPage).toHaveBeenCalledWith(
-        "https://billing.stripe.test/session",
+        "https://billing.stripe.com/session",
       ),
     );
+    expect(window.sessionStorage.getItem("pp_billing_portal_idempotency")).toBeNull();
   });
 
   it("rejects a non-HTTPS hosted billing URL", async () => {
@@ -150,6 +171,25 @@ describe("Account billing UX", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Start 7-day trial" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("must use HTTPS");
+    expect(view.redirectToHostedPage).not.toHaveBeenCalled();
+  });
+
+  it("rejects an HTTPS redirect outside Stripe's hosted billing domains", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/billing/entitlement") {
+        return json({ ...base, actions: { canStartCheckout: true, canManageBilling: false } });
+      }
+      if (url === "/api/csrf-token") return json({ token: "csrf" });
+      if (url === "/api/billing/checkout" && init?.method === "POST") {
+        return json({ checkoutUrl: "https://checkout.stripe.com.attacker.test/session" }, 201);
+      }
+      return json({ error: `Unhandled ${url}` }, 500);
+    }));
+    const view = renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start 7-day trial" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("not a trusted Stripe destination");
     expect(view.redirectToHostedPage).not.toHaveBeenCalled();
   });
 });

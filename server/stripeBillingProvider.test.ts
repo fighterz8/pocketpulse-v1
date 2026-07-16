@@ -7,6 +7,7 @@ import { createStripeBillingProvider } from "./stripeBillingProvider.js";
 
 const config: Extract<BillingConfig, { enabled: true }> = {
   enabled: true,
+  checkoutEnabled: true,
   provider: "stripe",
   stripeSecretKey: "sk_test_adapter",
   stripeWebhookSecret: "whsec_adapter",

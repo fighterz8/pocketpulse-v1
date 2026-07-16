@@ -48,6 +48,15 @@ function planStatus(account: BillingAccountResponse): {
 
   switch (account.access.state) {
     case "trialing":
+      if (account.subscription.cancelAtPeriodEnd) {
+        return {
+          label: "Cancelling",
+          title: "Your Plus trial will not renew",
+          body: trialEnd
+            ? `Trial access remains through ${trialEnd}. Your free PocketPulse features and existing data remain afterward.`
+            : "Your free PocketPulse features and existing data remain when the trial ends.",
+        };
+      }
       return {
         label: "Trial",
         title: "Your Plus trial is active",
@@ -157,7 +166,10 @@ export function Account({ redirectToHostedPage = defaultRedirect }: AccountProps
             <span className={`account-status account-status--${account.access.state}`}>{status.label}</span>
             <h2 id="account-plan-title">{status.title}</h2>
           </div>
-          <p className="account-price"><strong>{price}</strong><span>/ month</span></p>
+          <p className="account-price">
+            <strong>{account.access.state === "free" ? "$0" : price}</strong>
+            <span>{account.access.state === "free" ? "current plan" : "/ month"}</span>
+          </p>
         </div>
         <p className="account-plan-copy">{status.body}</p>
 

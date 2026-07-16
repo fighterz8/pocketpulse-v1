@@ -64,8 +64,12 @@ export function useBillingAccount() {
 
 type HostedBillingKind = "checkout" | "portal";
 
+function actionStorageKey(kind: HostedBillingKind): string {
+  return `pp_billing_${kind}_idempotency`;
+}
+
 function actionKey(kind: HostedBillingKind): string {
-  const storageKey = `pp_billing_${kind}_idempotency`;
+  const storageKey = actionStorageKey(kind);
   const existing = window.sessionStorage.getItem(storageKey);
   if (existing) return existing;
   const created = crypto.randomUUID();
@@ -73,7 +77,10 @@ function actionKey(kind: HostedBillingKind): string {
   return created;
 }
 
-function requireSecureHostedUrl(value: unknown): string {
+function requireHostedBillingUrl(
+  value: unknown,
+  kind: HostedBillingKind,
+): string {
   if (typeof value !== "string") throw new Error("Billing page URL is missing");
   let parsed: URL;
   try {
@@ -83,6 +90,16 @@ function requireSecureHostedUrl(value: unknown): string {
   }
   if (parsed.protocol !== "https:") {
     throw new Error("Billing page URL must use HTTPS");
+  }
+  const expectedHostname =
+    kind === "checkout" ? "checkout.stripe.com" : "billing.stripe.com";
+  if (
+    parsed.hostname !== expectedHostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port
+  ) {
+    throw new Error("Billing page URL is not a trusted Stripe destination");
   }
   return parsed.toString();
 }
@@ -97,9 +114,14 @@ async function createHostedBillingPage(kind: HostedBillingKind): Promise<string>
     checkoutUrl?: unknown;
     portalUrl?: unknown;
   };
-  return requireSecureHostedUrl(
+  const url = requireHostedBillingUrl(
     kind === "checkout" ? body.checkoutUrl : body.portalUrl,
+    kind,
   );
+  if (kind === "portal") {
+    window.sessionStorage.removeItem(actionStorageKey(kind));
+  }
+  return url;
 }
 
 export function useHostedBillingPages() {
