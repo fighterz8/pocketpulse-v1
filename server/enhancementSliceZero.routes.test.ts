@@ -278,12 +278,31 @@ describe("enhancement hardening Slice 0 routes", () => {
     );
   });
 
-  it("keeps CSV format assistance behind its separate explicit flag", async () => {
+  it("does not treat the CSV assistance feature flag as user consent", async () => {
     process.env.POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED = "true";
     const agent = await authenticatedAgent();
 
     const response = await agent
       .post("/api/upload")
+      .field("metadata", JSON.stringify({ "mystery.csv": { accountId: 7 } }))
+      .attach(
+        "files",
+        Buffer.from("date,description,amount\n2026-06-01,Mystery,-12"),
+        "mystery.csv",
+      );
+
+    expect(response.status).toBe(201);
+    expect(detectCsvFormat).not.toHaveBeenCalled();
+    expect(runUploadAiWorker).not.toHaveBeenCalled();
+  });
+
+  it("requires both the separate flag and explicit per-request CSV assistance consent", async () => {
+    process.env.POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED = "true";
+    const agent = await authenticatedAgent();
+
+    const response = await agent
+      .post("/api/upload")
+      .field("allowFormatAssistance", "true")
       .field("metadata", JSON.stringify({ "mystery.csv": { accountId: 7 } }))
       .attach(
         "files",

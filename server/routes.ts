@@ -1479,6 +1479,8 @@ export function createApp(options?: CreateAppOptions) {
       try {
         const userId = req.session.userId!;
         const enhancementFlags = getEnhancementFeatureFlags();
+        const allowFormatAssistance =
+          req.body.allowFormatAssistance === "true";
         const files = req.files as Express.Multer.File[] | undefined;
 
         if (!files || files.length === 0) {
@@ -1708,7 +1710,11 @@ export function createApp(options?: CreateAppOptions) {
 
           // 3d. If parse fully failed OR low-confidence, try AI format detection.
           const needsAi = !parseResult.ok || isLowConfidenceParse;
-          if (needsAi && enhancementFlags.csvFormatAssistance) {
+          if (
+            needsAi &&
+            enhancementFlags.csvFormatAssistance &&
+            allowFormatAssistance
+          ) {
             const priorError = parseResult.ok ? null : parseResult.error;
             try {
               const sampleRecords = getSampleRows();
