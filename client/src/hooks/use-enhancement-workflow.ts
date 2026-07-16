@@ -2,11 +2,7 @@ import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "../lib/api";
-import {
-  availableMonthsQueryKey,
-  dashboardSummaryQueryKey,
-} from "./use-dashboard";
-import { transactionsQueryKey } from "./use-transactions";
+import { refreshFinancialDataQueries } from "../lib/financialDataQueries";
 
 export type EnhancementAccessState =
   | "free"
@@ -208,10 +204,7 @@ export function useEnhancementWorkflow(uploadId: number) {
       queryClient.setQueryData(enhancementJobKey(job.id), { job });
       if (job.completedMerchants > completedBeforeBatchRef.current) {
         completedBeforeBatchRef.current = job.completedMerchants;
-        void queryClient.invalidateQueries({ queryKey: transactionsQueryKey });
-        void queryClient.invalidateQueries({ queryKey: availableMonthsQueryKey });
-        void queryClient.invalidateQueries({ queryKey: dashboardSummaryQueryKey });
-        void queryClient.invalidateQueries({ queryKey: ["/api/recurring-candidates"] });
+        void refreshFinancialDataQueries(queryClient);
       }
       if (!isRunning(job.status)) {
         void queryClient.invalidateQueries({ queryKey: availabilityKey });

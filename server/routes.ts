@@ -1957,6 +1957,13 @@ export function createApp(options?: CreateAppOptions) {
           return;
         }
         const flags = getEnhancementFeatureFlags();
+        const accessPromise: Promise<BillingEntitlement> = billingConfig.enabled
+          ? readBillingEntitlement(req.session.userId!)
+          : Promise.resolve({
+              state: "free",
+              trialAvailable: true,
+              entitled: false,
+            });
         const [availability, access] = await Promise.all([
           getAiEnhancementAvailability({
             userId: req.session.userId!,
@@ -1964,7 +1971,7 @@ export function createApp(options?: CreateAppOptions) {
             featureEnabled: flags.transactionEnhancement,
             providerAvailable: Boolean(process.env.OPENAI_API_KEY?.trim()),
           }),
-          readBillingEntitlement(req.session.userId!),
+          accessPromise,
         ]);
         res.json({
           ...availability,

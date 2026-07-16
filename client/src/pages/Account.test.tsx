@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearCsrfToken } from "../lib/api";
+import { financialDataQueryRoots } from "../lib/financialDataQueries";
 import { Account } from "./Account";
 
 function json(body: unknown, status = 200): Response {
@@ -34,6 +35,7 @@ function renderAccount(
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
   return {
+    client,
     redirectToHostedPage,
     redirectAfterAccountDeletion,
     ...render(
@@ -101,6 +103,39 @@ describe("Account billing UX", () => {
     await waitFor(() => {
       expect(view.redirectAfterAccountDeletion).toHaveBeenCalledOnce();
     });
+  });
+
+  it("discards every stale financial view immediately after wiping imported data", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/billing/entitlement") return json(base);
+      if (url === "/api/csrf-token") return json({ token: "csrf" });
+      if (url === "/api/transactions" && init?.method === "DELETE") {
+        expect(init.body).toBe(JSON.stringify({ confirm: true }));
+        return json({ message: "Transactions and uploads deleted" });
+      }
+      return json({ error: `Unhandled ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const view = renderAccount();
+    const cachedKeys = [
+      ...financialDataQueryRoots,
+      ["enhancement-availability", 42] as const,
+      ["enhancement-job", 91] as const,
+      ["active-enhancement-job"] as const,
+    ];
+    for (const queryKey of cachedKeys) {
+      view.client.setQueryData(queryKey, { stale: true });
+    }
+
+    await screen.findByText("You are using PocketPulse Free");
+    fireEvent.click(screen.getByRole("button", { name: "Wipe imported data" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm data wipe" }));
+
+    expect(await screen.findByText("Imported data deleted.")).toBeInTheDocument();
+    for (const queryKey of cachedKeys) {
+      expect(view.client.getQueryData(queryKey)).toBeUndefined();
+    }
   });
 
   it("discloses trial conversion before opening hosted checkout", async () => {

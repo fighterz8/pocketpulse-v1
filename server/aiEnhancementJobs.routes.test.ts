@@ -136,8 +136,51 @@ describeDatabase("AI enhancement job routes", () => {
       unresolvedTransactionCount: 3,
       unresolvedMerchantCount: 2,
       blockedReason: "FEATURE_DISABLED",
-      access: { state: "active", trialAvailable: false },
+      access: { state: "free", trialAvailable: true },
     });
+  });
+
+  it("projects Free access without reading billing tables when billing is disabled", async () => {
+    const billingReader = vi.fn(async (): Promise<BillingEntitlement> => {
+      throw new Error("disabled billing must not read optional tables");
+    });
+    const application = createApp({
+      sessionStore: new session.MemoryStore(),
+      runStartupJobs: false,
+      billingConfig: { enabled: false },
+      billingEntitlementReader: billingReader,
+    });
+    const agent = request.agent(application);
+    const csrf = (await agent.get("/api/csrf-token")).body.token as string;
+    const email = `enhancement-disabled-billing-${crypto.randomUUID()}@example.test`;
+    expect((await agent
+      .post("/api/auth/register")
+      .set("X-CSRF-Token", csrf)
+      .send({
+        email,
+        password: "secure-password-99",
+        displayName: "Disabled Billing Enhancement Test",
+      })).status).toBe(201);
+    const user = await pool.query<{ id: number }>(
+      `SELECT id FROM users WHERE email = $1`,
+      [email],
+    );
+    const upload = await createUpload(user.rows[0]!.id);
+    delete process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED;
+    delete process.env.OPENAI_API_KEY;
+
+    const response = await agent.get(
+      `/api/uploads/${upload.uploadId}/enhancement`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      uploadId: upload.uploadId,
+      state: "blocked",
+      blockedReason: "FEATURE_DISABLED",
+      access: { state: "free", trialAvailable: true },
+    });
+    expect(billingReader).not.toHaveBeenCalled();
   });
 
   it("denies job creation to a free user without creating provider work", async () => {

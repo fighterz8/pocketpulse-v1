@@ -51,7 +51,7 @@ function AccessExplanation({
       <p className="enhancement-copy">
         {needsRecovery
           ? "Plus access needs attention. Enhancement stays paused, while your imported data and corrections remain available."
-          : "PocketPulse Plus is planned to review unresolved merchants and apply the result to matching transactions. Free imports and manual corrections stay available."}
+          : "Automatic merchant enhancement requires PocketPulse Plus. Your imported transactions are already available, and Free includes manual corrections."}
       </p>
       <PlanLink recovery={needsRecovery} />
       <ManualReviewLink surface={surface} />

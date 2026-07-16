@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { dashboardSummaryQueryKey, availableMonthsQueryKey } from "../../hooks/use-dashboard";
-import { transactionsQueryKey } from "../../hooks/use-transactions";
-import { uploadsQueryKey } from "../../hooks/use-uploads";
 import { apiFetch, readJsonError } from "../../lib/api";
+import { clearImportedDataQueries } from "../../lib/financialDataQueries";
 
 type AccountDataControlsProps = {
   hasLiveBilling: boolean;
@@ -37,15 +35,11 @@ export function AccountDataControls({
       return response.json();
     },
     onSuccess: () => {
+      // Imported rows and uploads are gone, so discard every derived cache
+      // before the user can navigate back to a financial page.
+      clearImportedDataQueries(queryClient);
       setWipeConfirm(false);
       setWipeComplete(true);
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: transactionsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: uploadsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: dashboardSummaryQueryKey }),
-        queryClient.invalidateQueries({ queryKey: availableMonthsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: ["/api/recurring-candidates"] }),
-      ]);
     },
   });
 

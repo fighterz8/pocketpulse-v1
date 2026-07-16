@@ -57,6 +57,9 @@ describe("EnhancementPanel", () => {
     const panel = await screen.findByTestId("enhancement-panel");
     expect(panel).toHaveTextContent("3 merchants need review");
     expect(panel).toHaveTextContent("PocketPulse Plus");
+    expect(panel).toHaveTextContent("requires PocketPulse Plus");
+    expect(panel).not.toHaveTextContent("Enhancement status unavailable");
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Compare Free and Plus" })).toHaveAttribute(
       "href",
       "/pricing",

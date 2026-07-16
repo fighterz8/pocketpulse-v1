@@ -4,7 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { apiFetch } from "../lib/api";
-import { availableMonthsQueryKey, dashboardSummaryQueryKey } from "./use-dashboard";
+import { refreshFinancialDataQueries } from "../lib/financialDataQueries";
 
 export const uploadsQueryKey = ["uploads"] as const;
 
@@ -87,13 +87,10 @@ export function useUploads() {
       if (!res.ok) throw new Error(await readJsonError(res));
       return res.json() as Promise<{ results: UploadFileResult[] }>;
     },
-    onSuccess: () => {
-      // Invalidate all data-dependent caches so new transactions surface immediately
-      void queryClient.invalidateQueries({ queryKey: uploadsQueryKey });
-      void queryClient.invalidateQueries({ queryKey: availableMonthsQueryKey });
-      void queryClient.invalidateQueries({ queryKey: dashboardSummaryQueryKey });
-      void queryClient.invalidateQueries({ queryKey: ["/api/recurring-candidates"] });
-    },
+    // Keep the mutation pending until all previously visited financial views
+    // have refetched. Navigating immediately after import must never reveal the
+    // pre-import Dashboard, Ledger, or Leak Hunter cache.
+    onSuccess: () => refreshFinancialDataQueries(queryClient),
   });
 
   return {
