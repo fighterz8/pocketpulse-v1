@@ -75,6 +75,12 @@ Optional:
 | `POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED` | Reserved opt-in transaction enhancement switch; defaults to `false` |
 | `POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED` | Allows the legacy CSV-format fallback; defaults to `false` |
 | `POCKETPULSE_FULL_RECLASSIFY_ENABLED` | Allows dev-authorized full-history reclassification; defaults to `false` |
+| `POCKETPULSE_BILLING_ENABLED` | Enables the Slice 6 hosted billing adapter; defaults to `false` and currently accepts Stripe sandbox credentials only |
+| `STRIPE_SECRET_KEY` | Stripe `sk_test_...` key required only when sandbox billing is enabled; live keys are rejected |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for the sandbox webhook endpoint at `/api/billing/webhooks/stripe` |
+| `STRIPE_PLUS_PRICE_ID` | Sandbox recurring Price ID for the working PocketPulse Plus hypothesis |
+| `POCKETPULSE_APP_BASE_URL` | Absolute HTTPS return origin for hosted Checkout/Portal (`http://localhost` is allowed in development) |
+| `POCKETPULSE_PLUS_TRIAL_DAYS` | One-trial duration from 1–30 days; defaults to `7` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Enables Google sign-in/sign-up. Add `${APP_ORIGIN}/api/auth/google/callback` as an authorized redirect URI in Google Cloud Console. |
 | `POCKETPULSE_DEV_TOOLS` | Set to `1` to enable the internal classifier lab routes/UI |
 | `POCKETPULSE_DEV_EMAILS` | Comma-separated email allowlist for classifier lab access |
