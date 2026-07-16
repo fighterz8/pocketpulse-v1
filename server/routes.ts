@@ -100,6 +100,13 @@ import {
   getAiEnhancementJobForUser,
 } from "./aiEnhancementJobs.js";
 import {
+  processAiEnhancementBatch,
+} from "./aiEnhancementProcessor.js";
+import {
+  createOpenAiChatTransport,
+  type OpenAiChatTransport,
+} from "./openaiProvider.js";
+import {
   assertResendSendSucceeded,
   formatFromEmail,
   getUncachableResendClient,
@@ -278,6 +285,8 @@ export type CreateAppOptions = {
   sessionStore?: session.Store;
   /** Run process-level maintenance jobs after app creation. Disable for serverless. */
   runStartupJobs?: boolean;
+  /** Test-only provider injection. Production constructs the bounded adapter lazily. */
+  enhancementTransport?: OpenAiChatTransport;
 };
 
 function defaultSessionStore() {
@@ -1832,6 +1841,55 @@ export function createApp(options?: CreateAppOptions) {
           jobId,
         });
         res.json({ job });
+      } catch (error) {
+        if (!sendEnhancementError(error, res)) next(error);
+      }
+    },
+  );
+
+  /** Process at most one durable enhancement batch. No UI invokes this in Slice 3. */
+  app.post(
+    "/api/enhancement-jobs/:id/batches",
+    requireAuth,
+    async (req, res, next) => {
+      try {
+        const flags = getEnhancementFeatureFlags();
+        if (!flags.transactionEnhancement) {
+          res.status(503).json({
+            error: "Transaction enhancement is not available",
+            code: "FEATURE_DISABLED",
+          });
+          return;
+        }
+        const apiKey = process.env.OPENAI_API_KEY?.trim();
+        if (!apiKey) {
+          res.status(503).json({
+            error: "Transaction enhancement is temporarily unavailable",
+            code: "PROVIDER_UNAVAILABLE",
+          });
+          return;
+        }
+        const jobId = parsePositiveRouteId(req.params.id);
+        if (jobId === null) {
+          res.status(400).json({ error: "Invalid enhancement job id" });
+          return;
+        }
+        const body = req.body as Record<string, unknown> | undefined;
+        if (body && Object.keys(body).length > 0) {
+          res.status(400).json({
+            error: "This request does not accept a body",
+            code: "INVALID_REQUEST",
+          });
+          return;
+        }
+        const result = await processAiEnhancementBatch({
+          userId: req.session.userId!,
+          jobId,
+          transport:
+            options?.enhancementTransport ?? createOpenAiChatTransport(apiKey),
+          providerEnabled: true,
+        });
+        res.json(result);
       } catch (error) {
         if (!sendEnhancementError(error, res)) next(error);
       }

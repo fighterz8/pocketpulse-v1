@@ -3,7 +3,8 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import session from "express-session";
 import pg from "pg";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import type { OpenAiChatTransport } from "./openaiProvider.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -27,15 +28,16 @@ describeDatabase("AI enhancement job routes", () => {
     await pool?.end();
   });
 
-  function app() {
+  function app(enhancementTransport?: OpenAiChatTransport) {
     return createApp({
       sessionStore: new session.MemoryStore(),
       runStartupJobs: false,
+      enhancementTransport,
     });
   }
 
-  async function register() {
-    const agent = request.agent(app());
+  async function register(enhancementTransport?: OpenAiChatTransport) {
+    const agent = request.agent(app(enhancementTransport));
     const csrf = (await agent.get("/api/csrf-token")).body.token as string;
     const email = `enhancement-route-${crypto.randomUUID()}@example.test`;
     const registration = await agent
@@ -190,5 +192,96 @@ describeDatabase("AI enhancement job routes", () => {
       .send({ uploadId: upload.uploadId });
     expect(response.status).toBe(503);
     expect(response.body.code).toBe("FEATURE_DISABLED");
+  });
+
+  it("processes one authenticated batch through the injected bounded transport", async () => {
+    const transport: OpenAiChatTransport = vi.fn(async (body) => {
+      const input = JSON.parse(body.messages[1]!.content) as {
+        transactions: Array<{ itemId: number }>;
+      };
+      return {
+        _request_id: `req_route_${crypto.randomUUID()}`,
+        choices: [{
+          finish_reason: "stop",
+          message: {
+            refusal: null,
+            content: JSON.stringify({
+              results: input.transactions.map(({ itemId }) => ({
+                itemId,
+                category: "software",
+                transactionClass: "expense",
+                recurrenceType: "recurring",
+                labelConfidence: 0.92,
+                labelReason: "Recognized recurring software charge",
+              })),
+            }),
+          },
+        }],
+        usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 },
+      };
+    });
+    const application = createApp({
+      sessionStore: new session.MemoryStore(),
+      runStartupJobs: false,
+      enhancementTransport: transport,
+    });
+    const agent = request.agent(application);
+    const csrf = (await agent.get("/api/csrf-token")).body.token as string;
+    const email = `enhancement-batch-${crypto.randomUUID()}@example.test`;
+    expect((await agent.post("/api/auth/register").set("X-CSRF-Token", csrf).send({
+      email,
+      password: "secure-password-99",
+      displayName: "Enhancement Batch Route",
+    })).status).toBe(201);
+    const user = await pool.query<{ id: number }>(`SELECT id FROM users WHERE email = $1`, [email]);
+    const upload = await createUpload(user.rows[0]!.id);
+    process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED = "true";
+    process.env.OPENAI_API_KEY = "configured-but-mocked";
+    const created = await agent
+      .post("/api/enhancement-jobs")
+      .set("X-CSRF-Token", csrf)
+      .set("Idempotency-Key", `batch-route-${upload.uploadId}`)
+      .send({ uploadId: upload.uploadId });
+
+    const processed = await agent
+      .post(`/api/enhancement-jobs/${created.body.job.id}/batches`)
+      .set("X-CSRF-Token", csrf)
+      .send({});
+
+    expect(processed.status).toBe(200);
+    expect(processed.body.job.status).toBe("complete");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps batch processing owner-isolated and fail-closed when disabled", async () => {
+    const transport: OpenAiChatTransport = vi.fn(async () => {
+      throw new Error("provider must not be called");
+    });
+    const actor = await register(transport);
+    const stranger = await register(transport);
+    const upload = await createUpload(actor.userId);
+    process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED = "true";
+    process.env.OPENAI_API_KEY = "configured-but-mocked";
+    const created = await actor.agent
+      .post("/api/enhancement-jobs")
+      .set("X-CSRF-Token", actor.csrf)
+      .set("Idempotency-Key", `isolation-route-${upload.uploadId}`)
+      .send({ uploadId: upload.uploadId });
+    const jobId = created.body.job.id as number;
+
+    const crossUser = await stranger.agent
+      .post(`/api/enhancement-jobs/${jobId}/batches`)
+      .set("X-CSRF-Token", stranger.csrf)
+      .send({});
+    expect(crossUser.status).toBe(404);
+
+    process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED = "false";
+    const disabled = await actor.agent
+      .post(`/api/enhancement-jobs/${jobId}/batches`)
+      .set("X-CSRF-Token", actor.csrf)
+      .send({});
+    expect(disabled.status).toBe(503);
+    expect(disabled.body.code).toBe("FEATURE_DISABLED");
+    expect(transport).not.toHaveBeenCalled();
   });
 });
