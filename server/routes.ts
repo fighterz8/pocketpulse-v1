@@ -96,6 +96,7 @@ import {
   AiEnhancementUploadNotReadyError,
   cancelAiEnhancementJob,
   createAiEnhancementJob,
+  getActiveAiEnhancementJobForUser,
   getAiEnhancementAvailability,
   getAiEnhancementJobForUser,
 } from "./aiEnhancementJobs.js";
@@ -1789,6 +1790,16 @@ export function createApp(options?: CreateAppOptions) {
       res.status(202).json({ job });
     } catch (error) {
       if (!sendEnhancementError(error, res)) next(error);
+    }
+  });
+
+  /** Read-only resume pointer. Never starts or advances provider work. */
+  app.get("/api/enhancement-jobs/active", requireAuth, async (req, res, next) => {
+    try {
+      const job = await getActiveAiEnhancementJobForUser(req.session.userId!);
+      res.json({ job });
+    } catch (error) {
+      next(error);
     }
   });
 

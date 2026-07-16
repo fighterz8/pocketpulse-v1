@@ -24,6 +24,18 @@ function mockFetch(url: string) {
         }),
     });
   }
+  if (url === "/api/uploads") {
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ uploads: [] }),
+    });
+  }
+  if (url === "/api/enhancement-jobs/active") {
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ job: null }),
+    });
+  }
   if (typeof url === "string" && url.startsWith("/api/transactions")) {
     return Promise.resolve({
       ok: true,
@@ -153,5 +165,85 @@ describe("Ledger page", () => {
     const content = await screen.findByTestId("hint-export-csv");
     expect(content).toHaveTextContent(/download/i);
     expect(content).toHaveTextContent(/csv/i);
+  });
+
+  it("shows the latest import enhancement surface without legacy worker polling", async () => {
+    const fetchSpy = vi.fn((url: string) => {
+      if (url === "/api/uploads") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            uploads: [
+              { id: 9, userId: 1, accountId: 1, filename: "june.csv", rowCount: 5, status: "complete", errorMessage: null, uploadedAt: "2026-07-15T12:00:00Z" },
+            ],
+          }),
+        });
+      }
+      if (url === "/api/enhancement-jobs/active") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ job: null }) });
+      }
+      if (url === "/api/uploads/9/enhancement") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            uploadId: 9,
+            state: "blocked",
+            unresolvedTransactionCount: 4,
+            unresolvedMerchantCount: 2,
+            blockedReason: "FEATURE_DISABLED",
+          }),
+        });
+      }
+      return mockFetch(url);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderLedger();
+
+    expect(await screen.findByTestId("ledger-enhancement-surface")).toHaveTextContent("Latest import · june.csv");
+    expect(await screen.findByRole("heading", { name: /2 merchants need review/i })).toBeInTheDocument();
+    expect(fetchSpy.mock.calls.some(([url]) => url === "/api/uploads/ai-status")).toBe(false);
+  });
+
+  it("prefers an older durable active job over the latest completed upload", async () => {
+    const fetchSpy = vi.fn((url: string) => {
+      if (url === "/api/uploads") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            uploads: [
+              { id: 9, userId: 1, accountId: 1, filename: "latest.csv", rowCount: 2, status: "complete", errorMessage: null, uploadedAt: "2026-07-15T12:00:00Z" },
+              { id: 4, userId: 1, accountId: 1, filename: "active.csv", rowCount: 6, status: "complete", errorMessage: null, uploadedAt: "2026-07-14T12:00:00Z" },
+            ],
+          }),
+        });
+      }
+      if (url === "/api/enhancement-jobs/active") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ job: { id: 77, uploadId: 4, status: "budget_blocked", totalMerchants: 3, completedMerchants: 1, skippedMerchants: 0, failedMerchants: 0, progress: 33 } }),
+        });
+      }
+      if (url === "/api/uploads/4/enhancement") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ uploadId: 4, state: "active", activeJobId: 77, unresolvedTransactionCount: 2, unresolvedMerchantCount: 2, access: { state: "active", trialAvailable: false } }),
+        });
+      }
+      if (url === "/api/enhancement-jobs/77") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ job: { id: 77, uploadId: 4, status: "budget_blocked", totalMerchants: 3, completedMerchants: 1, skippedMerchants: 0, failedMerchants: 0, progress: 33 } }),
+        });
+      }
+      return mockFetch(url);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderLedger();
+
+    expect(await screen.findByTestId("ledger-enhancement-surface")).toHaveTextContent("Active review · active.csv");
+    expect(await screen.findByText("Monthly enhancement allowance reached")).toBeInTheDocument();
+    expect(fetchSpy.mock.calls.some(([url]) => url === "/api/uploads/9/enhancement")).toBe(false);
   });
 });

@@ -77,7 +77,7 @@ body {
 }
 
 .app-sidebar-brand {
-  /* Thin positioning shell; BrandPulse manages its own internal layout. */
+  /* Thin positioning shell for the brand mark. */
   padding: 0 0.2rem;
 }
 
@@ -1221,6 +1221,213 @@ html.dark .upload-results-skipped {
 .upload-result-warnings ul {
   margin: 0.25rem 0 0;
   padding-left: 1.25rem;
+}
+
+/* ── Enhancement workflow ───────────────────────────────────────────────── */
+
+.enhancement-panel {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, #94a3b8 24%, transparent);
+}
+
+.enhancement-eyebrow {
+  margin-bottom: 0.25rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.enhancement-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.enhancement-copy,
+.enhancement-detail,
+.enhancement-trial-note,
+.enhancement-error {
+  margin: 0.45rem 0 0;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.enhancement-trial-note {
+  color: #0369a1;
+  font-weight: 600;
+}
+
+.enhancement-error {
+  color: #b91c1c;
+}
+
+.enhancement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.enhancement-button,
+.enhancement-manual-link {
+  min-height: 2.75rem;
+  border-radius: 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.enhancement-button {
+  border: 1px solid transparent;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+}
+
+.enhancement-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.enhancement-button--primary {
+  color: #fff;
+  background: #2563eb;
+}
+
+.enhancement-button--secondary {
+  color: #334155;
+  background: #fff;
+  border-color: #cbd5e1;
+}
+
+.enhancement-manual-link {
+  display: inline-flex;
+  align-items: center;
+  color: #475569;
+  text-decoration: none;
+  padding: 0.5rem 0.15rem;
+}
+
+.enhancement-button:focus-visible,
+.enhancement-manual-link:focus-visible {
+  outline: 3px solid rgb(14 165 233 / 0.42);
+  outline-offset: 2px;
+}
+
+.ledger-enhancement-card {
+  margin-bottom: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.ledger-enhancement-context {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger-enhancement-card .enhancement-panel {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+}
+
+.enhancement-manual-link:hover {
+  color: #0369a1;
+  text-decoration: underline;
+}
+
+.enhancement-progress {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.enhancement-progress-track {
+  width: 100%;
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.enhancement-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #22c55e;
+}
+
+.enhancement-progress-label {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.enhancement-skeleton {
+  width: 100%;
+  height: 4.75rem;
+  border-radius: 0.45rem;
+  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background-size: 200% 100%;
+  animation: upload-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes upload-skeleton {
+  to { background-position: -200% 0; }
+}
+
+html.dark .enhancement-panel {
+  border-color: color-mix(in srgb, #94a3b8 26%, transparent);
+}
+
+html.dark .enhancement-eyebrow,
+html.dark .enhancement-progress-label {
+  color: #94a3b8;
+}
+
+html.dark .enhancement-title {
+  color: #e2e8f0;
+}
+
+html.dark .enhancement-copy,
+html.dark .enhancement-detail,
+html.dark .enhancement-manual-link {
+  color: #cbd5e1;
+}
+
+html.dark .enhancement-trial-note {
+  color: #7dd3fc;
+}
+
+html.dark .enhancement-error {
+  color: #fca5a5;
+}
+
+html.dark .enhancement-button--secondary {
+  color: #e2e8f0;
+  background: #1e293b;
+  border-color: #475569;
+}
+
+html.dark .enhancement-progress-track {
+  background: #334155;
+}
+
+html.dark .ledger-enhancement-context {
+  color: #94a3b8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enhancement-skeleton {
+    animation: none;
+  }
 }
 
 /* ── Inline new-account form (Upload page) ───────────────────────────────── */
@@ -5170,8 +5377,7 @@ html.dark .acc-stale-body {
 }
 
 .mobile-header-brand {
-  /* Centred positioning shell only; BrandPulse handles its own
-     vertical stack (logo+wordmark on top, subtext below). */
+  /* Centred positioning shell for the compact brand mark. */
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -5339,12 +5545,7 @@ html.dark .mobile-hamburger:hover {
 }
 
 
-/* ─── AI enhancement pulse badge ──────────────────────────────────── */
-
-/* ── Brand-integrated AI pulse ─────────────────────────────────────────────
-   Replaces the former standalone AiEnhancementBadge: the PocketPulse
-   logo + wordmark *are* the badge, pulsing while the async AI worker is
-   running and quieting back to rest on completion. */
+/* ── Stable navigation brand mark ───────────────────────────────────────── */
 
 .brand-pulse-block {
   position: relative;
@@ -5371,214 +5572,7 @@ html.dark .mobile-hamburger:hover {
   width: 2rem;
   height: 0.9rem;
   filter: drop-shadow(0 0 4px rgb(14 165 233 / 0.45));
-  transform-origin: center;
-  transition: filter 250ms ease, transform 250ms ease;
 }
-
-/* Active: SVG glow + breathing scale, wordmark text-shadow pulse. */
-.brand-pulse-block--active .brand-pulse-logo {
-  animation: brand-pulse-glow 1.6s ease-in-out infinite;
-}
-.brand-pulse-block--active .app-nav-brand {
-  animation: brand-pulse-text-glow 1.6s ease-in-out infinite;
-}
-
-/* Terminal states: pulse stops, halo holds a coloured ring for the
-   duration the subtext is visible (handled by the subtext fade). */
-.brand-pulse-block--complete .brand-pulse-logo {
-  filter: drop-shadow(0 0 6px rgb(34 197 94 / 0.65));
-}
-.brand-pulse-block--failed .brand-pulse-logo {
-  filter: drop-shadow(0 0 6px rgb(239 68 68 / 0.6));
-}
-
-@keyframes brand-pulse-glow {
-  0%, 100% {
-    filter: drop-shadow(0 0 2px rgb(14 165 233 / 0.25));
-    transform: scale(1);
-  }
-  50% {
-    filter: drop-shadow(0 0 18px rgb(56 189 248 / 1))
-            drop-shadow(0 0 32px rgb(37 99 235 / 0.75));
-    transform: scale(1.14);
-  }
-}
-
-@keyframes brand-pulse-text-glow {
-  0%, 100% { text-shadow: 0 0 0 transparent; }
-  50%      { text-shadow: 0 0 14px rgb(56 189 248 / 0.85), 0 0 28px rgb(37 99 235 / 0.4); }
-}
-
-.brand-pulse-subtext {
-  display: inline-block;
-  max-width: 100%;
-  /* Reserve a stable line-box so the brand block's height never
-     changes between idle and non-idle states (no layout shift on the
-     sidebar or mobile header when AI work starts/stops). */
-  min-height: 0.84rem;
-  font-size: 0.7rem;
-  font-weight: 500;
-  line-height: 1.2;
-  color: #475569;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  animation: brand-pulse-subtext-fade 240ms ease both;
-}
-
-/* Idle slot: invisible to sighted users, hidden from a11y at the DOM
-   level — present purely to hold the vertical space. */
-.brand-pulse-subtext--placeholder {
-  visibility: hidden;
-  animation: none;
-}
-
-.brand-pulse-block--complete .brand-pulse-subtext {
-  color: #15803d;
-  animation: brand-pulse-subtext-flash 2s ease forwards;
-}
-
-.brand-pulse-block--failed .brand-pulse-subtext {
-  color: #b91c1c;
-  animation: brand-pulse-subtext-flash 4s ease forwards;
-}
-
-@keyframes brand-pulse-subtext-fade {
-  from { opacity: 0; transform: translateY(-2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes brand-pulse-subtext-flash {
-  0%   { opacity: 0; transform: translateY(-2px); }
-  10%  { opacity: 1; transform: translateY(0); }
-  85%  { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-.brand-pulse-block--compact .brand-pulse-subtext {
-  font-size: 0.62rem;
-}
-
-/* Reduced-motion users get a static glow + the subtext, no pulse and
-   no breathing scale. The badge is still readable and they still know
-   AI is working. */
-@media (prefers-reduced-motion: reduce) {
-  .brand-pulse-block--active .brand-pulse-logo,
-  .brand-pulse-block--active .app-nav-brand,
-  .brand-pulse-subtext,
-  .brand-pulse-block--complete .brand-pulse-subtext,
-  .brand-pulse-block--failed .brand-pulse-subtext {
-    animation: none;
-  }
-  .brand-pulse-block--active .brand-pulse-logo {
-    filter: drop-shadow(0 0 8px rgb(56 189 248 / 0.85));
-    transform: none;
-  }
-  .brand-pulse-subtext {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* Tooltip: per-upload progress, hover/focus only.
-   Desktop uses fixed positioning so the sidebar's scroll container cannot
-   clip the right edge of longer status rows. */
-.ai-pulse-tooltip {
-  position: fixed;
-  top: 4.35rem;
-  left: 1.3rem;
-  z-index: 50;
-  width: min(22rem, calc(100vw - 2rem));
-  min-width: min(16rem, calc(100vw - 2rem));
-  max-width: calc(100vw - 2rem);
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.65rem;
-  background: rgb(255 255 255 / 0.97);
-  border: 1px solid rgb(15 23 42 / 0.1);
-  box-shadow: 0 8px 28px rgb(15 23 42 / 0.18);
-  color: #0f172a;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 140ms ease, transform 140ms ease;
-}
-
-.brand-pulse-block:hover .ai-pulse-tooltip,
-.brand-pulse-block:focus-within .ai-pulse-tooltip {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-/* Compact (mobile) tooltip: anchor to the centred brand block. */
-.brand-pulse-block--compact .ai-pulse-tooltip {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  left: 50%;
-  transform: translate(-50%, -4px);
-}
-.brand-pulse-block--compact:hover .ai-pulse-tooltip,
-.brand-pulse-block--compact:focus-within .ai-pulse-tooltip {
-  transform: translate(-50%, 0);
-}
-
-.ai-pulse-tooltip-title {
-  margin: 0 0 0.45rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #475569;
-}
-
-.ai-pulse-tooltip-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  max-height: 14rem;
-  overflow-y: auto;
-}
-
-.ai-pulse-tooltip-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
-.ai-pulse-tooltip-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #0f172a;
-}
-
-.ai-pulse-tooltip-progress {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-  color: #475569;
-}
-
-/* Dark-mode polish */
-html.dark .brand-pulse-subtext { color: #94a3b8; }
-html.dark .brand-pulse-block--complete .brand-pulse-subtext { color: #86efac; }
-html.dark .brand-pulse-block--failed   .brand-pulse-subtext { color: #fca5a5; }
-html.dark .ai-pulse-tooltip {
-  background: #1e293b;
-  border-color: rgb(255 255 255 / 0.08);
-  color: #e2e8f0;
-}
-html.dark .ai-pulse-tooltip-title    { color: #94a3b8; }
-html.dark .ai-pulse-tooltip-name     { color: #f1f5f9; }
-html.dark .ai-pulse-tooltip-progress { color: #94a3b8; }
 
 /* ─── Reusable tooltip primitive ─────────────────────────────────────────
    Used app-wide via @radix-ui/react-tooltip. Styled to match the dark

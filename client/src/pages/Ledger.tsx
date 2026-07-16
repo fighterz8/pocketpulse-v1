@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { useAuth } from "../hooks/use-auth";
+import { EnhancementPanel } from "../components/enhancement/EnhancementPanel";
 import { Hint } from "../components/ui/tooltip";
 import {
   useTransactions,
@@ -9,7 +10,8 @@ import {
   type TransactionFilters,
   type UpdateTransactionInput,
 } from "../hooks/use-transactions";
-import { useAiEnhancementStatus } from "../hooks/use-ai-enhancement-status";
+import { useUploads } from "../hooks/use-uploads";
+import { useActiveEnhancementJob } from "../hooks/use-enhancement-workflow";
 import { V1_CATEGORIES } from "../../../shared/schema";
 
 const CLASS_OPTIONS = ["income", "expense", "transfer", "refund"] as const;
@@ -58,7 +60,15 @@ function currency(n: number): string {
 
 export function Ledger() {
   const { accounts } = useAuth();
+  const { uploads } = useUploads();
+  const activeEnhancementJob = useActiveEnhancementJob().data?.job;
   const [location, setLocation] = useLocation();
+  const latestCompletedUpload = uploads?.find(
+    (upload) => upload.status === "complete" && upload.rowCount > 0,
+  );
+  const enhancementUpload = activeEnhancementJob
+    ? uploads?.find((upload) => upload.id === activeEnhancementJob.uploadId)
+    : latestCompletedUpload;
 
   // Initialise filters from URL search params so dashboard cards can deep-link here.
   // The useState initialiser handles fresh mounts; the useEffect handles the case
@@ -142,12 +152,6 @@ export function Ledger() {
     propagationTimerRef.current = setTimeout(() => setPropagationNotice(null), 5000);
   };
 
-  // While the async AI worker is enhancing rows for any of this user's
-  // recent uploads, refetch the ledger every 5s so newly-AI'd categories
-  // appear without a manual reload. The hook short-circuits to no
-  // polling the moment nothing is active, so idle users are unaffected.
-  const { anyActive: hasActiveAiEnhancement } = useAiEnhancementStatus();
-
   const {
     transactions,
     pagination,
@@ -157,9 +161,7 @@ export function Ledger() {
     updateTransaction,
     wipeData,
     resetWorkspace,
-  } = useTransactions(filters, {
-    refetchInterval: hasActiveAiEnhancement ? 5000 : false,
-  });
+  } = useTransactions(filters);
 
   const setPage = (p: number) => setFilters((f) => ({ ...f, page: p }));
 
@@ -221,6 +223,21 @@ export function Ledger() {
         </svg>
         Ledger
       </motion.h1>
+
+      {enhancementUpload ? (
+        <motion.div
+          className="glass-card ledger-enhancement-card"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.04 }}
+          data-testid="ledger-enhancement-surface"
+        >
+          <p className="ledger-enhancement-context" title={enhancementUpload.filename}>
+            {activeEnhancementJob ? "Active review" : "Latest import"} · {enhancementUpload.filename}
+          </p>
+          <EnhancementPanel uploadId={enhancementUpload.id} surface="ledger" />
+        </motion.div>
+      ) : null}
 
       <motion.div
         initial={{ opacity: 0, y: 14 }}
@@ -366,6 +383,7 @@ export function Ledger() {
         <>
           <motion.div
             className="ledger-table-wrap glass-card"
+            id="ledger-transactions"
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.21 }}

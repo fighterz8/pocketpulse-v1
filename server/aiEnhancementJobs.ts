@@ -305,6 +305,27 @@ export async function getAiEnhancementJobForUser(
   return result.rows[0] ? toJobView(result.rows[0]) : null;
 }
 
+/**
+ * Returns the user's one durable active enhancement job, if any.
+ *
+ * This read-only lookup lets a remounted client resume the right upload
+ * without scanning every upload or reviving the retired legacy worker poll.
+ */
+export async function getActiveAiEnhancementJobForUser(
+  userId: number,
+): Promise<AiEnhancementJobView | null> {
+  assertPositiveId(userId, "userId");
+  const result = await pool.query<JobRow>(
+    `SELECT ${JOB_COLUMNS} FROM ai_enhancement_jobs
+     WHERE user_id = $1
+       AND status IN ('queued', 'processing', 'budget_blocked')
+     ORDER BY id DESC
+     LIMIT 1`,
+    [userId],
+  );
+  return result.rows[0] ? toJobView(result.rows[0]) : null;
+}
+
 export async function getAiEnhancementAvailability(input: {
   userId: number;
   uploadId: number;

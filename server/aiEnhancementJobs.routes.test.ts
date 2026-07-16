@@ -145,6 +145,13 @@ describeDatabase("AI enhancement job routes", () => {
     });
     const jobId = created.body.job.id as number;
 
+    const active = await actor.agent.get("/api/enhancement-jobs/active");
+    expect(active.status).toBe(200);
+    expect(active.body.job).toMatchObject({ id: jobId, uploadId: upload.uploadId });
+    const strangerActive = await stranger.agent.get("/api/enhancement-jobs/active");
+    expect(strangerActive.status).toBe(200);
+    expect(strangerActive.body.job).toBeNull();
+
     const replay = await actor.agent
       .post("/api/enhancement-jobs")
       .set("X-CSRF-Token", actor.csrf)
@@ -169,6 +176,9 @@ describeDatabase("AI enhancement job routes", () => {
       .send({ status: "cancelled" });
     expect(replayCancel.status).toBe(200);
     expect(replayCancel.body.job.status).toBe("cancelled");
+    const afterCancel = await actor.agent.get("/api/enhancement-jobs/active");
+    expect(afterCancel.status).toBe(200);
+    expect(afterCancel.body.job).toBeNull();
   });
 
   it("requires CSRF and a valid idempotency key for job creation", async () => {

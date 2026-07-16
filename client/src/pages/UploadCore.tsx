@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { Hint, HintIcon } from "../components/ui/tooltip";
+import { EnhancementPanel } from "../components/enhancement/EnhancementPanel";
 import type { ReactNode } from "react";
 import { useAuth, type AuthAccount } from "../hooks/use-auth";
 import { useUploads, type UploadFileResult } from "../hooks/use-uploads";
@@ -681,34 +682,40 @@ function QueueRow({
       )}
 
       {item.status === "complete" && item.result && (
-        <p
-          className="upload-queue-item-result"
-          data-testid={`text-row-result-${item.key}`}
-        >
-          {item.result.rowCount} new
-          {(item.result.previouslyImported ?? 0) > 0 && (
-            <span className="upload-result-skipped">
-              {" · "}
-              {item.result.previouslyImported} already in ledger
-            </span>
-          )}
-          {(item.result.intraBatchDuplicates ?? 0) > 0 && (
-            <span className="upload-result-skipped">
-              {" · "}
-              {item.result.intraBatchDuplicates} duplicate row
-              {item.result.intraBatchDuplicates !== 1 ? "s" : ""} in file
-            </span>
-          )}
-          {(item.result.unresolvedMerchantCount ?? 0) > 0 && (
-            <span className="upload-result-skipped">
-              {" · "}
-              {item.result.unresolvedMerchantCount} merchant
-              {item.result.unresolvedMerchantCount === 1
-                ? " needs review"
-                : "s need review"}
-            </span>
-          )}
-        </p>
+        <>
+          <p
+            className="upload-queue-item-result"
+            data-testid={`text-row-result-${item.key}`}
+          >
+            {item.result.rowCount} new
+            {(item.result.previouslyImported ?? 0) > 0 && (
+              <span className="upload-result-skipped">
+                {" · "}
+                {item.result.previouslyImported} already in ledger
+              </span>
+            )}
+            {(item.result.intraBatchDuplicates ?? 0) > 0 && (
+              <span className="upload-result-skipped">
+                {" · "}
+                {item.result.intraBatchDuplicates} duplicate row
+                {item.result.intraBatchDuplicates !== 1 ? "s" : ""} in file
+              </span>
+            )}
+            {(item.result.unresolvedMerchantCount ?? 0) > 0 && (
+              <span className="upload-result-skipped">
+                {" · "}
+                {item.result.unresolvedMerchantCount} merchant
+                {item.result.unresolvedMerchantCount === 1
+                  ? " needs review"
+                  : "s need review"}
+              </span>
+            )}
+          </p>
+          {item.result.uploadId !== null &&
+            (item.result.unresolvedMerchantCount ?? 0) > 0 && (
+              <EnhancementPanel uploadId={item.result.uploadId} surface="upload" />
+            )}
+        </>
       )}
     </li>
   );
