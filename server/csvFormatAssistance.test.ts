@@ -180,6 +180,29 @@ describe("CSV format assistance orchestration", () => {
     expect(deps.completeClaim).not.toHaveBeenCalled();
   });
 
+  it("never reconciles provider usage twice when cache promotion fails after accounting", async () => {
+    const deps = dependencies({
+      completeClaim: vi.fn(async () => {
+        throw new Error("database unavailable during cache promotion");
+      }),
+    });
+    const result = await processCsvFormatAssistance(input(deps));
+
+    expect(result).toEqual({
+      state: "unavailable",
+      retryAfter: new Date("2026-07-16T20:15:00Z"),
+    });
+    expect(deps.reconcileBudget).toHaveBeenCalledTimes(1);
+    expect(deps.reconcileBudget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: expect.objectContaining({ type: "actual" }),
+      }),
+    );
+    expect(deps.failClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ failureCode: "FORMAT_PROVIDER_UNAVAILABLE" }),
+    );
+  });
+
   it("conservatively accounts an unknown provider outcome and applies cooldown", async () => {
     const deps = dependencies({
       detect: vi.fn(async () => {

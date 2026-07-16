@@ -116,6 +116,7 @@ export async function processCsvFormatAssistance(input: {
   const holderKey = `csv-format:${attemptId}`;
   let reservationCreated = false;
   let reservationAttached = false;
+  let reservationReconciled = false;
   let providerStarted = false;
   let concurrencyLeaseId: string | null = null;
 
@@ -163,6 +164,7 @@ export async function processCsvFormatAssistance(input: {
         reservationId: attemptId,
         outcome: { type: "released", errorCode: "FORMAT_AUTHORIZATION_STALE" },
       });
+      reservationReconciled = true;
       return { state: "busy" };
     }
 
@@ -172,6 +174,7 @@ export async function processCsvFormatAssistance(input: {
         reservationId: attemptId,
         outcome: { type: "released", errorCode: "FORMAT_CAPACITY_BUSY" },
       });
+      reservationReconciled = true;
       await dependencies.releaseClaim({
         userId: input.userId,
         headerFingerprint: input.headerFingerprint,
@@ -192,6 +195,7 @@ export async function processCsvFormatAssistance(input: {
         reservationId: attemptId,
         outcome: { type: "released", errorCode: "FORMAT_LEASE_EXPIRED" },
       });
+      reservationReconciled = true;
       await dependencies.releaseClaim({
         userId: input.userId,
         headerFingerprint: input.headerFingerprint,
@@ -218,6 +222,7 @@ export async function processCsvFormatAssistance(input: {
         usage: providerResult.usage,
       },
     });
+    reservationReconciled = true;
 
     if (!(await input.acceptSpec(providerResult.data))) {
       const retryAfter = await dependencies.failClaim({
@@ -238,12 +243,12 @@ export async function processCsvFormatAssistance(input: {
     if (!completed) return { state: "unavailable", retryAfter: null };
     return { state: "resolved", spec: providerResult.data };
   } catch (error) {
-    if (reservationCreated && !reservationAttached) {
+    if (!reservationReconciled && reservationCreated && !reservationAttached) {
       await dependencies.reconcileBudget({
         reservationId: attemptId,
         outcome: { type: "released", errorCode: "FORMAT_AUTHORIZATION_STALE" },
       });
-    } else if (reservationAttached) {
+    } else if (!reservationReconciled && reservationAttached) {
       const safeRelease =
         !providerStarted || error instanceof ProviderInputTooLargeError;
       await dependencies.reconcileBudget({
