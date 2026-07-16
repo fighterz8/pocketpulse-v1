@@ -12,7 +12,8 @@
     "test": "vitest run",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:maintenance": "tsx server/maintenance-cli.ts"
+    "db:maintenance": "tsx server/maintenance-cli.ts",
+    "ai:usage": "tsx server/maintenance-cli.ts ai-usage-summary"
   },
   "dependencies": {
     "@radix-ui/react-tooltip": "^1.2.8",

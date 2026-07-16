@@ -71,6 +71,7 @@ import {
 } from "./recurrenceDetector.js";
 import { detectLeaks } from "./cashflow.js";
 import { createDevTestSuiteRouter } from "./devTestSuite.js";
+import { createAiUsageDiagnosticsRouter } from "./aiUsageDiagnosticsRouter.js";
 import { buildLeakHunterReport, isValidIsoDate } from "./leakHunter.js";
 import { reclassifyTransactions } from "./reclassify.js";
 import {
@@ -2653,6 +2654,7 @@ export function createApp(options?: CreateAppOptions) {
   // ── Dev Test Suite (PR1: classification sampler + team view) ─────────────
   // All routes inside the router are gated by requireDev — env-enabled dev
   // tools + session auth + dev user/allowlisted email. Failures return 404.
+  app.use("/api/dev", createAiUsageDiagnosticsRouter());
   app.use("/api/dev", createDevTestSuiteRouter());
 
   app.use("/api", (_req, res) => {
