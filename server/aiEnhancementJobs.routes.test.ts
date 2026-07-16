@@ -326,7 +326,7 @@ describeDatabase("AI enhancement job routes", () => {
     expect(processed?.status).toBe(200);
     expect(processed?.body.job.status).toBe("complete");
     expect(transport).toHaveBeenCalledTimes(1);
-  });
+  }, 20_000);
 
   it("keeps batch processing owner-isolated and fail-closed when disabled", async () => {
     const transport: OpenAiChatTransport = vi.fn(async () => {

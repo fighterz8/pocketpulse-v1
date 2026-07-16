@@ -92,6 +92,18 @@ import {
   PlusEntitlementRequiredError,
   type BillingEntitlement,
 } from "./billingEntitlements.js";
+import { getBillingConfig, type BillingConfig } from "./billingConfig.js";
+import {
+  BillingWebhookVerificationError,
+  type BillingProviderAdapter,
+} from "./billingProvider.js";
+import { createStripeBillingProvider } from "./stripeBillingProvider.js";
+import {
+  BillingCustomerNotFoundError,
+  createHostedCheckout,
+  createHostedPortal,
+  processBillingWebhook,
+} from "./billingService.js";
 import {
   AiEnhancementActiveJobError,
   AiEnhancementDailyJobLimitError,
@@ -311,6 +323,9 @@ export type CreateAppOptions = {
   enhancementLeaseProvider?: AiEnhancementLeaseProvider;
   /** Test seam for deterministic entitlement states. Production reads PostgreSQL. */
   billingEntitlementReader?: (userId: number) => Promise<BillingEntitlement>;
+  /** Test seams; production uses fail-closed environment config and Stripe adapter. */
+  billingConfig?: BillingConfig;
+  billingProvider?: BillingProviderAdapter;
 };
 
 function defaultSessionStore() {
@@ -631,6 +646,10 @@ export function createApp(options?: CreateAppOptions) {
   const isProduction = process.env.NODE_ENV === "production";
   const readBillingEntitlement =
     options?.billingEntitlementReader ?? getBillingEntitlement;
+  const billingConfig = options?.billingConfig ?? getBillingConfig();
+  const billingProvider = billingConfig.enabled
+    ? options?.billingProvider ?? createStripeBillingProvider(billingConfig)
+    : null;
   app.set("trust proxy", 1);
   app.use(
     isProduction
@@ -673,6 +692,41 @@ export function createApp(options?: CreateAppOptions) {
     },
   });
   app.use("/api", globalLimiter);
+  app.post(
+    "/api/billing/webhooks/stripe",
+    express.raw({ type: "application/json", limit: "256kb" }),
+    async (req, res, next) => {
+      if (!billingConfig.enabled || !billingProvider) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      const signature = req.get("stripe-signature");
+      if (!signature || !Buffer.isBuffer(req.body)) {
+        res.status(400).json({
+          error: "Invalid billing webhook",
+          code: "INVALID_BILLING_WEBHOOK",
+        });
+        return;
+      }
+      try {
+        const event = await billingProvider.verifyAndNormalizeWebhook(
+          req.body,
+          signature,
+        );
+        const result = await processBillingWebhook({ event, rawBody: req.body });
+        res.json({ received: true, duplicate: result.duplicate });
+      } catch (error) {
+        if (error instanceof BillingWebhookVerificationError) {
+          res.status(400).json({
+            error: "Invalid billing webhook",
+            code: error.code,
+          });
+          return;
+        }
+        next(error);
+      }
+    },
+  );
   app.use(express.json());
   app.use(cookieParser());
   app.use(sessionMiddleware(store));
@@ -794,6 +848,88 @@ export function createApp(options?: CreateAppOptions) {
         },
       });
     } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/billing/checkout", requireAuth, async (req, res, next) => {
+    if (!billingConfig.enabled || !billingProvider) {
+      res.status(503).json({
+        error: "Billing is not available",
+        code: "BILLING_DISABLED",
+      });
+      return;
+    }
+    const idempotencyKey = req.get("Idempotency-Key");
+    if (!idempotencyKey) {
+      res.status(400).json({
+        error: "Idempotency-Key header is required",
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+      });
+      return;
+    }
+    try {
+      const user = await getUserById(req.session.userId!);
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      const session = await createHostedCheckout({
+        userId: user.id,
+        email: user.email,
+        idempotencyKey,
+        config: billingConfig,
+        adapter: billingProvider,
+      });
+      res.status(201).json({
+        checkoutUrl: session.url,
+        trialIncluded: session.trialIncluded,
+      });
+    } catch (error) {
+      if (error instanceof RangeError) {
+        res.status(400).json({ error: error.message, code: "INVALID_REQUEST" });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.post("/api/billing/portal", requireAuth, async (req, res, next) => {
+    if (!billingConfig.enabled || !billingProvider) {
+      res.status(503).json({
+        error: "Billing is not available",
+        code: "BILLING_DISABLED",
+      });
+      return;
+    }
+    const idempotencyKey = req.get("Idempotency-Key");
+    if (!idempotencyKey) {
+      res.status(400).json({
+        error: "Idempotency-Key header is required",
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+      });
+      return;
+    }
+    try {
+      const session = await createHostedPortal({
+        userId: req.session.userId!,
+        idempotencyKey,
+        config: billingConfig,
+        adapter: billingProvider,
+      });
+      res.status(201).json({ portalUrl: session.url });
+    } catch (error) {
+      if (error instanceof BillingCustomerNotFoundError) {
+        res.status(409).json({
+          error: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      if (error instanceof RangeError) {
+        res.status(400).json({ error: error.message, code: "INVALID_REQUEST" });
+        return;
+      }
       next(error);
     }
   });

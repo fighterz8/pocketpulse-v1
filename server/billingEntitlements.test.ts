@@ -71,6 +71,17 @@ describe("Plus entitlement resolution", () => {
         now,
       }),
     ).toEqual({ state: "expired", entitled: false, trialAvailable: true });
+    expect(
+      resolveBillingEntitlement({
+        subscription: {
+          accessState: "active",
+          trialEndsAt: null,
+          currentPeriodEndsAt: null,
+        },
+        trialConsumed: false,
+        now,
+      }),
+    ).toEqual({ state: "expired", entitled: false, trialAvailable: true });
   });
 
   it.each(["past_due", "expired"] as const)("denies %s subscriptions", (state) => {

@@ -56,7 +56,7 @@ export function resolveBillingEntitlement(input: {
 
   if (subscription.accessState === "active") {
     if (
-      subscription.currentPeriodEndsAt &&
+      !subscription.currentPeriodEndsAt ||
       subscription.currentPeriodEndsAt <= input.now
     ) {
       return { state: "expired", trialAvailable, entitled: false };
@@ -65,9 +65,7 @@ export function resolveBillingEntitlement(input: {
       state: "active",
       trialAvailable,
       entitled: true,
-      ...(subscription.currentPeriodEndsAt
-        ? { expiresAt: subscription.currentPeriodEndsAt.toISOString() }
-        : {}),
+      expiresAt: subscription.currentPeriodEndsAt.toISOString(),
     };
   }
 

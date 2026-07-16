@@ -102,6 +102,7 @@ export const billingTrials = pgTable(
       .primaryKey()
       .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider").$type<BillingProvider>().notNull(),
+    checkoutIdempotencyKey: text("checkout_idempotency_key"),
     externalCheckoutSessionId: text("external_checkout_session_id"),
     reservedAt: timestamp("reserved_at", { mode: "date", withTimezone: true })
       .notNull()
@@ -114,6 +115,10 @@ export const billingTrials = pgTable(
       .on(t.provider, t.externalCheckoutSessionId)
       .where(sql`${t.externalCheckoutSessionId} IS NOT NULL`),
     check("billing_trials_provider_check", sql`${t.provider} = 'stripe'`),
+    check(
+      "billing_trials_idempotency_key_check",
+      sql`${t.checkoutIdempotencyKey} IS NULL OR char_length(${t.checkoutIdempotencyKey}) BETWEEN 1 AND 128`,
+    ),
     check(
       "billing_trials_timestamps_check",
       sql`${t.endedAt} IS NULL OR (${t.startedAt} IS NOT NULL AND ${t.endedAt} >= ${t.startedAt})`,
