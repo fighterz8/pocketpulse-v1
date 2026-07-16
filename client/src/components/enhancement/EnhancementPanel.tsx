@@ -30,6 +30,14 @@ function ManualReviewLink({ surface }: { surface: "upload" | "ledger" }) {
   );
 }
 
+function PlanLink({ recovery = false }: { recovery?: boolean }) {
+  return (
+    <Link className="enhancement-plan-link" href={recovery ? "/account" : "/pricing"}>
+      {recovery ? "Review plan in Account" : "Compare Free and Plus"}
+    </Link>
+  );
+}
+
 function AccessExplanation({
   access,
   surface,
@@ -45,9 +53,7 @@ function AccessExplanation({
           ? "Plus access needs attention. Enhancement stays paused, while your imported data and corrections remain available."
           : "PocketPulse Plus is planned to review unresolved merchants and apply the result to matching transactions. Free imports and manual corrections stay available."}
       </p>
-      {access.trialAvailable ? (
-        <p className="enhancement-trial-note">A 7-day trial is planned; checkout is not enabled yet.</p>
-      ) : null}
+      <PlanLink recovery={needsRecovery} />
       <ManualReviewLink surface={surface} />
     </>
   );
@@ -66,6 +72,7 @@ function AccessRecoveryState({
       <p className="enhancement-copy">
         Plus access needs attention. Manual review remains available, and any completed changes are preserved.
       </p>
+      <PlanLink recovery />
       <ManualReviewLink surface={surface} />
     </>
   );
@@ -153,6 +160,7 @@ function JobState({
       ) : null}
       {running ? (
         <div className="enhancement-actions">
+          {needsAccessRecovery ? <PlanLink recovery /> : null}
           {hasError ? (
             <button type="button" className="enhancement-button enhancement-button--primary" onClick={onResume} disabled={busy || cancelling}>
               {busy ? "Resuming…" : "Resume enhancement"}

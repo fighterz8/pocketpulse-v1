@@ -14,6 +14,7 @@ import { Landing } from "./pages/Landing";
 import { Ledger } from "./pages/Ledger";
 import { Leaks } from "./pages/Leaks";
 import { PrivacyPolicy, TermsOfService } from "./pages/Legal";
+import { Pricing } from "./pages/Pricing";
 import { NotFoundPage } from "./pages/not-found";
 import { OnboardingUpload } from "./pages/OnboardingUpload";
 import { ResetPassword } from "./pages/ResetPassword";
@@ -273,6 +274,9 @@ export function App() {
             </Route>
             <Route path="/terms">
               <TermsOfService />
+            </Route>
+            <Route path="/pricing">
+              <Pricing />
             </Route>
             <Route path="/">
               <AppGate unauthenticatedView="landing" />

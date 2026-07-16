@@ -57,7 +57,10 @@ describe("EnhancementPanel", () => {
     const panel = await screen.findByTestId("enhancement-panel");
     expect(panel).toHaveTextContent("3 merchants need review");
     expect(panel).toHaveTextContent("PocketPulse Plus");
-    expect(panel).toHaveTextContent("7-day trial");
+    expect(screen.getByRole("link", { name: "Compare Free and Plus" })).toHaveAttribute(
+      "href",
+      "/pricing",
+    );
     expect(screen.getByRole("link", { name: /review manually/i })).toHaveAttribute(
       "href",
       "#ledger-transactions",

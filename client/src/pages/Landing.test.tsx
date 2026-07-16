@@ -46,6 +46,7 @@ describe("Landing", () => {
     expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Product" })).toHaveAttribute("href", "#product");
     expect(screen.getByRole("link", { name: "How it works" })).toHaveAttribute("href", "#how");
+    expect(screen.getAllByRole("link", { name: "Pricing" })[0]).toHaveAttribute("href", "/pricing");
     expect(screen.getAllByRole("link", { name: "Privacy" })[0]).toHaveAttribute(
       "href",
       "#privacy",
@@ -55,5 +56,18 @@ describe("Landing", () => {
       "/privacy",
     );
     expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
+  });
+
+  it("keeps the free core explicit while introducing optional Plus", () => {
+    render(<Landing />);
+
+    expect(
+      screen.getByRole("heading", { name: /keep the clarity free/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/existing data, and manual corrections stay/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Compare Free and Plus" })).toHaveAttribute(
+      "href",
+      "/pricing",
+    );
   });
 });

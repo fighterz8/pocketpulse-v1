@@ -2,6 +2,7 @@ import { CheckMark } from "../components/landing/CheckMark";
 import { FinalCta, PrivacySection, ProcessSection } from "../components/landing/LandingClose";
 import { ProductPreview } from "../components/landing/ProductPreview";
 import { ProductStories } from "../components/landing/ProductStories";
+import { PublicBrand } from "../components/landing/PublicBrand";
 
 const proofPoints = [
   ["01", "Keep your bank login private", "Upload statement exports when you choose. No always-on bank connection."],
@@ -9,30 +10,15 @@ const proofPoints = [
   ["03", "Correct the record", "Edit categories and recurrence labels when your real life does not match the first pass."],
 ] as const;
 
-function PocketPulseLogo() {
-  return (
-    <span className="landing-official-logo" aria-hidden="true">
-      <svg viewBox="0 0 32 32">
-        <rect width="32" height="32" rx="8" fill="#2563eb" />
-        <path d="M4 16h5l2.5-6 3 12 2.5-6h11" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  );
-}
-
-function Brand() {
-  return <><PocketPulseLogo /><span>Pocket Pulse</span></>;
-}
-
 export function Landing() {
   return (
     <main className="landing-main" id="top">
       <a className="landing-skip-link" href="#main-content">Skip to main content</a>
       <header className="landing-nav">
         <div className="landing-container landing-nav-inner">
-          <a className="landing-brand" href="#top" aria-label="Pocket Pulse home"><Brand /></a>
+          <a className="landing-brand" href="#top" aria-label="Pocket Pulse home"><PublicBrand /></a>
           <nav aria-label="Main navigation">
-            <a href="#product">Product</a><a href="#how">How it works</a><a href="#privacy">Privacy</a>
+            <a href="#product">Product</a><a href="#how">How it works</a><a href="#privacy">Privacy</a><a href="/pricing">Pricing</a>
           </nav>
           <div className="landing-nav-actions">
             <a className="landing-sign-in" href="/auth">Sign in</a>
@@ -78,6 +64,20 @@ export function Landing() {
         </section>
 
         <ProductStories />
+        <section className="landing-plus-intro" aria-labelledby="landing-plus-title">
+          <div className="landing-container">
+            <div>
+              <p className="landing-eyebrow">Free core · optional Plus</p>
+              <h2 id="landing-plus-title">Keep the clarity free. Add merchant review when it helps.</h2>
+            </div>
+            <div>
+              <p>
+                CSV imports, local analysis, dashboards, Ledger, existing data, and manual corrections stay in PocketPulse Free. Plus is an optional way to review unresolved merchants and apply the result to matching transactions.
+              </p>
+              <a className="landing-secondary" href="/pricing">Compare Free and Plus</a>
+            </div>
+          </div>
+        </section>
         <ProcessSection />
         <PrivacySection />
         <FinalCta />
@@ -85,9 +85,9 @@ export function Landing() {
 
       <footer className="landing-footer">
         <div className="landing-container">
-          <a className="landing-brand" href="#top"><Brand /></a>
+          <a className="landing-brand" href="#top"><PublicBrand /></a>
           <p>CSV-powered spending clarity. Built independently by Nick Solomon.</p>
-          <nav aria-label="Footer navigation"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/auth">Sign in</a></nav>
+          <nav aria-label="Footer navigation"><a href="/pricing">Pricing</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/auth">Sign in</a></nav>
         </div>
       </footer>
     </main>
