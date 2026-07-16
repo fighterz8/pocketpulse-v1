@@ -105,6 +105,7 @@ body {
 .app-nav-link {
   display: flex;
   align-items: center;
+  min-height: 2.75rem;
   gap: 0.45rem;
   padding: 0.55rem 0.75rem;
   border-radius: 0.5rem;
@@ -142,6 +143,7 @@ body {
 
 .app-nav-logout {
   width: 100%;
+  min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
   font: inherit;
   font-size: 0.88rem;
@@ -4964,6 +4966,7 @@ html.dark .leak-hunter-limitations span {
 
 .app-theme-toggle {
   width: 100%;
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -5375,8 +5378,8 @@ html.dark .acc-stale-body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border: none;
   background: transparent;
   border-radius: 0.5rem;
@@ -5403,8 +5406,8 @@ html.dark .acc-stale-body {
   justify-content: center;
   gap: 0;
   padding: 0.5rem;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: 0.5rem;
   font-size: 0;
 }
@@ -6824,6 +6827,17 @@ html.dark .account-status--expired { color: #fde68a; background: rgb(146 64 14 /
 
 /* ─── Public pricing page ─────────────────────────────────────────────── */
 .pricing-main { overflow: visible; }
+.pricing-main .landing-brand,
+.pricing-main .landing-nav nav a,
+.pricing-main .landing-sign-in,
+.pricing-main .landing-nav-cta,
+.pricing-main .landing-footer nav a {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.pricing-main .landing-nav-cta { justify-content: center; }
 .pricing-content { min-height: calc(100vh - 10rem); padding-top: 5rem; padding-bottom: 6rem; }
 .pricing-hero { max-width: 50rem; margin-bottom: 3rem; }
 .pricing-main .pricing-hero h1 { max-width: 12ch; margin-bottom: 1.25rem; font-size: clamp(2.8rem, 6vw, 5.2rem); }
