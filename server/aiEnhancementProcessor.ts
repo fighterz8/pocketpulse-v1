@@ -13,6 +13,7 @@ import {
 import {
   AI_ENHANCEMENT_MODEL,
   AiEnhancementJobNotFoundError,
+  AiEnhancementClaimStaleError,
   claimAiEnhancementBatch,
   enhancementMerchantKey,
   getAiEnhancementJobForUser,
@@ -48,9 +49,9 @@ type RepresentativeInput = {
 };
 
 type Resolution = {
-  category: string;
-  transactionClass: string;
-  recurrenceType: string;
+  category: string | null;
+  transactionClass: string | null;
+  recurrenceType: string | null;
   labelConfidence: number;
   source: "rule" | "manual-cache" | "cache";
 };
@@ -63,6 +64,7 @@ type TransactionRow = {
   flow_type: string;
   transaction_class: string;
   category: string;
+  recurrence_type: string;
   label_source: string;
   user_corrected: boolean;
   ai_assisted: boolean;
@@ -88,6 +90,7 @@ export type ProcessAiEnhancementBatchInput = {
   hooks?: {
     afterResultsPersisted?: () => void | Promise<void>;
     beforeProvider?: () => void | Promise<void>;
+    afterClaim?: () => void | Promise<void>;
   };
 };
 
@@ -310,6 +313,8 @@ async function freeEvidencePreflight(input: {
   jobId: number;
   uploadId: number;
   items: AiEnhancementClaimItem[];
+  batchKey: string;
+  leaseToken: string;
 }): Promise<RepresentativeInput[]> {
   const keys = input.items.map((item) => item.merchantKey);
   const [rules, caches, transactionResult] = await Promise.all([
@@ -339,7 +344,8 @@ async function freeEvidencePreflight(input: {
     ),
     pool.query<TransactionRow>(
       `SELECT id, merchant, raw_description, amount::text, flow_type,
-              transaction_class, category, label_source, user_corrected, ai_assisted
+              transaction_class, category, recurrence_type, label_source,
+              user_corrected, ai_assisted
        FROM transactions WHERE user_id = $1 AND upload_id = $2 ORDER BY id`,
       [input.userId, input.uploadId],
     ),
@@ -347,28 +353,33 @@ async function freeEvidencePreflight(input: {
   const ruleMap = new Map(
     rules.rows.map((row) => [
       row.merchant_key,
-      row.category && row.transaction_class && row.recurrence_type
-        ? {
-            category: row.category,
-            transactionClass: row.transaction_class,
-            recurrenceType: row.recurrence_type,
-            labelConfidence: 1,
-            source: "rule" as const,
-          }
-        : null,
-    ]),
-  );
-  const cacheMap = new Map(
-    caches.rows.map((row) => [
-      row.merchant_key,
       {
         category: row.category,
         transactionClass: row.transaction_class,
         recurrenceType: row.recurrence_type,
-        labelConfidence: Number(row.label_confidence),
-        source: row.source === "manual" ? ("manual-cache" as const) : ("cache" as const),
+        labelConfidence: 1,
+        source: "rule" as const,
       },
     ]),
+  );
+  const cacheMap = new Map(
+    caches.rows
+      .filter(
+        (row) =>
+          row.source === "manual" ||
+          row.category !== "other" ||
+          row.transaction_class === "transfer",
+      )
+      .map((row) => [
+        row.merchant_key,
+        {
+          category: row.category,
+          transactionClass: row.transaction_class,
+          recurrenceType: row.recurrence_type,
+          labelConfidence: Number(row.label_confidence),
+          source: row.source === "manual" ? ("manual-cache" as const) : ("cache" as const),
+        },
+      ]),
   );
   const grouped = new Map<string, TransactionRow[]>();
   for (const row of transactionResult.rows) {
@@ -389,6 +400,8 @@ async function freeEvidencePreflight(input: {
         item,
         rows,
         resolution: resolution ?? null,
+        batchKey: input.batchKey,
+        leaseToken: input.leaseToken,
       });
       continue;
     }
@@ -411,42 +424,70 @@ async function applyFreeResolution(input: {
   item: AiEnhancementClaimItem;
   rows: TransactionRow[];
   resolution: Resolution | null;
+  batchKey: string;
+  leaseToken: string;
 }): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const locked = await client.query<{ status: string }>(
-      `SELECT status FROM ai_enhancement_job_items
+    const locked = await client.query<{
+      status: string;
+      batch_key: string | null;
+      lease_token: string | null;
+      live: boolean;
+    }>(
+      `SELECT status, batch_key, lease_token,
+              lease_expires_at > clock_timestamp() AS live
+       FROM ai_enhancement_job_items
        WHERE id = $1 AND job_id = $2 FOR UPDATE`,
       [input.item.id, input.jobId],
     );
-    if (locked.rows[0]?.status !== "processing") {
-      await client.query("ROLLBACK");
-      return;
+    const claim = locked.rows[0];
+    if (
+      claim?.status !== "processing" ||
+      claim.batch_key !== input.batchKey ||
+      claim.lease_token !== input.leaseToken ||
+      !claim.live
+    ) {
+      throw new AiEnhancementClaimStaleError();
     }
     if (input.resolution && input.rows.length > 0) {
-      const ids = input.rows.map((row) => row.id);
       const labelSource = input.resolution.source === "cache" ? "cache" : "propagated";
-      await client.query(
-        `UPDATE transactions
-         SET category = $1, transaction_class = $2, recurrence_type = $3,
-             recurrence_source = CASE WHEN $3 = 'recurring' THEN 'hint' ELSE 'none' END,
-             label_source = $4, label_confidence = $5,
-             label_reason = 'Resolved from saved merchant knowledge',
-             ai_assisted = false
-         WHERE user_id = $6 AND id = ANY($7::int[])
-           AND user_corrected = false
-           AND label_source NOT IN ('manual', 'propagated', 'ai')`,
-        [
-          input.resolution.category,
-          input.resolution.transactionClass,
-          input.resolution.recurrenceType,
-          labelSource,
-          input.resolution.labelConfidence.toFixed(2),
-          input.userId,
-          ids,
-        ],
-      );
+      for (const row of input.rows) {
+        const proposedClass = input.resolution.transactionClass ?? row.transaction_class;
+        const proposedCategory = input.resolution.category ?? row.category;
+        const classification =
+          input.resolution.source === "cache"
+            ? reconcileAiTransactionClassification({
+                flowType: row.flow_type === "inflow" ? "inflow" : "outflow",
+                currentClass: row.transaction_class,
+                currentCategory: row.category,
+                currentClassEvidence: "explicit",
+                proposedClass,
+                proposedCategory,
+              })
+            : { transactionClass: proposedClass, category: proposedCategory };
+        const recurrenceType = input.resolution.recurrenceType ?? row.recurrence_type;
+        await client.query(
+          `UPDATE transactions
+           SET category = $1, transaction_class = $2, recurrence_type = $3,
+               recurrence_source = CASE WHEN $3 = 'recurring' THEN 'hint' ELSE 'none' END,
+               label_source = $4, label_confidence = $5,
+               label_reason = 'Resolved from saved merchant knowledge',
+               ai_assisted = false
+           WHERE user_id = $6 AND id = $7 AND user_corrected = false
+             AND label_source NOT IN ('manual', 'propagated', 'ai')`,
+          [
+            classification.category,
+            classification.transactionClass,
+            recurrenceType,
+            labelSource,
+            input.resolution.labelConfidence.toFixed(2),
+            input.userId,
+            row.id,
+          ],
+        );
+      }
     }
     await client.query(
       `UPDATE ai_enhancement_job_items
@@ -660,12 +701,16 @@ async function applyResultReady(userId: number, jobId: number): Promise<void> {
       const rule = await client.query<{ exists: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM merchant_rules WHERE user_id = $1 AND merchant_key = $2
+           UNION ALL
+           SELECT 1 FROM merchant_classifications
+             WHERE user_id = $1 AND merchant_key = $2 AND source = 'manual'
          ) AS exists`,
         [userId, item.merchant_key],
       );
       const txResult = await client.query<TransactionRow>(
         `SELECT id, merchant, raw_description, amount::text, flow_type,
-                transaction_class, category, label_source, user_corrected, ai_assisted
+                transaction_class, category, recurrence_type, label_source,
+                user_corrected, ai_assisted
          FROM transactions WHERE user_id = $1 AND upload_id = $2 FOR UPDATE`,
         [userId, attribution.uploadId],
       );
@@ -791,12 +836,15 @@ export async function processAiEnhancementBatch(
   if (claim.state !== "claimed") {
     throw new Error("Enhancement claim entered an unsupported state");
   }
+  await input.hooks?.afterClaim?.();
 
   let providerInputs = await freeEvidencePreflight({
     userId: input.userId,
     jobId: input.jobId,
     uploadId: attribution.uploadId,
     items: claim.items,
+    batchKey: claim.batchKey,
+    leaseToken: claim.leaseToken,
   });
   if (providerInputs.length === 0) {
     return { state: "complete", job: await finishJobRollup(input.userId, input.jobId) };
@@ -853,6 +901,8 @@ export async function processAiEnhancementBatch(
       items: claim.items.filter((item) =>
         providerInputs.some((candidate) => candidate.itemId === item.id),
       ),
+      batchKey: claim.batchKey,
+      leaseToken: claim.leaseToken,
     });
     if (providerInputs.length === 0) {
       await reconcileAiBudgetReservation({
@@ -946,6 +996,7 @@ export async function processAiEnhancementBatch(
         });
       }
     }
+    await finishJobRollup(input.userId, input.jobId).catch(() => undefined);
     throw error;
   } finally {
     if (concurrencyLeaseId) {

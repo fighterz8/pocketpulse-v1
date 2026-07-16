@@ -162,6 +162,63 @@ describeDatabase("AI enhancement batch processor", () => {
     ).toBe(0);
   });
 
+  it("does not let a low-signal other cache entry suppress enhancement", async () => {
+    const owner = await fixture("other-cache", ["Still Unknown Merchant"]);
+    await pool.query(
+      `INSERT INTO merchant_classifications (
+         user_id, merchant_key, category, transaction_class,
+         recurrence_type, label_confidence, source
+       ) VALUES ($1, 'still unknown merchant', 'other', 'expense', 'one-time', 0.40, 'ai')`,
+      [owner.userId],
+    );
+    const transport = successfulTransport();
+
+    const result = await processWhenAvailable({
+      userId: owner.userId,
+      jobId: owner.job.id,
+      transport,
+      providerEnabled: true,
+    });
+
+    expect(result.job.status).toBe("complete");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a stale preflight lease before reserving or calling the provider", async () => {
+    const owner = await fixture("stale-preflight", ["Stale Preflight Merchant"]);
+    await pool.query(
+      `INSERT INTO merchant_rules
+         (user_id, merchant_key, category, transaction_class, recurrence_type)
+       VALUES ($1, 'stale preflight merchant', 'utilities', 'expense', 'recurring')`,
+      [owner.userId],
+    );
+    const transport = successfulTransport();
+
+    await expect(
+      processWhenAvailable({
+        userId: owner.userId,
+        jobId: owner.job.id,
+        transport,
+        providerEnabled: true,
+        hooks: {
+          afterClaim: async () => {
+            await pool.query(
+              `UPDATE ai_enhancement_job_items SET lease_token = $2
+               WHERE job_id = $1 AND status = 'processing'`,
+              [owner.job.id, crypto.randomUUID()],
+            );
+          },
+        },
+      }),
+    ).rejects.toBeInstanceOf(jobs.AiEnhancementClaimStaleError);
+    expect(transport).not.toHaveBeenCalled();
+    const reservations = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM ai_budget_reservations WHERE job_id = $1`,
+      [owner.job.id],
+    );
+    expect(reservations.rows[0]!.count).toBe("0");
+  });
+
   it("pays once per unique merchant, fans out, caches, and attributes usage", async () => {
     const owner = await fixture("paid-fanout", [
       "Unknown Cloud Service",
