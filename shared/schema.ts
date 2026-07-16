@@ -980,6 +980,81 @@ export const csvFormatSpecs = pgTable(
   ],
 );
 
+export const CSV_FORMAT_ASSISTANCE_ATTEMPT_STATUSES = [
+  "in_progress",
+  "failed",
+] as const;
+export type CsvFormatAssistanceAttemptStatus =
+  (typeof CSV_FORMAT_ASSISTANCE_ATTEMPT_STATUSES)[number];
+
+/**
+ * One durable claim per user + structural CSV fingerprint. This is a control
+ * record only: it stores no filename, CSV content, provider output, or parsed
+ * transaction data. Failed attempts remain briefly as a negative-result
+ * cooldown; successful attempts are replaced by `csv_format_specs`.
+ */
+export const csvFormatAssistanceAttempts = pgTable(
+  "csv_format_assistance_attempts",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    headerFingerprint: text("header_fingerprint").notNull(),
+    attemptId: text("attempt_id").notNull(),
+    reservationId: text("reservation_id").references(
+      () => aiBudgetReservations.id,
+      { onDelete: "set null" },
+    ),
+    status: text("status")
+      .$type<CsvFormatAssistanceAttemptStatus>()
+      .notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    retryAfter: timestamp("retry_after", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    failureCode: text("failure_code"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("csv_format_assistance_user_fp_unique").on(
+      t.userId,
+      t.headerFingerprint,
+    ),
+    uniqueIndex("csv_format_assistance_attempt_id_unique").on(t.attemptId),
+    index("csv_format_assistance_retry_after_idx").on(t.retryAfter),
+    check(
+      "csv_format_assistance_fingerprint_check",
+      sql`${t.headerFingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "csv_format_assistance_attempt_id_check",
+      sql`char_length(${t.attemptId}) BETWEEN 1 AND 128`,
+    ),
+    check(
+      "csv_format_assistance_status_check",
+      sql`${t.status} IN ('in_progress', 'failed')`,
+    ),
+    check(
+      "csv_format_assistance_failure_code_check",
+      sql`${t.failureCode} IS NULL OR ${t.failureCode} ~ '^[A-Z0-9_]{1,64}$'`,
+    ),
+    check(
+      "csv_format_assistance_state_check",
+      sql`(${t.status} = 'in_progress' AND ${t.leaseExpiresAt} IS NOT NULL AND ${t.retryAfter} IS NULL AND ${t.failureCode} IS NULL) OR (${t.status} = 'failed' AND ${t.leaseExpiresAt} IS NULL AND ${t.retryAfter} IS NOT NULL AND ${t.failureCode} IS NOT NULL)`,
+    ),
+  ],
+);
+
 /**
  * Per-user merchant classification cache.
  *

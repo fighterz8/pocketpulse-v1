@@ -127,6 +127,13 @@
       "when": 1777618000000,
       "tag": "0017_billing_checkout_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777621600000,
+      "tag": "0018_csv_format_assistance_attempts",
+      "breakpoints": true
     }
   ]
 }
