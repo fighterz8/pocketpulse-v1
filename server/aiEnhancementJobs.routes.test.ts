@@ -21,6 +21,7 @@ describeDatabase("AI enhancement job routes", () => {
       expiresAt: new Date(Date.now() + 50_000),
       alreadyHeld: false,
     })),
+    renew: vi.fn(async () => true),
     release: vi.fn(async () => true),
   };
 

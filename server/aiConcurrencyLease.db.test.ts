@@ -99,4 +99,36 @@ describeDatabase("AI provider concurrency leases", () => {
     );
     expect(live.rows[0]!.id).toBe(replacement.leaseId);
   });
+
+  it("renews only the current live lease generation", async () => {
+    const live = await leases.acquireAiConcurrencyLease({
+      holderKey: "renew-holder",
+    });
+    expect(live.acquired).toBe(true);
+    expect(
+      await leases.renewAiConcurrencyLease({
+        leaseId: "wrong-generation",
+        holderKey: "renew-holder",
+      }),
+    ).toBe(false);
+    expect(
+      await leases.renewAiConcurrencyLease({
+        leaseId: live.leaseId!,
+        holderKey: "renew-holder",
+      }),
+    ).toBe(true);
+
+    await pool.query(
+      `UPDATE ai_concurrency_leases
+       SET expires_at = clock_timestamp() - interval '1 second'
+       WHERE id = $1`,
+      [live.leaseId],
+    );
+    expect(
+      await leases.renewAiConcurrencyLease({
+        leaseId: live.leaseId!,
+        holderKey: "renew-holder",
+      }),
+    ).toBe(false);
+  });
 });

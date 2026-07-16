@@ -882,14 +882,20 @@ export async function createAiEnhancementJob(input: {
     );
     const job = insertedJob.rows[0]!;
 
-    for (const [merchantKey, transactionId] of representatives) {
-      await client.query(
-        `INSERT INTO ai_enhancement_job_items (
-           job_id, merchant_key, representative_transaction_id, status
-         ) VALUES ($1, $2, $3, 'pending')`,
-        [job.id, merchantKey, transactionId],
-      );
-    }
+    const snapshot = [...representatives];
+    await client.query(
+      `INSERT INTO ai_enhancement_job_items (
+         job_id, merchant_key, representative_transaction_id, status
+       )
+       SELECT $1, snapshot.merchant_key, snapshot.transaction_id, 'pending'
+       FROM unnest($2::text[], $3::int[])
+         AS snapshot(merchant_key, transaction_id)`,
+      [
+        job.id,
+        snapshot.map(([merchantKey]) => merchantKey),
+        snapshot.map(([, transactionId]) => transactionId),
+      ],
+    );
 
     await client.query("COMMIT");
     return toJobView(job);

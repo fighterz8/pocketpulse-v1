@@ -20,6 +20,7 @@ describeDatabase("AI enhancement batch processor", () => {
       expiresAt: new Date(Date.now() + 50_000),
       alreadyHeld: false,
     })),
+    renew: vi.fn(async () => true),
     release: vi.fn(async () => true),
   };
 
@@ -385,6 +386,7 @@ describeDatabase("AI enhancement batch processor", () => {
         expiresAt: null,
         alreadyHeld: false,
       })),
+      renew: vi.fn(async () => false),
       release: vi.fn(async () => false),
     };
     const transport = successfulTransport();
@@ -416,6 +418,162 @@ describeDatabase("AI enhancement batch processor", () => {
       [owner.job.id],
     );
     expect(reservation.rows).toEqual([{ status: "released" }]);
+  });
+
+  it("honors cancellation that lands while global capacity is being acquired", async () => {
+    const owner = await fixture("cancel-during-capacity", ["Cancel During Capacity"]);
+    const transport = successfulTransport();
+    const cancellingLeases: AiEnhancementLeaseProvider = {
+      acquire: vi.fn(async () => {
+        await jobs.cancelAiEnhancementJob({
+          userId: owner.userId,
+          jobId: owner.job.id,
+        });
+        return {
+          acquired: true,
+          leaseId: crypto.randomUUID(),
+          expiresAt: new Date(Date.now() + 50_000),
+          alreadyHeld: false,
+        };
+      }),
+      renew: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+    };
+
+    const result = await processor.processAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: owner.job.id,
+      transport,
+      providerEnabled: true,
+      leaseProvider: cancellingLeases,
+    });
+
+    expect(result.state).toBe("cancelled");
+    expect(transport).not.toHaveBeenCalled();
+    expect(cancellingLeases.release).toHaveBeenCalledTimes(1);
+    const reservation = await pool.query<{ status: string }>(
+      `SELECT status FROM ai_budget_reservations WHERE job_id = $1`,
+      [owner.job.id],
+    );
+    expect(reservation.rows).toEqual([{ status: "released" }]);
+  });
+
+  it("uses merchant knowledge saved while global capacity is being acquired", async () => {
+    const owner = await fixture("rule-during-capacity", ["Rule During Capacity"]);
+    const transport = successfulTransport();
+    const ruleSavingLeases: AiEnhancementLeaseProvider = {
+      acquire: vi.fn(async () => {
+        await pool.query(
+          `INSERT INTO merchant_rules
+             (user_id, merchant_key, category, transaction_class, recurrence_type)
+           VALUES ($1, 'rule during capacity', 'utilities', 'expense', 'recurring')`,
+          [owner.userId],
+        );
+        return {
+          acquired: true,
+          leaseId: crypto.randomUUID(),
+          expiresAt: new Date(Date.now() + 50_000),
+          alreadyHeld: false,
+        };
+      }),
+      renew: vi.fn(async () => true),
+      release: vi.fn(async () => true),
+    };
+
+    const result = await processor.processAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: owner.job.id,
+      transport,
+      providerEnabled: true,
+      leaseProvider: ruleSavingLeases,
+    });
+
+    expect(result.job).toMatchObject({ status: "complete", skippedMerchants: 1 });
+    expect(transport).not.toHaveBeenCalled();
+    expect(ruleSavingLeases.release).toHaveBeenCalledTimes(1);
+    const transaction = await pool.query<{
+      category: string;
+      recurrence_type: string;
+      label_source: string;
+    }>(
+      `SELECT category, recurrence_type, label_source FROM transactions
+       WHERE upload_id = $1`,
+      [owner.uploadId],
+    );
+    expect(transaction.rows[0]).toEqual({
+      category: "utilities",
+      recurrence_type: "recurring",
+      label_source: "propagated",
+    });
+  });
+
+  it("does not call the provider when its capacity lease cannot be renewed", async () => {
+    const owner = await fixture("expired-capacity", ["Expired Capacity Lease"]);
+    const transport = successfulTransport();
+    const expiredLeases: AiEnhancementLeaseProvider = {
+      acquire: vi.fn(async () => ({
+        acquired: true,
+        leaseId: crypto.randomUUID(),
+        expiresAt: new Date(Date.now() + 1),
+        alreadyHeld: false,
+      })),
+      renew: vi.fn(async () => false),
+      release: vi.fn(async () => false),
+    };
+
+    const result = await processor.processAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: owner.job.id,
+      transport,
+      providerEnabled: true,
+      leaseProvider: expiredLeases,
+    });
+
+    expect(result.state).toBe("busy");
+    expect(transport).not.toHaveBeenCalled();
+    expect(expiredLeases.renew).toHaveBeenCalledTimes(1);
+    const item = await pool.query<{
+      status: string;
+      attempt_count: number;
+      reservation_id: string | null;
+    }>(
+      `SELECT status, attempt_count, reservation_id
+       FROM ai_enhancement_job_items WHERE job_id = $1`,
+      [owner.job.id],
+    );
+    expect(item.rows[0]).toEqual({
+      status: "pending",
+      attempt_count: 0,
+      reservation_id: null,
+    });
+  });
+
+  it("does not fan out a provider result after the user cancels the job", async () => {
+    const owner = await fixture("cancel-before-fanout", ["Cancel Before Fanout"]);
+    const transport = successfulTransport();
+
+    const result = await processWhenAvailable({
+      userId: owner.userId,
+      jobId: owner.job.id,
+      transport,
+      providerEnabled: true,
+      hooks: {
+        afterResultsPersisted: async () => {
+          await jobs.cancelAiEnhancementJob({
+            userId: owner.userId,
+            jobId: owner.job.id,
+          });
+        },
+      },
+    });
+
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(result.job.status).toBe("cancelled");
+    const transaction = await pool.query<{ label_source: string; category: string }>(
+      `SELECT label_source, category FROM transactions WHERE upload_id = $1`,
+      [owner.uploadId],
+    );
+    expect(transaction.rows).toEqual([{ label_source: "rule", category: "other" }]);
   });
 
   it("treats a thrown provider outcome as spent and never retries it", async () => {

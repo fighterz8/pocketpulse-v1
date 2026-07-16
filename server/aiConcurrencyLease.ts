@@ -94,6 +94,29 @@ export async function acquireAiConcurrencyLease(
   }
 }
 
+/**
+ * Refresh an owned live lease immediately before provider transport begins.
+ * This gives the provider the complete safety window even when bounded
+ * preflight work occurred after the original capacity acquisition.
+ */
+export async function renewAiConcurrencyLease(input: {
+  leaseId: string;
+  holderKey: string;
+}): Promise<boolean> {
+  validateKey(input.leaseId, "leaseId");
+  validateKey(input.holderKey, "holderKey");
+  const result = await pool.query(
+    `WITH db_clock AS (SELECT clock_timestamp() AS now)
+     UPDATE ai_concurrency_leases l
+     SET expires_at = db_clock.now + ($3::integer * interval '1 millisecond')
+     FROM db_clock
+     WHERE l.id = $1 AND l.holder_key = $2 AND l.expires_at > db_clock.now
+     RETURNING l.id`,
+    [input.leaseId, input.holderKey, AI_PROVIDER_LEASE_TTL_MS],
+  );
+  return result.rows.length === 1;
+}
+
 export async function releaseAiConcurrencyLease(input: {
   leaseId: string;
   holderKey: string;

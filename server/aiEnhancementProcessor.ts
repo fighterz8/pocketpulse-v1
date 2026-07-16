@@ -9,6 +9,7 @@ import {
 import {
   acquireAiConcurrencyLease,
   releaseAiConcurrencyLease,
+  renewAiConcurrencyLease,
 } from "./aiConcurrencyLease.js";
 import {
   AI_ENHANCEMENT_MODEL,
@@ -96,11 +97,13 @@ export type ProcessAiEnhancementBatchInput = {
 
 export type AiEnhancementLeaseProvider = {
   acquire: typeof acquireAiConcurrencyLease;
+  renew: typeof renewAiConcurrencyLease;
   release: typeof releaseAiConcurrencyLease;
 };
 
 const DEFAULT_LEASE_PROVIDER: AiEnhancementLeaseProvider = {
   acquire: acquireAiConcurrencyLease,
+  renew: renewAiConcurrencyLease,
   release: releaseAiConcurrencyLease,
 };
 
@@ -516,6 +519,10 @@ async function returnClaimToPending(input: {
   try {
     await client.query("BEGIN");
     await client.query(
+      `SELECT id FROM ai_enhancement_jobs WHERE id = $1 FOR UPDATE`,
+      [input.jobId],
+    );
+    await client.query(
       `UPDATE ai_enhancement_job_items
        SET status = 'pending', batch_key = NULL, lease_token = NULL,
            lease_expires_at = NULL, reservation_id = NULL,
@@ -546,6 +553,10 @@ async function resetReleasedAuthorizedClaim(input: {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query(
+      `SELECT id FROM ai_enhancement_jobs WHERE id = $1 FOR UPDATE`,
+      [input.jobId],
+    );
     const reservation = await client.query<{ status: string }>(
       `SELECT status FROM ai_budget_reservations WHERE id = $1 FOR SHARE`,
       [input.batchKey],
@@ -671,53 +682,84 @@ async function skipAuthorizedClaim(input: {
 
 async function applyResultReady(userId: number, jobId: number): Promise<void> {
   const attribution = await loadJobAttribution(userId, jobId);
-  const ready = await pool.query<{
-    id: number;
-    merchant_key: string;
-    result_category: string;
-    result_transaction_class: string;
-    result_recurrence_type: string;
-    result_confidence: string;
-    result_reason: string;
-  }>(
-    `SELECT id, merchant_key, result_category, result_transaction_class,
-            result_recurrence_type, result_confidence::text, result_reason
-     FROM ai_enhancement_job_items
-     WHERE job_id = $1 AND status = 'result_ready' ORDER BY id`,
-    [jobId],
-  );
-  for (const item of ready.rows) {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const lockedItem = await client.query<{ status: string }>(
-        `SELECT status FROM ai_enhancement_job_items WHERE id = $1 FOR UPDATE`,
-        [item.id],
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const job = await client.query<{ status: string }>(
+      `SELECT status FROM ai_enhancement_jobs
+       WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [jobId, userId],
+    );
+    if (!job.rows[0]) throw new AiEnhancementJobNotFoundError();
+
+    const ready = await client.query<{
+      id: number;
+      merchant_key: string;
+      result_category: string;
+      result_transaction_class: string;
+      result_recurrence_type: string;
+      result_confidence: string;
+      result_reason: string;
+    }>(
+      `SELECT id, merchant_key, result_category, result_transaction_class,
+              result_recurrence_type, result_confidence::text, result_reason
+       FROM ai_enhancement_job_items
+       WHERE job_id = $1 AND status = 'result_ready'
+       ORDER BY id FOR UPDATE`,
+      [jobId],
+    );
+    if (ready.rows.length === 0) {
+      await client.query("COMMIT");
+      return;
+    }
+
+    const readyIds = ready.rows.map((item) => item.id);
+    if (job.rows[0].status === "cancelled") {
+      await client.query(
+        `UPDATE ai_enhancement_job_items
+         SET status = 'skipped', internal_error_code = 'CANCELLED_BEFORE_FANOUT',
+             completed_at = clock_timestamp(), updated_at = clock_timestamp()
+         WHERE id = ANY($1::int[]) AND status = 'result_ready'`,
+        [readyIds],
       );
-      if (lockedItem.rows[0]?.status !== "result_ready") {
-        await client.query("ROLLBACK");
-        continue;
-      }
-      const rule = await client.query<{ exists: boolean }>(
-        `SELECT EXISTS (
-           SELECT 1 FROM merchant_rules WHERE user_id = $1 AND merchant_key = $2
-           UNION ALL
-           SELECT 1 FROM merchant_classifications
-             WHERE user_id = $1 AND merchant_key = $2 AND source = 'manual'
-         ) AS exists`,
-        [userId, item.merchant_key],
-      );
-      const txResult = await client.query<TransactionRow>(
-        `SELECT id, merchant, raw_description, amount::text, flow_type,
-                transaction_class, category, recurrence_type, label_source,
-                user_corrected, ai_assisted
-         FROM transactions WHERE user_id = $1 AND upload_id = $2 FOR UPDATE`,
-        [userId, attribution.uploadId],
-      );
-      const matching = txResult.rows.filter(
-        (row) => eligible(row) && enhancementMerchantKey(row.merchant) === item.merchant_key,
-      );
-      if (rule.rows[0]!.exists || matching.length === 0) {
+      await client.query("COMMIT");
+      return;
+    }
+
+    const merchantKeys = ready.rows.map((item) => item.merchant_key);
+    const merchantKeySet = new Set(merchantKeys);
+    const manual = await client.query<{ merchant_key: string }>(
+      `SELECT merchant_key FROM merchant_rules
+       WHERE user_id = $1 AND merchant_key = ANY($2::text[])
+       UNION
+       SELECT merchant_key FROM merchant_classifications
+       WHERE user_id = $1 AND merchant_key = ANY($2::text[]) AND source = 'manual'`,
+      [userId, merchantKeys],
+    );
+    const manuallyResolved = new Set(manual.rows.map((row) => row.merchant_key));
+    const txResult = await client.query<TransactionRow>(
+      `SELECT id, merchant, raw_description, amount::text, flow_type,
+              transaction_class, category, recurrence_type, label_source,
+              user_corrected, ai_assisted
+       FROM transactions
+       WHERE user_id = $1 AND upload_id = $2 AND ai_assisted = true
+         AND user_corrected = false
+         AND label_source NOT IN ('manual', 'propagated', 'ai')
+       FOR UPDATE`,
+      [userId, attribution.uploadId],
+    );
+    const grouped = new Map<string, TransactionRow[]>();
+    for (const row of txResult.rows) {
+      const key = enhancementMerchantKey(row.merchant);
+      if (!merchantKeySet.has(key)) continue;
+      const rows = grouped.get(key) ?? [];
+      rows.push(row);
+      grouped.set(key, rows);
+    }
+
+    for (const item of ready.rows) {
+      const matching = grouped.get(item.merchant_key) ?? [];
+      if (manuallyResolved.has(item.merchant_key) || matching.length === 0) {
         await client.query(
           `UPDATE ai_enhancement_job_items
            SET status = 'skipped', internal_error_code = 'OVERRIDDEN_BEFORE_FANOUT',
@@ -725,9 +767,13 @@ async function applyResultReady(userId: number, jobId: number): Promise<void> {
            WHERE id = $1`,
           [item.id],
         );
-        await client.query("COMMIT");
         continue;
       }
+
+      const updates = new Map<
+        string,
+        { ids: number[]; transactionClass: string; category: string }
+      >();
       for (const row of matching) {
         const directional = reconcileAiTransactionClassification({
           flowType: row.flow_type === "inflow" ? "inflow" : "outflow",
@@ -737,18 +783,28 @@ async function applyResultReady(userId: number, jobId: number): Promise<void> {
           proposedClass: item.result_transaction_class,
           proposedCategory: item.result_category,
         });
+        const signature = `${directional.transactionClass}\u0000${directional.category}`;
+        const update = updates.get(signature) ?? {
+          ids: [],
+          transactionClass: directional.transactionClass,
+          category: directional.category,
+        };
+        update.ids.push(row.id);
+        updates.set(signature, update);
+      }
+      for (const update of updates.values()) {
         await client.query(
           `UPDATE transactions
            SET transaction_class = $2, category = $3, recurrence_type = $4,
                recurrence_source = CASE WHEN $4 = 'recurring' THEN 'hint' ELSE 'none' END,
                label_source = 'ai', label_confidence = $5, label_reason = $6,
                ai_assisted = true
-           WHERE id = $1 AND user_id = $7 AND user_corrected = false
+           WHERE id = ANY($1::int[]) AND user_id = $7 AND user_corrected = false
              AND label_source NOT IN ('manual', 'propagated', 'ai')`,
           [
-            row.id,
-            directional.transactionClass,
-            directional.category,
+            update.ids,
+            update.transactionClass,
+            update.category,
             item.result_recurrence_type,
             item.result_confidence,
             item.result_reason,
@@ -756,6 +812,7 @@ async function applyResultReady(userId: number, jobId: number): Promise<void> {
           ],
         );
       }
+
       if (Number(item.result_confidence) >= 0.7) {
         const sample = matching[0]!;
         const directional = reconcileAiTransactionClassification({
@@ -794,13 +851,13 @@ async function applyResultReady(userId: number, jobId: number): Promise<void> {
              updated_at = clock_timestamp() WHERE id = $1`,
         [item.id],
       );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
     }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 }
 
@@ -941,6 +998,56 @@ export async function processAiEnhancementBatch(
       return { state: "busy", job: await finishJobRollup(input.userId, input.jobId) };
     }
     concurrencyLeaseId = concurrency.leaseId;
+
+    // Capacity acquisition is an external wait point. Re-check both saved
+    // merchant knowledge and cancellation after the lease is held so neither
+    // can race the earlier preflight and trigger an avoidable paid request.
+    providerInputs = await freeEvidencePreflight({
+      userId: input.userId,
+      jobId: input.jobId,
+      uploadId: attribution.uploadId,
+      items: claim.items.filter((item) =>
+        providerInputs.some((candidate) => candidate.itemId === item.id),
+      ),
+      batchKey: claim.batchKey,
+      leaseToken: claim.leaseToken,
+    });
+    if (providerInputs.length === 0) {
+      await reconcileAiBudgetReservation({
+        reservationId: claim.batchKey,
+        outcome: { type: "released", errorCode: "RESOLVED_BEFORE_PROVIDER" },
+      });
+      return { state: "complete", job: await finishJobRollup(input.userId, input.jobId) };
+    }
+    const finalJob = await getAiEnhancementJobForUser(input.userId, input.jobId);
+    if (finalJob?.status === "cancelled") {
+      await reconcileAiBudgetReservation({
+        reservationId: claim.batchKey,
+        outcome: { type: "released", errorCode: "CANCELLED_BEFORE_PROVIDER" },
+      });
+      await skipAuthorizedClaim({
+        jobId: input.jobId,
+        batchKey: claim.batchKey,
+        errorCode: "CANCELLED_BEFORE_PROVIDER",
+      });
+      return { state: "cancelled", job: await finishJobRollup(input.userId, input.jobId) };
+    }
+    const renewed = await leaseProvider.renew({
+      leaseId: concurrencyLeaseId,
+      holderKey,
+    });
+    if (!renewed) {
+      await reconcileAiBudgetReservation({
+        reservationId: claim.batchKey,
+        outcome: { type: "released", errorCode: "PROVIDER_LEASE_EXPIRED" },
+      });
+      await resetReleasedAuthorizedClaim({
+        jobId: input.jobId,
+        batchKey: claim.batchKey,
+        leaseToken: claim.leaseToken,
+      });
+      return { state: "busy", job: await finishJobRollup(input.userId, input.jobId) };
+    }
 
     providerStarted = true;
     const result = await executeOpenAiStructuredRequest(providerRequest(providerInputs), {
