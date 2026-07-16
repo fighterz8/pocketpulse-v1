@@ -206,4 +206,165 @@ describeDatabase("AI usage aggregate queries", () => {
       /from must be before to/i,
     );
   });
+
+  it("reports internal dimensions, errors, and exact budget utilization without content", async () => {
+    const owner = await createOwner("diagnostic-report");
+    const dayOffset = Math.floor(Math.random() * 330);
+    const from = new Date(Date.UTC(2095, 0, 1 + dayOffset));
+    const to = new Date(from.getTime() + 24 * 60 * 60 * 1_000);
+    const day = from.toISOString().slice(0, 10);
+    const month = from.toISOString().slice(0, 7);
+    const monthStart = `${month}-01`;
+
+    const events = [
+      {
+        id: `report-success-${owner.userId}-${day}`,
+        operation: "transaction_classification",
+        attempt: "succeeded",
+        usageSource: "actual",
+        errorCode: null,
+        input: 1000,
+        cached: 400,
+        output: 200,
+        reasoning: 75,
+        total: 1200,
+        reserved: 1800,
+        final: 112,
+      },
+      {
+        id: `report-timeout-${owner.userId}-${day}`,
+        operation: "csv_format_detection",
+        attempt: "unknown",
+        usageSource: "reserved_unknown",
+        errorCode: "PROVIDER_TIMEOUT",
+        input: 0,
+        cached: 0,
+        output: 0,
+        reasoning: 0,
+        total: 0,
+        reserved: 960,
+        final: 960,
+      },
+    ] as const;
+
+    for (const [index, event] of events.entries()) {
+      const at = new Date(from.getTime() + (index + 1) * 60_000);
+      await pool.query(
+        `INSERT INTO ai_budget_reservations (
+           id, user_id, account_id, upload_id, operation, provider, model,
+           pricing_version, reserved_cost_microusd, final_cost_microusd,
+           status, created_at, reconciled_at
+         ) VALUES ($1, $2, $3, $4, $5, 'openai', 'gpt-5-nano',
+           'openai-standard-2026-07-15', $6, $7, $8, $9, $9)`,
+        [
+          event.id,
+          owner.userId,
+          owner.accountId,
+          owner.uploadId,
+          event.operation,
+          event.reserved,
+          event.final,
+          event.attempt === "unknown" ? "reserved_unknown" : "committed",
+          at,
+        ],
+      );
+      await pool.query(
+        `INSERT INTO ai_usage_events (
+           reservation_id, user_id, account_id, upload_id, operation, provider,
+           model, pricing_version, attempt_status, input_tokens,
+           cached_input_tokens, output_tokens, reasoning_tokens, total_tokens,
+           reserved_cost_microusd, final_cost_microusd, usage_source, error_code,
+           request_started_at, created_at
+         ) VALUES ($1, $2, $3, $4, $5, 'openai', 'gpt-5-nano',
+           'openai-standard-2026-07-15', $6, $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16, $17)`,
+        [
+          event.id,
+          owner.userId,
+          owner.accountId,
+          owner.uploadId,
+          event.operation,
+          event.attempt,
+          event.input,
+          event.cached,
+          event.output,
+          event.reasoning,
+          event.total,
+          event.reserved,
+          event.final,
+          event.usageSource,
+          event.errorCode,
+          at,
+          at,
+        ],
+      );
+    }
+
+    await pool.query(
+      `INSERT INTO ai_budget_buckets (
+         scope, user_id, period, period_start, configured_limit_microusd,
+         reserved_cost_microusd, committed_cost_microusd,
+         alerted_through_percent
+       ) VALUES
+         ('app', NULL, 'day', $1, 500000, 50000, 200000, 50),
+         ('app', NULL, 'month', $2, 5000000, 0, 400000, 0),
+         ('user', $3, 'day', $1, 50000, 5000, 20000, 50),
+         ('user', $3, 'month', $2, 250000, 0, 50000, 0)`,
+      [day, monthStart, owner.userId],
+    );
+
+    const report = await queries.getAiUsageReport({
+      from,
+      to,
+      userId: owner.userId,
+      accountId: owner.accountId,
+    });
+    expect(report.summary).toMatchObject({
+      requestCount: 2,
+      succeededCount: 1,
+      unknownCount: 1,
+      totalTokens: 1200,
+      actualCostMicrousd: 112,
+      reservedUnknownCostMicrousd: 960,
+      finalCostMicrousd: 1072,
+    });
+    expect(report.breakdowns.byUser).toHaveLength(1);
+    expect(report.breakdowns.byUser[0]).toMatchObject({
+      key: owner.userId,
+      requestCount: 2,
+    });
+    expect(report.breakdowns.byFinancialAccount[0]).toMatchObject({
+      key: owner.accountId,
+      requestCount: 2,
+    });
+    expect(report.breakdowns.byOperation.map((row) => row.key)).toEqual([
+      "csv_format_detection",
+      "transaction_classification",
+    ]);
+    expect(report.breakdowns.byDay[0]?.key).toBe(day);
+    expect(report.breakdowns.byMonth[0]?.key).toBe(month);
+    expect(report.breakdowns.byError).toEqual([
+      expect.objectContaining({ key: "PROVIDER_TIMEOUT", requestCount: 1 }),
+    ]);
+    expect(report.budgets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "app",
+          period: "day",
+          utilizationBasisPoints: 5000,
+          blocksNewReservations: false,
+          alertedThroughPercent: 50,
+        }),
+        expect.objectContaining({
+          scope: "user",
+          userId: owner.userId,
+          period: "day",
+          utilizationBasisPoints: 5000,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(report)).not.toMatch(
+      /merchant|prompt|filename|providerRequestId|model/i,
+    );
+  });
 });
