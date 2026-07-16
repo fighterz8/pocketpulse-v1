@@ -5,6 +5,7 @@ import pg from "pg";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenAiChatTransport } from "./openaiProvider.js";
+import type { AiEnhancementLeaseProvider } from "./aiEnhancementProcessor.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -13,6 +14,15 @@ const originalEnv = { ...process.env };
 describeDatabase("AI enhancement job routes", () => {
   let pool: pg.Pool;
   let createApp: typeof import("./routes.js").createApp;
+  const availableLeases: AiEnhancementLeaseProvider = {
+    acquire: vi.fn(async () => ({
+      acquired: true,
+      leaseId: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() + 50_000),
+      alreadyHeld: false,
+    })),
+    release: vi.fn(async () => true),
+  };
 
   beforeAll(async () => {
     pool = new pg.Pool({ connectionString: databaseUrl, max: 12 });
@@ -33,6 +43,7 @@ describeDatabase("AI enhancement job routes", () => {
       sessionStore: new session.MemoryStore(),
       runStartupJobs: false,
       enhancementTransport,
+      enhancementLeaseProvider: availableLeases,
     });
   }
 
@@ -224,6 +235,7 @@ describeDatabase("AI enhancement job routes", () => {
       sessionStore: new session.MemoryStore(),
       runStartupJobs: false,
       enhancementTransport: transport,
+      enhancementLeaseProvider: availableLeases,
     });
     const agent = request.agent(application);
     const csrf = (await agent.get("/api/csrf-token")).body.token as string;
@@ -243,13 +255,18 @@ describeDatabase("AI enhancement job routes", () => {
       .set("Idempotency-Key", `batch-route-${upload.uploadId}`)
       .send({ uploadId: upload.uploadId });
 
-    const processed = await agent
-      .post(`/api/enhancement-jobs/${created.body.job.id}/batches`)
-      .set("X-CSRF-Token", csrf)
-      .send({});
+    let processed: request.Response | null = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      processed = await agent
+        .post(`/api/enhancement-jobs/${created.body.job.id}/batches`)
+        .set("X-CSRF-Token", csrf)
+        .send({});
+      if (processed.body.state !== "busy") break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
 
-    expect(processed.status).toBe(200);
-    expect(processed.body.job.status).toBe("complete");
+    expect(processed?.status).toBe(200);
+    expect(processed?.body.job.status).toBe("complete");
     expect(transport).toHaveBeenCalledTimes(1);
   });
 

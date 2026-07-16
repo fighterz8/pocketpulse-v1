@@ -43,10 +43,21 @@ describeDatabase("AI usage aggregate queries", () => {
     return { userId, accountId, uploadId: upload.rows[0]!.id };
   }
 
+  async function createJob(owner: Awaited<ReturnType<typeof createOwner>>) {
+    const job = await pool.query<{ id: number }>(
+      `INSERT INTO ai_enhancement_jobs (
+         user_id, upload_id, account_id, kind, status, idempotency_key,
+         total_merchants, estimated_max_cost_microusd
+       ) VALUES ($1, $2, $3, 'transaction_classification', 'complete', $4, 0, 5000)
+       RETURNING id`,
+      [owner.userId, owner.uploadId, owner.accountId, `usage-${owner.uploadId}-${Math.random()}`],
+    );
+    return job.rows[0]!.id;
+  }
+
   it("reconciles app, user, financial-account, upload, and operation totals", async () => {
     const first = await createOwner("first");
-    const second = await createOwner("second");
-    const jobId = 1 + Math.floor(Math.random() * 1_000_000_000);
+    const jobId = await createJob(first);
     const clock = await pool.query<{ now: Date }>(
       `SELECT clock_timestamp() AS now`,
     );
@@ -80,12 +91,12 @@ describeDatabase("AI usage aggregate queries", () => {
       },
     });
 
-    const unknownReservation = `summary-unknown-${second.userId}`;
+    const unknownReservation = `summary-unknown-${first.userId}`;
     await accounting.reserveAiBudget({
       reservationId: unknownReservation,
-      ...second,
+      ...first,
       jobId,
-      operation: "csv_format_detection",
+      operation: "transaction_classification",
       model: "gpt-5-nano",
     });
     await accounting.reconcileAiBudgetReservation({
@@ -105,11 +116,11 @@ describeDatabase("AI usage aggregate queries", () => {
       outputTokens: 200,
       reasoningTokens: 75,
       totalTokens: 1_200,
-      reservedCostMicrousd: 2240,
-      finalCostMicrousd: 552,
+      reservedCostMicrousd: 3600,
+      finalCostMicrousd: 1912,
       actualCostMicrousd: 112,
       estimatedCostMicrousd: 0,
-      reservedUnknownCostMicrousd: 440,
+      reservedUnknownCostMicrousd: 1800,
     });
 
     const byUser = await queries.getAiUsageSummary({
@@ -137,16 +148,20 @@ describeDatabase("AI usage aggregate queries", () => {
       jobId,
     });
 
-    for (const summary of [byUser, byAccount, byUpload, byOperation]) {
-      expect(summary.requestCount).toBe(1);
-      expect(summary.finalCostMicrousd).toBe(112);
+    for (const summary of [byUser, byAccount, byUpload]) {
+      expect(summary.requestCount).toBe(2);
+      expect(summary.finalCostMicrousd).toBe(1912);
       expect(summary.totalTokens).toBe(1_200);
     }
+    expect(byOperation.requestCount).toBe(2);
+    expect(byOperation.finalCostMicrousd).toBe(1912);
+    expect(byOperation.totalTokens).toBe(1_200);
   });
 
   it("attributes time windows to request start rather than later reconciliation", async () => {
     const suffix = `${Date.now()}-${Math.random()}`;
-    const jobId = 1 + Math.floor(Math.random() * 1_000_000_000);
+    const owner = await createOwner("request-time");
+    const jobId = await createJob(owner);
     const reservationId = `request-time-${suffix}`;
     const requestStartedAt = new Date("2098-06-30T23:59:59.000Z");
     const finalizedAt = new Date("2098-07-01T00:00:01.000Z");
@@ -155,7 +170,7 @@ describeDatabase("AI usage aggregate queries", () => {
          id, job_id, operation, provider, model, pricing_version,
          reserved_cost_microusd, final_cost_microusd, status, created_at,
          reconciled_at
-       ) VALUES ($1, $4, 'csv_format_detection', 'openai', 'gpt-5-nano',
+       ) VALUES ($1, $4, 'transaction_classification', 'openai', 'gpt-5-nano',
          'openai-standard-2026-07-15', 440, 0, 'released', $2, $3)`,
       [reservationId, requestStartedAt, finalizedAt, jobId],
     );
@@ -165,7 +180,7 @@ describeDatabase("AI usage aggregate queries", () => {
          attempt_status, input_tokens, cached_input_tokens, output_tokens,
          reasoning_tokens, total_tokens, reserved_cost_microusd,
          final_cost_microusd, usage_source, request_started_at, created_at
-       ) VALUES ($1, $4, 'csv_format_detection', 'openai', 'gpt-5-nano',
+       ) VALUES ($1, $4, 'transaction_classification', 'openai', 'gpt-5-nano',
          'openai-standard-2026-07-15', 'released', 0, 0, 0, 0, 0, 440, 0,
          'estimated', $2, $3)`,
       [reservationId, requestStartedAt, finalizedAt, jobId],

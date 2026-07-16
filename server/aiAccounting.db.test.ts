@@ -171,6 +171,31 @@ describeDatabase("AI budget accounting", () => {
         uploadId: inconsistentUpload.rows[0]!.id,
       }),
     ).rejects.toBeInstanceOf(accounting.AiAttributionMismatchError);
+
+    const otherUpload = await pool.query<{ id: number }>(
+      `INSERT INTO uploads (user_id, account_id, filename, status)
+       VALUES ($1, $2, 'other-owner.csv', 'complete') RETURNING id`,
+      [otherUserId, otherAccount.rows[0]!.id],
+    );
+    const otherJob = await pool.query<{ id: number }>(
+      `INSERT INTO ai_enhancement_jobs (
+         user_id, upload_id, account_id, kind, status, idempotency_key,
+         total_merchants, estimated_max_cost_microusd
+       ) VALUES ($1, $2, $3, 'transaction_classification', 'complete', $4, 0, 1800)
+       RETURNING id`,
+      [
+        otherUserId,
+        otherUpload.rows[0]!.id,
+        otherAccount.rows[0]!.id,
+        `other-job-${otherUserId}`,
+      ],
+    );
+    await expect(
+      accounting.reserveAiBudget({
+        ...reservationInput(`wrong-job-${userId}`, userId),
+        jobId: otherJob.rows[0]!.id,
+      }),
+    ).rejects.toBeInstanceOf(accounting.AiAttributionMismatchError);
   });
 
   it("reconciles valid actual usage exactly and only once", async () => {

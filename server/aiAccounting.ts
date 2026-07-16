@@ -280,6 +280,28 @@ async function assertAttributionOwnership(
   client: pg.PoolClient,
   input: ReserveAiBudgetInput,
 ): Promise<void> {
+  if (input.jobId !== undefined) {
+    const job = await client.query<{
+      user_id: number;
+      account_id: number;
+      upload_id: number;
+      kind: AiOperation;
+    }>(
+      `SELECT user_id, account_id, upload_id, kind FROM ai_enhancement_jobs
+       WHERE id = $1 FOR UPDATE`,
+      [input.jobId],
+    );
+    const row = job.rows[0];
+    if (
+      !row ||
+      row.user_id !== input.userId ||
+      row.kind !== input.operation ||
+      (input.accountId !== undefined && row.account_id !== input.accountId) ||
+      (input.uploadId !== undefined && row.upload_id !== input.uploadId)
+    ) {
+      throw new AiAttributionMismatchError();
+    }
+  }
   if (input.uploadId !== undefined) {
     const upload = await client.query<{
       user_id: number;

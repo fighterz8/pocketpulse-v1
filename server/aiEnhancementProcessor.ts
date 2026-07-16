@@ -84,10 +84,21 @@ export type ProcessAiEnhancementBatchInput = {
   transport: OpenAiChatTransport;
   providerEnabled: boolean;
   signal?: AbortSignal;
+  leaseProvider?: AiEnhancementLeaseProvider;
   hooks?: {
     afterResultsPersisted?: () => void | Promise<void>;
     beforeProvider?: () => void | Promise<void>;
   };
+};
+
+export type AiEnhancementLeaseProvider = {
+  acquire: typeof acquireAiConcurrencyLease;
+  release: typeof releaseAiConcurrencyLease;
+};
+
+const DEFAULT_LEASE_PROVIDER: AiEnhancementLeaseProvider = {
+  acquire: acquireAiConcurrencyLease,
+  release: releaseAiConcurrencyLease,
 };
 
 const ALLOWED_CLASSES = new Set(["income", "expense", "transfer", "refund"]);
@@ -792,6 +803,7 @@ export async function processAiEnhancementBatch(
   }
 
   const holderKey = `enhancement-job:${input.jobId}:${claim.batchKey}`;
+  const leaseProvider = input.leaseProvider ?? DEFAULT_LEASE_PROVIDER;
   let concurrencyLeaseId: string | null = null;
   let reserved = false;
   let attached = false;
@@ -865,7 +877,7 @@ export async function processAiEnhancementBatch(
       return { state: "cancelled", job: await finishJobRollup(input.userId, input.jobId) };
     }
 
-    const concurrency = await acquireAiConcurrencyLease({ holderKey });
+    const concurrency = await leaseProvider.acquire({ holderKey });
     if (!concurrency.acquired || !concurrency.leaseId) {
       await reconcileAiBudgetReservation({
         reservationId: claim.batchKey,
@@ -937,7 +949,7 @@ export async function processAiEnhancementBatch(
     throw error;
   } finally {
     if (concurrencyLeaseId) {
-      await releaseAiConcurrencyLease({ leaseId: concurrencyLeaseId, holderKey });
+      await leaseProvider.release({ leaseId: concurrencyLeaseId, holderKey });
     }
   }
 }

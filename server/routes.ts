@@ -101,6 +101,7 @@ import {
 } from "./aiEnhancementJobs.js";
 import {
   processAiEnhancementBatch,
+  type AiEnhancementLeaseProvider,
 } from "./aiEnhancementProcessor.js";
 import {
   createOpenAiChatTransport,
@@ -287,6 +288,8 @@ export type CreateAppOptions = {
   runStartupJobs?: boolean;
   /** Test-only provider injection. Production constructs the bounded adapter lazily. */
   enhancementTransport?: OpenAiChatTransport;
+  /** Test-only semaphore injection; production always uses the DB-backed lease. */
+  enhancementLeaseProvider?: AiEnhancementLeaseProvider;
 };
 
 function defaultSessionStore() {
@@ -1888,6 +1891,7 @@ export function createApp(options?: CreateAppOptions) {
           transport:
             options?.enhancementTransport ?? createOpenAiChatTransport(apiKey),
           providerEnabled: true,
+          leaseProvider: options?.enhancementLeaseProvider,
         });
         res.json(result);
       } catch (error) {

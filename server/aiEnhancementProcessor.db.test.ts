@@ -4,6 +4,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { OpenAiChatTransport } from "./openaiProvider.js";
+import type { AiEnhancementLeaseProvider } from "./aiEnhancementProcessor.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -12,6 +13,15 @@ describeDatabase("AI enhancement batch processor", () => {
   let pool: pg.Pool;
   let jobs: typeof import("./aiEnhancementJobs.js");
   let processor: typeof import("./aiEnhancementProcessor.js");
+  const availableLeases: AiEnhancementLeaseProvider = {
+    acquire: vi.fn(async () => ({
+      acquired: true,
+      leaseId: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() + 50_000),
+      alreadyHeld: false,
+    })),
+    release: vi.fn(async () => true),
+  };
 
   beforeAll(async () => {
     pool = new pg.Pool({ connectionString: databaseUrl, max: 24 });
@@ -98,6 +108,15 @@ describeDatabase("AI enhancement batch processor", () => {
     });
   }
 
+  async function processWhenAvailable(
+    input: Parameters<typeof processor.processAiEnhancementBatch>[0],
+  ) {
+    return processor.processAiEnhancementBatch({
+      ...input,
+      leaseProvider: input.leaseProvider ?? availableLeases,
+    });
+  }
+
   it("uses a newly saved manual rule without authorizing a provider request", async () => {
     const owner = await fixture("manual-preflight", ["Mystery Utility"]);
     await pool.query(
@@ -110,7 +129,7 @@ describeDatabase("AI enhancement batch processor", () => {
       throw new Error("provider must not be called");
     });
 
-    const result = await processor.processAiEnhancementBatch({
+    const result = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -150,7 +169,7 @@ describeDatabase("AI enhancement batch processor", () => {
     ]);
     const transport = successfulTransport();
 
-    const result = await processor.processAiEnhancementBatch({
+    const result = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -205,7 +224,7 @@ describeDatabase("AI enhancement batch processor", () => {
     const transport = successfulTransport();
 
     await expect(
-      processor.processAiEnhancementBatch({
+      processWhenAvailable({
         userId: owner.userId,
         jobId: owner.job.id,
         transport,
@@ -214,7 +233,7 @@ describeDatabase("AI enhancement batch processor", () => {
       }),
     ).rejects.toThrow("simulated crash");
 
-    const recovered = await processor.processAiEnhancementBatch({
+    const recovered = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -257,7 +276,7 @@ describeDatabase("AI enhancement batch processor", () => {
       };
     });
 
-    const result = await processor.processAiEnhancementBatch({
+    const result = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -275,7 +294,7 @@ describeDatabase("AI enhancement batch processor", () => {
     const owner = await fixture("cancel-before-send", ["Cancel Before Provider"]);
     const transport = successfulTransport();
 
-    const result = await processor.processAiEnhancementBatch({
+    const result = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -302,54 +321,44 @@ describeDatabase("AI enhancement batch processor", () => {
 
   it("releases authorization and restores the claim when global capacity is busy", async () => {
     const owner = await fixture("capacity-busy", ["Wait For Capacity"]);
-    const leases = await import("./aiConcurrencyLease.js");
-    const first = await leases.acquireAiConcurrencyLease({ holderKey: `test-capacity-a-${owner.job.id}` });
-    const second = await leases.acquireAiConcurrencyLease({ holderKey: `test-capacity-b-${owner.job.id}` });
-    expect(first.acquired).toBe(true);
-    expect(second.acquired).toBe(true);
+    const busyLeases: AiEnhancementLeaseProvider = {
+      acquire: vi.fn(async () => ({
+        acquired: false,
+        leaseId: null,
+        expiresAt: null,
+        alreadyHeld: false,
+      })),
+      release: vi.fn(async () => false),
+    };
     const transport = successfulTransport();
-    try {
-      const result = await processor.processAiEnhancementBatch({
-        userId: owner.userId,
-        jobId: owner.job.id,
-        transport,
-        providerEnabled: true,
-      });
-      expect(result.state).toBe("busy");
-      expect(transport).not.toHaveBeenCalled();
-      const item = await pool.query<{
-        status: string;
-        attempt_count: number;
-        reservation_id: string | null;
-      }>(
-        `SELECT status, attempt_count, reservation_id
+    const result = await processor.processAiEnhancementBatch({
+      userId: owner.userId,
+      jobId: owner.job.id,
+      transport,
+      providerEnabled: true,
+      leaseProvider: busyLeases,
+    });
+    expect(result.state).toBe("busy");
+    expect(transport).not.toHaveBeenCalled();
+    const item = await pool.query<{
+      status: string;
+      attempt_count: number;
+      reservation_id: string | null;
+    }>(
+      `SELECT status, attempt_count, reservation_id
          FROM ai_enhancement_job_items WHERE job_id = $1`,
-        [owner.job.id],
-      );
-      expect(item.rows[0]).toEqual({
-        status: "pending",
-        attempt_count: 0,
-        reservation_id: null,
-      });
-      const reservation = await pool.query<{ status: string }>(
-        `SELECT status FROM ai_budget_reservations WHERE job_id = $1`,
-        [owner.job.id],
-      );
-      expect(reservation.rows).toEqual([{ status: "released" }]);
-    } finally {
-      if (first.leaseId) {
-        await leases.releaseAiConcurrencyLease({
-          leaseId: first.leaseId,
-          holderKey: `test-capacity-a-${owner.job.id}`,
-        });
-      }
-      if (second.leaseId) {
-        await leases.releaseAiConcurrencyLease({
-          leaseId: second.leaseId,
-          holderKey: `test-capacity-b-${owner.job.id}`,
-        });
-      }
-    }
+      [owner.job.id],
+    );
+    expect(item.rows[0]).toEqual({
+      status: "pending",
+      attempt_count: 0,
+      reservation_id: null,
+    });
+    const reservation = await pool.query<{ status: string }>(
+      `SELECT status FROM ai_budget_reservations WHERE job_id = $1`,
+      [owner.job.id],
+    );
+    expect(reservation.rows).toEqual([{ status: "released" }]);
   });
 
   it("treats a thrown provider outcome as spent and never retries it", async () => {
@@ -359,14 +368,14 @@ describeDatabase("AI enhancement batch processor", () => {
     });
 
     await expect(
-      processor.processAiEnhancementBatch({
+      processWhenAvailable({
         userId: owner.userId,
         jobId: owner.job.id,
         transport,
         providerEnabled: true,
       }),
     ).rejects.toThrow("socket closed");
-    const recovered = await processor.processAiEnhancementBatch({
+    const recovered = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -397,7 +406,7 @@ describeDatabase("AI enhancement batch processor", () => {
     );
     const transport = successfulTransport();
 
-    const first = await processor.processAiEnhancementBatch({
+    const first = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
@@ -408,7 +417,7 @@ describeDatabase("AI enhancement batch processor", () => {
       completedMerchants: 25,
       failedMerchants: 0,
     });
-    const second = await processor.processAiEnhancementBatch({
+    const second = await processWhenAvailable({
       userId: owner.userId,
       jobId: owner.job.id,
       transport,
