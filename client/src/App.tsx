@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Route, Switch, useLocation } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
 import { AppLayout } from "./components/layout/AppLayout";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { useAuth, type AuthAccount } from "./hooks/use-auth";
@@ -35,6 +35,9 @@ function AppAuthenticated() {
       logoutPending={logout.isPending}
     >
       <Switch>
+        <Route path="/auth">
+          <Redirect to="/" replace />
+        </Route>
         <Route path="/">
           <Dashboard />
         </Route>

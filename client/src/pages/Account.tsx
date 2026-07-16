@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 
+import { AccountDataControls } from "../components/account/AccountDataControls";
 import {
   type BillingAccountResponse,
   type PlusPlan,
@@ -9,10 +10,15 @@ import {
 
 type AccountProps = {
   redirectToHostedPage?: (url: string) => void;
+  redirectAfterAccountDeletion?: () => void;
 };
 
 function defaultRedirect(url: string) {
   window.location.assign(url);
+}
+
+function defaultAccountDeletionRedirect() {
+  window.location.assign("/auth");
 }
 
 function formatPrice(plan: PlusPlan): string {
@@ -102,7 +108,10 @@ function planStatus(account: BillingAccountResponse): {
   }
 }
 
-export function Account({ redirectToHostedPage = defaultRedirect }: AccountProps) {
+export function Account({
+  redirectToHostedPage = defaultRedirect,
+  redirectAfterAccountDeletion = defaultAccountDeletionRedirect,
+}: AccountProps) {
   const accountQuery = useBillingAccount();
   const billingPages = useHostedBillingPages();
 
@@ -233,6 +242,15 @@ export function Account({ redirectToHostedPage = defaultRedirect }: AccountProps
           </ul>
         </article>
       </div>
+
+      <AccountDataControls
+        hasLiveBilling={
+          account.access.state === "trialing" ||
+          account.access.state === "active" ||
+          account.access.state === "past_due"
+        }
+        onAccountDeleted={redirectAfterAccountDeletion}
+      />
     </section>
   );
 }

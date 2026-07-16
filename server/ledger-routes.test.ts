@@ -2,7 +2,7 @@
  * Ledger route tests (Phase 3).
  *
  * Tests for PATCH /api/transactions/:id, DELETE /api/transactions,
- * DELETE /api/workspace-data, GET /api/export/transactions, and
+ * DELETE /api/account, GET /api/export/transactions, and
  * enhanced GET /api/transactions filters.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -20,7 +20,7 @@ vi.mock("./storage.js", async (importOriginal) => {
     getTransactionById: vi.fn(),
     updateTransaction: vi.fn(),
     deleteAllTransactionsForUser: vi.fn(),
-    deleteWorkspaceDataForUser: vi.fn(),
+    deleteUserAccount: vi.fn(),
     listAllTransactionsForExport: vi.fn(),
   };
 });
@@ -53,7 +53,6 @@ import {
   getTransactionById,
   updateTransaction,
   deleteAllTransactionsForUser,
-  deleteWorkspaceDataForUser,
   listAllTransactionsForExport,
   listTransactionsForUser,
 } from "./storage.js";
@@ -62,7 +61,6 @@ import { createApp } from "./routes.js";
 const mockedGetTxn = vi.mocked(getTransactionById);
 const mockedUpdateTxn = vi.mocked(updateTransaction);
 const mockedDeleteAll = vi.mocked(deleteAllTransactionsForUser);
-const mockedDeleteWorkspace = vi.mocked(deleteWorkspaceDataForUser);
 const mockedExport = vi.mocked(listAllTransactionsForExport);
 const mockedListTxns = vi.mocked(listTransactionsForUser);
 
@@ -113,16 +111,16 @@ describe("ledger routes", () => {
     });
   });
 
-  describe("DELETE /api/workspace-data", () => {
+  describe("DELETE /api/account", () => {
     it("returns 401 when not authenticated", async () => {
       const { app } = buildApp();
-      const res = await request(app).delete("/api/workspace-data").send({ confirm: true });
+      const res = await request(app).delete("/api/account").send({ confirm: "DELETE" });
       expect(res.status).toBe(401);
     });
 
-    it("returns 400 without confirm flag", async () => {
+    it("does not accept the weaker transaction-wipe confirmation", async () => {
       const { app } = buildApp();
-      const res = await request(app).delete("/api/workspace-data").send({});
+      const res = await request(app).delete("/api/account").send({ confirm: true });
       expect([400, 401]).toContain(res.status);
     });
   });

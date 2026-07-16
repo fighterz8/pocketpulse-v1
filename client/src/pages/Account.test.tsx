@@ -26,15 +26,22 @@ const base = {
   actions: { canStartCheckout: false, canManageBilling: false },
 };
 
-function renderAccount(redirectToHostedPage = vi.fn()) {
+function renderAccount(
+  redirectToHostedPage = vi.fn(),
+  redirectAfterAccountDeletion = vi.fn(),
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
   return {
     redirectToHostedPage,
+    redirectAfterAccountDeletion,
     ...render(
       <QueryClientProvider client={client}>
-        <Account redirectToHostedPage={redirectToHostedPage} />
+        <Account
+          redirectToHostedPage={redirectToHostedPage}
+          redirectAfterAccountDeletion={redirectAfterAccountDeletion}
+        />
       </QueryClientProvider>,
     ),
   };
@@ -60,6 +67,40 @@ describe("Account billing UX", () => {
     expect(screen.getByText(/checkout is not open yet/i)).toBeInTheDocument();
     expect(screen.getByText(/dashboard, ledger, and manual corrections/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Data controls")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wipe imported data" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete account" })).toBeInTheDocument();
+  });
+
+  it("requires typed confirmation before deleting the entire account", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/billing/entitlement") return json(base);
+      if (url === "/api/csrf-token") return json({ token: "csrf" });
+      if (url === "/api/account" && init?.method === "DELETE") {
+        expect(init.body).toBe(JSON.stringify({ confirm: "DELETE" }));
+        return json({ message: "Account deleted" });
+      }
+      return json({ error: `Unhandled ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const view = renderAccount();
+
+    await screen.findByText("You are using PocketPulse Free");
+    fireEvent.click(screen.getByRole("button", { name: "Delete account" }));
+    const confirmButton = screen.getByRole("button", {
+      name: "Permanently delete account",
+    });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Type DELETE to confirm"), {
+      target: { value: "DELETE" },
+    });
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(view.redirectAfterAccountDeletion).toHaveBeenCalledOnce();
+    });
   });
 
   it("discloses trial conversion before opening hosted checkout", async () => {

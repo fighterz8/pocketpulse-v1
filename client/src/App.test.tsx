@@ -241,6 +241,17 @@ describe("AppGate routing state machine", () => {
     expect(screen.getByTestId("stub-account")).toBeInTheDocument();
   });
 
+  it("redirects an authenticated login route to the dashboard", async () => {
+    authState.accounts = [account];
+    const { history } = renderGate("/auth");
+
+    await waitFor(() => {
+      expect(history.at(-1)).toBe("/");
+      expect(screen.getByTestId("stub-dashboard")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("stub-not-found")).not.toBeInTheDocument();
+  });
+
   it("renders the authenticated app when accounts is empty but skipped flag is set", () => {
     sessionStorage.setItem("pp_onboarding_skipped", "1");
     authState.accounts = [];

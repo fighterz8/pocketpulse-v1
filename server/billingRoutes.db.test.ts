@@ -238,4 +238,59 @@ describeDatabase("billing routes", () => {
     expect(invalid.status).toBe(400);
     expect(invalid.body.code).toBe("BILLING_WEBHOOK_VERIFICATION_FAILED");
   }, 30_000);
+
+  it("serves a Free account without reading billing tables and deletes the authenticated account", async () => {
+    const billingAccountReader = vi.fn(async () => {
+      throw new Error("disabled billing must not read billing projections");
+    });
+    const app = createApp({
+      sessionStore: new session.MemoryStore(),
+      runStartupJobs: false,
+      billingConfig: { enabled: false },
+      billingAccountReader,
+    });
+    const agent = request.agent(app);
+    const csrf = (await agent.get("/api/csrf-token")).body.token as string;
+    const email = `free-account-${Date.now()}-${Math.random()}@example.test`;
+    const registered = await agent
+      .post("/api/auth/register")
+      .set("X-CSRF-Token", csrf)
+      .send({
+        email,
+        password: "secure-password-99",
+        displayName: "Free Account",
+      });
+    expect(registered.status).toBe(201);
+
+    const entitlement = await agent.get("/api/billing/entitlement");
+    expect(entitlement.status).toBe(200);
+    expect(entitlement.body).toMatchObject({
+      access: { state: "free", trialAvailable: true },
+      subscription: { cancelAtPeriodEnd: false },
+      actions: { canStartCheckout: false, canManageBilling: false },
+    });
+    expect(billingAccountReader).not.toHaveBeenCalled();
+
+    const weakConfirmation = await agent
+      .delete("/api/account")
+      .set("X-CSRF-Token", csrf)
+      .send({ confirm: true });
+    expect(weakConfirmation.status).toBe(400);
+
+    const deletion = await agent
+      .delete("/api/account")
+      .set("X-CSRF-Token", csrf)
+      .send({ confirm: "DELETE" });
+    expect(deletion.status).toBe(200);
+    expect(deletion.body).toEqual({ message: "Account deleted" });
+    expect(deletion.headers["set-cookie"]).toBeDefined();
+
+    const me = await agent.get("/api/auth/me");
+    expect(me.body).toEqual({ authenticated: false });
+    const remaining = await pool.query(
+      `SELECT id FROM users WHERE email = $1`,
+      [email],
+    );
+    expect(remaining.rowCount).toBe(0);
+  }, 30_000);
 });

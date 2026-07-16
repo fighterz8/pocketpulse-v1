@@ -1284,27 +1284,13 @@ export async function deleteAllTransactionsForUser(userId: number) {
   });
 }
 
-/** Full workspace reset: wipe transactions + uploads + accounts. */
-export async function deleteWorkspaceDataForUser(userId: number) {
-  return db.transaction(async (tx) => {
-    const txnResult = await tx
-      .delete(transactions)
-      .where(eq(transactions.userId, userId))
-      .returning({ id: transactions.id });
-    const uploadResult = await tx
-      .delete(uploads)
-      .where(eq(uploads.userId, userId))
-      .returning({ id: uploads.id });
-    const acctResult = await tx
-      .delete(accounts)
-      .where(eq(accounts.userId, userId))
-      .returning({ id: accounts.id });
-    return {
-      deletedTransactions: txnResult.length,
-      deletedUploads: uploadResult.length,
-      deletedAccounts: acctResult.length,
-    };
-  });
+/** Delete the identity; schema cascades private workspace rows and anonymizes retained ledgers. */
+export async function deleteUserAccount(userId: number): Promise<boolean> {
+  const deleted = await db
+    .delete(users)
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  return deleted.length === 1;
 }
 
 /** Return all filtered transactions (no pagination) for CSV export. */

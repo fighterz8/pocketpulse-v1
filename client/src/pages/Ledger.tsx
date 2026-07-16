@@ -138,8 +138,6 @@ export function Ledger() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  const [wipeConfirm, setWipeConfirm] = useState(false);
-  const [resetConfirm, setResetConfirm] = useState(false);
   // Propagation notice: shown briefly after a correction is auto-applied to
   // same-merchant transactions.
   const [propagationNotice, setPropagationNotice] = useState<{ merchant: string; count: number } | null>(null);
@@ -159,8 +157,6 @@ export function Ledger() {
     isLoading,
     error,
     updateTransaction,
-    wipeData,
-    resetWorkspace,
   } = useTransactions(filters);
 
   const setPage = (p: number) => setFilters((f) => ({ ...f, page: p }));
@@ -496,102 +492,6 @@ export function Ledger() {
           )}
         </>
       )}
-
-      {/* Danger zone */}
-      <details className="ledger-danger-zone glass-card">
-        <summary className="ledger-danger-title">Advanced data management</summary>
-        <div className="ledger-danger-actions">
-          {!wipeConfirm ? (
-            <Hint
-              content="Permanent. Deletes all imported transactions but keeps your accounts. Export a CSV first if you want a backup."
-              data-testid="hint-wipe-data"
-            >
-              <button
-                className="ledger-danger-btn ledger-danger-btn--warn"
-                onClick={() => setWipeConfirm(true)}
-                disabled={wipeData.isPending || resetWorkspace.isPending}
-                data-testid="btn-wipe-data"
-              >
-                Wipe Imported Data
-              </button>
-            </Hint>
-          ) : (
-            <div className="ledger-danger-confirm">
-              <p className="ledger-danger-msg">
-                This will permanently delete all transactions and uploads. Your accounts will be kept.
-              </p>
-              <p className="ledger-danger-msg ledger-danger-msg--note">
-                Tip: when you re-upload, overlapping bank statement exports (e.g. month-end and month-start statements from the same bank) may contain duplicate rows — these are automatically skipped and reported separately in the import summary.
-              </p>
-              <div className="ledger-danger-confirm-actions">
-                <button
-                  className="ledger-danger-btn ledger-danger-btn--destructive"
-                  onClick={() => {
-                    wipeData.mutate(undefined, {
-                      onSuccess: () => setWipeConfirm(false),
-                    });
-                  }}
-                  disabled={wipeData.isPending}
-                >
-                  {wipeData.isPending ? "Wiping..." : "Confirm Wipe"}
-                </button>
-                <button
-                  className="ledger-danger-btn ledger-danger-btn--cancel"
-                  onClick={() => setWipeConfirm(false)}
-                  disabled={wipeData.isPending}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!resetConfirm ? (
-            <Hint
-              content="Permanent. Deletes everything including your accounts — you'll need to set up your accounts again. Export a CSV first if you want a backup."
-              data-testid="hint-reset-workspace"
-            >
-              <button
-                className="ledger-danger-btn ledger-danger-btn--warn"
-                onClick={() => setResetConfirm(true)}
-                disabled={wipeData.isPending || resetWorkspace.isPending}
-                data-testid="btn-reset-workspace"
-              >
-                Reset Workspace
-              </button>
-            </Hint>
-          ) : (
-            <div className="ledger-danger-confirm">
-              <p className="ledger-danger-msg">
-                This will permanently delete all transactions, uploads, and accounts. You will need to set up accounts again.
-              </p>
-              <div className="ledger-danger-confirm-actions">
-                <button
-                  className="ledger-danger-btn ledger-danger-btn--destructive"
-                  onClick={() => {
-                    resetWorkspace.mutate(undefined, {
-                      onSuccess: () => {
-                        setResetConfirm(false);
-                        window.location.href = "/";
-                      },
-                    });
-                  }}
-                  disabled={resetWorkspace.isPending}
-                >
-                  {resetWorkspace.isPending ? "Resetting..." : "Confirm Reset"}
-                </button>
-                <button
-                  className="ledger-danger-btn ledger-danger-btn--cancel"
-                  onClick={() => setResetConfirm(false)}
-                  disabled={resetWorkspace.isPending}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </details>
 
       {propagationNotice && (
         <motion.div

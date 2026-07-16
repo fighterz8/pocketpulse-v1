@@ -134,36 +134,6 @@ export function useTransactions(
     },
   });
 
-  const wipeDataMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiFetch("/api/transactions", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: true }),
-      });
-      if (!res.ok) throw new Error(await readJsonError(res));
-      return res.json();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: transactionsQueryKey });
-    },
-  });
-
-  const resetWorkspaceMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiFetch("/api/workspace-data", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: true }),
-      });
-      if (!res.ok) throw new Error(await readJsonError(res));
-      return res.json();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: transactionsQueryKey });
-    },
-  });
-
   const reclassifyMutation = useMutation({
     mutationFn: async (): Promise<{ total: number; updated: number; skippedUserCorrected: number; unchanged: number }> => {
       const res = await apiFetch("/api/transactions/reclassify", {
@@ -185,8 +155,6 @@ export function useTransactions(
     isLoading: query.isPending,
     error: query.error as Error | null,
     updateTransaction: updateMutation,
-    wipeData: wipeDataMutation,
-    resetWorkspace: resetWorkspaceMutation,
     reclassify: reclassifyMutation,
   };
 }

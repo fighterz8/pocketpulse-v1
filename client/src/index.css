@@ -2926,107 +2926,6 @@ html.dark .ledger-export-btn {
   background: color-mix(in srgb, #4ade80 10%, transparent);
 }
 
-/* Danger zone */
-
-.ledger-danger-zone {
-  margin-top: 3rem;
-  padding: 1.25rem;
-  border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
-  border-radius: 0.625rem;
-  background: color-mix(in srgb, currentColor 2%, transparent);
-}
-
-.ledger-danger-title {
-  margin: 0;
-  font-size: 0.92rem;
-  font-weight: 700;
-  color: #64748b;
-  cursor: pointer;
-  list-style-position: inside;
-}
-
-.ledger-danger-zone[open] .ledger-danger-title {
-  margin-bottom: 0.75rem;
-  color: #dc2626;
-}
-
-html.dark .ledger-danger-title {
-  color: #94a3b8;
-}
-
-html.dark .ledger-danger-zone[open] .ledger-danger-title {
-  color: #f87171;
-}
-
-.ledger-danger-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-
-.ledger-danger-btn {
-  padding: 0.45rem 0.85rem;
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 600;
-  border-radius: 0.4rem;
-  cursor: pointer;
-}
-
-.ledger-danger-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ledger-danger-btn--warn {
-  border: 1px solid color-mix(in srgb, #dc2626 25%, transparent);
-  background: Field;
-  color: #dc2626;
-}
-
-html.dark .ledger-danger-btn--warn {
-  color: #f87171;
-}
-
-.ledger-danger-btn--warn:hover:not(:disabled) {
-  background: color-mix(in srgb, #dc2626 8%, transparent);
-}
-
-.ledger-danger-btn--destructive {
-  border: none;
-  background: #dc2626;
-  color: #fff;
-}
-
-.ledger-danger-btn--destructive:hover:not(:disabled) {
-  background: #b91c1c;
-}
-
-.ledger-danger-btn--cancel {
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  background: Field;
-  color: FieldText;
-}
-
-.ledger-danger-confirm {
-  padding: 0.75rem 1rem;
-  border: 1px solid color-mix(in srgb, #dc2626 22%, transparent);
-  border-radius: 0.5rem;
-  background: color-mix(in srgb, #dc2626 5%, transparent);
-}
-
-.ledger-danger-msg {
-  margin: 0 0 0.65rem;
-  font-size: 0.88rem;
-  font-weight: 500;
-}
-
-.ledger-danger-confirm-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
 /* ── Leaks page ─────────────────────────────────────────────── */
 
 .leaks-summary {
@@ -5962,6 +5861,152 @@ html.dark .welcome-overlay-body strong { color: #f8fafc; }
   line-height: 1.65;
 }
 
+.account-data-controls { padding: 1.5rem; }
+
+.account-data-controls-header h2 {
+  margin: 0.45rem 0 0.45rem;
+  color: #0f172a;
+  font-size: 1.15rem;
+}
+
+.account-data-controls-header > p:last-child,
+.account-data-control > p,
+.account-danger-confirm > p,
+.account-data-note,
+.account-data-status {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.account-data-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.account-data-control {
+  min-width: 0;
+  padding: 1.15rem;
+  border: 1px solid rgb(15 23 42 / 0.1);
+  border-radius: 0.8rem;
+  background: rgb(248 250 252 / 0.62);
+}
+
+.account-data-control h3 {
+  margin: 0 0 0.45rem;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.account-data-control-actions,
+.account-data-control--delete > .account-danger-btn,
+.account-data-control--delete > .account-danger-confirm {
+  margin-top: 1rem;
+}
+
+.account-data-control-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.account-data-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  color: #1d4ed8;
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.account-danger-btn {
+  min-height: 44px;
+  padding: 0.62rem 0.9rem;
+  border-radius: 0.55rem;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-danger-btn--warn {
+  border: 1px solid rgb(180 83 9 / 0.28);
+  color: #92400e;
+  background: rgb(255 251 235 / 0.88);
+}
+
+.account-danger-btn--destructive {
+  border: 1px solid #b91c1c;
+  color: #fff;
+  background: #b91c1c;
+}
+
+.account-danger-btn--cancel {
+  border: 1px solid rgb(15 23 42 / 0.18);
+  color: #334155;
+  background: rgb(255 255 255 / 0.78);
+}
+
+.account-danger-btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.account-data-link:focus-visible,
+.account-danger-btn:focus-visible,
+.account-delete-input:focus-visible {
+  outline: 3px solid rgb(147 197 253 / 0.9);
+  outline-offset: 2px;
+}
+
+.account-danger-confirm {
+  width: 100%;
+  padding: 0.9rem;
+  border: 1px solid rgb(185 28 28 / 0.18);
+  border-radius: 0.65rem;
+  background: rgb(254 242 242 / 0.64);
+}
+
+.account-danger-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.account-delete-label {
+  display: block;
+  margin: 0.85rem 0 0.35rem;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.account-delete-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid rgb(15 23 42 / 0.22);
+  border-radius: 0.5rem;
+  color: #0f172a;
+  background: #fff;
+  font: inherit;
+}
+
+.account-data-note {
+  margin-top: 0.85rem;
+  color: #92400e;
+  font-weight: 650;
+}
+
+.account-data-status { color: #166534; font-weight: 650; }
+
 .account-error p { margin-top: 0; }
 .account-skeleton {
   height: 16rem;
@@ -5981,17 +6026,34 @@ html.dark .account-availability-note,
 html.dark .account-benefit-grid ul { color: #cbd5e1; }
 html.dark .account-plan-heading h2,
 html.dark .account-benefit-grid h2,
-html.dark .account-price strong { color: #f8fafc; }
+html.dark .account-price strong,
+html.dark .account-data-controls-header h2,
+html.dark .account-data-control h3 { color: #f8fafc; }
 html.dark .account-secondary-action { color: #e2e8f0; border-color: rgb(148 163 184 / 0.3); background: rgb(15 23 42 / 0.5); }
 html.dark .account-status--past_due,
 html.dark .account-status--expired { color: #fde68a; background: rgb(146 64 14 / 0.32); }
+html.dark .account-data-controls-header > p:last-child,
+html.dark .account-data-control > p,
+html.dark .account-danger-confirm > p,
+html.dark .account-delete-label { color: #cbd5e1; }
+html.dark .account-data-control { border-color: rgb(148 163 184 / 0.18); background: rgb(15 23 42 / 0.32); }
+html.dark .account-data-link { color: #93c5fd; }
+html.dark .account-danger-btn--warn { color: #fde68a; border-color: rgb(251 191 36 / 0.28); background: rgb(120 53 15 / 0.28); }
+html.dark .account-danger-btn--cancel { color: #e2e8f0; border-color: rgb(148 163 184 / 0.3); background: rgb(15 23 42 / 0.5); }
+html.dark .account-danger-confirm { border-color: rgb(248 113 113 / 0.22); background: rgb(127 29 29 / 0.18); }
+html.dark .account-delete-input { color: #f8fafc; border-color: rgb(148 163 184 / 0.35); background: rgb(15 23 42 / 0.7); }
+html.dark .account-data-note { color: #fde68a; }
+html.dark .account-data-status { color: #86efac; }
 
 @media (max-width: 640px) {
   .account-header,
   .account-plan-heading { align-items: flex-start; flex-direction: column; }
-  .account-benefit-grid { grid-template-columns: 1fr; }
-  .account-plan-card { padding: 1.15rem; }
+  .account-benefit-grid,
+  .account-data-controls-grid { grid-template-columns: 1fr; }
+  .account-plan-card,
+  .account-data-controls { padding: 1.15rem; }
   .account-actions > * { width: 100%; }
+  .account-danger-confirm-actions > * { width: 100%; }
 }
 
 /* ─── Public landing page routes (/ and /landing) ─────────────────────── */

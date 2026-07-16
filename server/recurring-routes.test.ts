@@ -19,7 +19,7 @@ vi.mock("./storage.js", async (importOriginal) => {
     getTransactionById: vi.fn(),
     updateTransaction: vi.fn(),
     deleteAllTransactionsForUser: vi.fn(),
-    deleteWorkspaceDataForUser: vi.fn(),
+    deleteUserAccount: vi.fn(),
     listAllTransactionsForExport: vi.fn().mockResolvedValue([]),
     upsertRecurringReview: vi.fn(),
     listRecurringReviewsForUser: vi.fn().mockResolvedValue([]),

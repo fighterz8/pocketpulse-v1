@@ -31,7 +31,7 @@ import {
   createUser,
   deleteAllTransactionsForUser,
   deleteExpiredPasswordResetTokens,
-  deleteWorkspaceDataForUser,
+  deleteUserAccount,
   addWaitlistEmail,
   listAllWaitlistEmails,
   DuplicateEmailError,
@@ -857,6 +857,18 @@ export function createApp(options?: CreateAppOptions) {
 
   app.get("/api/billing/entitlement", requireAuth, async (req, res, next) => {
     try {
+      if (!billingConfig.enabled) {
+        res.json({
+          plan: plusPlan,
+          access: { state: "free", trialAvailable: true },
+          subscription: { cancelAtPeriodEnd: false },
+          actions: {
+            canStartCheckout: false,
+            canManageBilling: false,
+          },
+        });
+        return;
+      }
       const account = await readBillingAccount(req.session.userId!);
       const entitlement = account.access;
       const canStartCheckout =
@@ -2617,17 +2629,37 @@ export function createApp(options?: CreateAppOptions) {
     }
   });
 
-  app.delete("/api/workspace-data", requireAuth, async (req, res, next) => {
+  app.delete("/api/account", requireAuth, async (req, res, next) => {
     try {
       const userId = req.session.userId!;
-      if (req.body?.confirm !== true) {
+      if (req.body?.confirm !== "DELETE") {
         res
           .status(400)
-          .json({ error: "Must send { confirm: true } to reset workspace" });
+          .json({ error: 'Must send { confirm: "DELETE" } to delete account' });
         return;
       }
-      const result = await deleteWorkspaceDataForUser(userId);
-      res.json({ message: "Workspace data deleted", ...result });
+      if (billingConfig.enabled) {
+        const billingAccount = await readBillingAccount(userId);
+        if (
+          billingAccount.access.state === "trialing" ||
+          billingAccount.access.state === "active" ||
+          billingAccount.access.state === "past_due"
+        ) {
+          res.status(409).json({
+            error: "Cancel Plus and wait until access ends before deleting PocketPulse",
+            code: "BILLING_ACCOUNT_MUST_BE_CLOSED",
+          });
+          return;
+        }
+      }
+      const deleted = await deleteUserAccount(userId);
+      await destroySession(req);
+      res.clearCookie("pocketpulse.sid", sessionCookieOptions);
+      if (!deleted) {
+        res.status(404).json({ error: "Account not found" });
+        return;
+      }
+      res.json({ message: "Account deleted" });
     } catch (e) {
       next(e);
     }

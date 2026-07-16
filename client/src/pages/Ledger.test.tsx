@@ -120,11 +120,11 @@ describe("Ledger page", () => {
     expect(screen.getByText("All recurrence")).toBeInTheDocument();
   });
 
-  it("renders advanced data management collapsed behind a summary", () => {
+  it("keeps account-level data controls out of the transaction ledger", () => {
     renderLedger();
-    expect(screen.getByText("Advanced data management")).toBeInTheDocument();
-    expect(screen.getByText("Wipe Imported Data")).toBeInTheDocument();
-    expect(screen.getByText("Reset Workspace")).toBeInTheDocument();
+    expect(screen.queryByText("Data controls")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /wipe imported data/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete account/i })).not.toBeInTheDocument();
   });
 
   it("initializes the account filter from URL query params", async () => {
