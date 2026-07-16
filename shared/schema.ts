@@ -482,6 +482,9 @@ export const aiBudgetBuckets = pgTable(
     })
       .notNull()
       .default(0),
+    alertedThroughPercent: smallint("alerted_through_percent")
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -508,6 +511,10 @@ export const aiBudgetBuckets = pgTable(
     check(
       "ai_budget_buckets_cost_check",
       sql`${t.configuredLimitMicrousd} >= 0 AND ${t.reservedCostMicrousd} >= 0 AND ${t.committedCostMicrousd} >= 0`,
+    ),
+    check(
+      "ai_budget_buckets_alert_level_check",
+      sql`${t.alertedThroughPercent} IN (0, 50, 80, 100)`,
     ),
   ],
 );

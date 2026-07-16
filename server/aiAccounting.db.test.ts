@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const databaseUrl = process.env.DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -322,5 +322,149 @@ describeDatabase("AI budget accounting", () => {
       status: "reserved_unknown",
       finalCostMicrousd: 440,
     });
+  });
+
+  it("emits each structured app-budget threshold once per period bucket", async () => {
+    const userId = await createUser("budget-alerts");
+    const originalAppBuckets = await pool.query<{
+      period: "day" | "month";
+      reserved: string;
+      committed: string;
+      alerted: number;
+    }>(
+      `SELECT period, reserved_cost_microusd::text AS reserved,
+              committed_cost_microusd::text AS committed,
+              alerted_through_percent AS alerted
+       FROM ai_budget_buckets
+       WHERE scope = 'app' AND period_start IN (
+         CURRENT_DATE, date_trunc('month', CURRENT_DATE)::date
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO ai_budget_buckets (
+         scope, user_id, period, period_start, configured_limit_microusd,
+         reserved_cost_microusd, committed_cost_microusd,
+         alerted_through_percent
+       ) VALUES
+         ('app', NULL, 'day', CURRENT_DATE, 500000, 0, 0, 0),
+         ('app', NULL, 'month', date_trunc('month', CURRENT_DATE)::date,
+           5000000, 0, 0, 0)
+       ON CONFLICT (period, period_start) WHERE scope = 'app'
+       DO UPDATE SET reserved_cost_microusd = 0, committed_cost_microusd = 0,
+         alerted_through_percent = 0`,
+    );
+
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const setAppReserved = async (day: number, month: number, level: number) => {
+      await pool.query(
+        `UPDATE ai_budget_buckets
+         SET reserved_cost_microusd = CASE period
+           WHEN 'day' THEN $1::bigint ELSE $2::bigint END,
+           committed_cost_microusd = 0,
+           alerted_through_percent = $3::smallint
+         WHERE scope = 'app' AND period_start IN (CURRENT_DATE, date_trunc('month', CURRENT_DATE)::date)`,
+        [day, month, level],
+      );
+    };
+    const parsedWarnings = () =>
+      warning.mock.calls.map(([message]) => JSON.parse(String(message)));
+
+    try {
+      await setAppReserved(248_500, 2_499_000, 0);
+      await accounting.reserveAiBudget(
+        reservationInput(`budget-alert-50-${userId}`, userId),
+      );
+      expect(parsedWarnings()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "ai_budget_threshold",
+            scope: "app",
+            thresholdPercent: 50,
+            period: "day",
+          }),
+          expect.objectContaining({
+            event: "ai_budget_threshold",
+            scope: "app",
+            thresholdPercent: 50,
+            period: "month",
+          }),
+        ]),
+      );
+      warning.mockClear();
+
+      await accounting.reserveAiBudget(
+        reservationInput(`budget-alert-no-repeat-${userId}`, userId),
+      );
+      expect(warning).not.toHaveBeenCalled();
+
+      await setAppReserved(398_200, 3_998_200, 50);
+      await accounting.reserveAiBudget(
+        reservationInput(`budget-alert-80-${userId}`, userId),
+      );
+      expect(parsedWarnings().map((entry) => entry.thresholdPercent)).toEqual([80, 80]);
+      warning.mockClear();
+
+      await setAppReserved(498_200, 4_998_200, 80);
+      await accounting.reserveAiBudget(
+        reservationInput(`budget-alert-100-${userId}`, userId),
+      );
+      expect(parsedWarnings().map((entry) => entry.thresholdPercent)).toEqual([100, 100]);
+      warning.mockClear();
+
+      await pool.query(
+        `UPDATE ai_budget_buckets
+         SET reserved_cost_microusd = CASE period
+           WHEN 'day' THEN 300000::bigint ELSE 4999000::bigint END,
+           committed_cost_microusd = 0,
+           alerted_through_percent = CASE period
+             WHEN 'day' THEN 50::smallint ELSE 80::smallint END
+         WHERE scope = 'app' AND period_start IN (CURRENT_DATE, date_trunc('month', CURRENT_DATE)::date)`,
+      );
+      await expect(
+        accounting.reserveAiBudget(
+          reservationInput(`budget-alert-blocked-${userId}`, userId),
+        ),
+      ).rejects.toMatchObject({ scope: "app", period: "month" });
+      expect(parsedWarnings()).toEqual([
+        expect.objectContaining({
+          event: "ai_budget_threshold",
+          scope: "app",
+          period: "month",
+          thresholdPercent: 100,
+          blocksNewReservations: true,
+        }),
+      ]);
+      warning.mockClear();
+      await expect(
+        accounting.reserveAiBudget(
+          reservationInput(`budget-alert-blocked-repeat-${userId}`, userId),
+        ),
+      ).rejects.toMatchObject({ scope: "app", period: "month" });
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+      for (const period of ["day", "month"] as const) {
+        const original = originalAppBuckets.rows.find((row) => row.period === period);
+        if (original) {
+          await pool.query(
+            `UPDATE ai_budget_buckets
+             SET reserved_cost_microusd = $1, committed_cost_microusd = $2,
+                 alerted_through_percent = $3
+             WHERE scope = 'app' AND period = $4
+               AND period_start = CASE WHEN $4 = 'day' THEN CURRENT_DATE
+                 ELSE date_trunc('month', CURRENT_DATE)::date END`,
+            [original.reserved, original.committed, original.alerted, period],
+          );
+        } else {
+          await pool.query(
+            `DELETE FROM ai_budget_buckets
+             WHERE scope = 'app' AND period = $1
+               AND period_start = CASE WHEN $1 = 'day' THEN CURRENT_DATE
+                 ELSE date_trunc('month', CURRENT_DATE)::date END`,
+            [period],
+          );
+        }
+      }
+    }
   });
 });

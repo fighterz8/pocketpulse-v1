@@ -210,4 +210,22 @@ describeDatabase("AI accounting schema", () => {
       ),
     ).rejects.toMatchObject({ code: "23514" });
   });
+
+  it("persists only the supported durable budget alert levels", async () => {
+    const periodDate = `${3000 + Math.floor(Math.random() * 6000)}-02-01`;
+    await pool.query(
+      `INSERT INTO ai_budget_buckets (
+         scope, period, period_start, configured_limit_microusd,
+         alerted_through_percent
+       ) VALUES ('app', 'month', $1, 5000000, 80)`,
+      [periodDate],
+    );
+    await expect(
+      pool.query(
+        `UPDATE ai_budget_buckets SET alerted_through_percent = 75
+         WHERE scope = 'app' AND period = 'month' AND period_start = $1`,
+        [periodDate],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
 });

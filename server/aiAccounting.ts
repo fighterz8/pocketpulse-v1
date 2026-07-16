@@ -127,9 +127,26 @@ type BucketRow = {
   id: number;
   scope: "app" | "user";
   period: "day" | "month";
+  period_start: string;
   configured_limit_microusd: string;
   reserved_cost_microusd: string;
   committed_cost_microusd: string;
+  alerted_through_percent: number;
+};
+
+type AiBudgetThresholdAlert = {
+  event: "ai_budget_threshold";
+  scope: "app";
+  period: "day" | "month";
+  periodStart: string;
+  thresholdPercent: 50 | 80 | 100;
+  currentUtilizedCostMicrousd: number;
+  projectedUtilizedCostMicrousd: number;
+  reservationCostMicrousd: number;
+  reservationAuthorized: boolean;
+  configuredLimitMicrousd: number;
+  utilizationBasisPoints: number;
+  blocksNewReservations: boolean;
 };
 
 type BucketSpec = {
@@ -259,13 +276,15 @@ async function lockBucket(client: pg.PoolClient, spec: BucketSpec): Promise<Buck
       : [spec.userId, spec.period, spec.periodStart];
   const result = await client.query<BucketRow>(
     spec.scope === "app"
-      ? `SELECT id, scope, period, configured_limit_microusd,
-                reserved_cost_microusd, committed_cost_microusd
+      ? `SELECT id, scope, period, period_start::text AS period_start,
+                configured_limit_microusd, reserved_cost_microusd,
+                committed_cost_microusd, alerted_through_percent
          FROM ai_budget_buckets
          WHERE scope = 'app' AND user_id IS NULL AND period = $1 AND period_start = $2
          FOR UPDATE`
-      : `SELECT id, scope, period, configured_limit_microusd,
-                reserved_cost_microusd, committed_cost_microusd
+      : `SELECT id, scope, period, period_start::text AS period_start,
+                configured_limit_microusd, reserved_cost_microusd,
+                committed_cost_microusd, alerted_through_percent
          FROM ai_budget_buckets
          WHERE scope = 'user' AND user_id = $1 AND period = $2 AND period_start = $3
          FOR UPDATE`,
@@ -274,6 +293,65 @@ async function lockBucket(client: pg.PoolClient, spec: BucketSpec): Promise<Buck
   const row = result.rows[0];
   if (!row) throw new AiAccountingInvariantError("required AI budget bucket is missing");
   return row;
+}
+
+const APP_BUDGET_ALERT_THRESHOLDS = [50, 80, 100] as const;
+
+function pendingAppBudgetAlerts(
+  row: BucketRow,
+  reservedCostMicrousd: number,
+  reservationAuthorized: boolean,
+): AiBudgetThresholdAlert[] {
+  if (row.scope !== "app") return [];
+  const configuredLimitMicrousd = parseMicrousd(
+    row.configured_limit_microusd,
+    "budget limit",
+  )!;
+  const currentUtilizedCostMicrousd =
+    parseMicrousd(row.reserved_cost_microusd, "reserved spend")! +
+    parseMicrousd(row.committed_cost_microusd, "committed spend")!;
+  const projectedUtilizedCostMicrousd =
+    currentUtilizedCostMicrousd + reservedCostMicrousd;
+  const utilizationBasisPoints = configuredLimitMicrousd === 0
+    ? 10_000
+    : Math.min(
+        10_000,
+        Math.floor(
+          (projectedUtilizedCostMicrousd * 10_000) / configuredLimitMicrousd,
+        ),
+      );
+  return APP_BUDGET_ALERT_THRESHOLDS
+    .filter(
+      (threshold) =>
+        threshold > row.alerted_through_percent &&
+        projectedUtilizedCostMicrousd * 100 >=
+          configuredLimitMicrousd * threshold,
+    )
+    .map((thresholdPercent) => ({
+      event: "ai_budget_threshold",
+      scope: "app",
+      period: row.period,
+      periodStart: row.period_start,
+      thresholdPercent,
+      currentUtilizedCostMicrousd,
+      projectedUtilizedCostMicrousd,
+      reservationCostMicrousd: reservedCostMicrousd,
+      reservationAuthorized,
+      configuredLimitMicrousd,
+      utilizationBasisPoints,
+      blocksNewReservations:
+        projectedUtilizedCostMicrousd >= configuredLimitMicrousd,
+    }));
+}
+
+function emitBudgetThresholdAlerts(alerts: AiBudgetThresholdAlert[]): void {
+  for (const alert of alerts) {
+    try {
+      console.warn(JSON.stringify(alert));
+    } catch {
+      // Accounting authorization must not be reversed by a logging transport.
+    }
+  }
 }
 
 async function assertAttributionOwnership(
@@ -345,6 +423,8 @@ export async function reserveAiBudget(
     input.operation,
   );
   const client = await pool.connect();
+  let blockedThresholdAlerts: AiBudgetThresholdAlert[] = [];
+  let blockedBucketId: number | undefined;
   try {
     await client.query("BEGIN");
     const now = await databaseNow(client);
@@ -390,20 +470,42 @@ export async function reserveAiBudget(
       const reserved = parseMicrousd(row.reserved_cost_microusd, "reserved spend")!;
       const committed = parseMicrousd(row.committed_cost_microusd, "committed spend")!;
       if (reserved + committed + reservationPrice.costMicrousd > limit) {
+        if (row.scope === "app") {
+          blockedThresholdAlerts = pendingAppBudgetAlerts(
+            row,
+            reservationPrice.costMicrousd,
+            false,
+          );
+          blockedBucketId = row.id;
+        }
         throw new AiBudgetExceededError(spec.scope, spec.period);
       }
     }
 
+    const thresholdAlerts = locked.flatMap(({ row }) =>
+      pendingAppBudgetAlerts(row, reservationPrice.costMicrousd, true),
+    );
     for (const { row } of locked) {
+      const alertedThroughPercent = thresholdAlerts
+        .filter(
+          (alert) =>
+            alert.period === row.period && alert.periodStart === row.period_start,
+        )
+        .reduce(
+          (maximum, alert) => Math.max(maximum, alert.thresholdPercent),
+          row.alerted_through_percent,
+        );
       await client.query(
         `UPDATE ai_budget_buckets
          SET reserved_cost_microusd = reserved_cost_microusd + $1,
-             updated_at = $2
+             updated_at = $2,
+             alerted_through_percent = GREATEST(alerted_through_percent, $4)
          WHERE id = $3`,
-        [reservationPrice.costMicrousd, now, row.id],
+        [reservationPrice.costMicrousd, now, row.id, alertedThroughPercent],
       );
     }
     await client.query("COMMIT");
+    emitBudgetThresholdAlerts(thresholdAlerts);
     return {
       reservationId: input.reservationId,
       status: "active",
@@ -412,6 +514,22 @@ export async function reserveAiBudget(
     };
   } catch (error) {
     await client.query("ROLLBACK");
+    if (blockedBucketId !== undefined && blockedThresholdAlerts.length > 0) {
+      try {
+        const claimed = await client.query(
+          `UPDATE ai_budget_buckets
+           SET alerted_through_percent = 100, updated_at = clock_timestamp()
+           WHERE id = $1 AND alerted_through_percent < 100
+           RETURNING id`,
+          [blockedBucketId],
+        );
+        if (claimed.rows.length === 1) {
+          emitBudgetThresholdAlerts(blockedThresholdAlerts);
+        }
+      } catch {
+        // Preserve the fail-closed budget error if alert persistence is unavailable.
+      }
+    }
     throw error;
   } finally {
     client.release();
