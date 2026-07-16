@@ -1588,7 +1588,7 @@ export function createApp(options?: CreateAppOptions) {
             status: "processing",
           });
 
-          // ── CSV parsing with AI format detection fallback ─────────────────
+          // ── Local CSV parsing with explicit format-assistance recovery ───
 
           // Helper: parse the first 12 rows of the raw file exactly once (memoized).
           // Used for both fingerprinting and AI detection.
@@ -1721,8 +1721,7 @@ export function createApp(options?: CreateAppOptions) {
           // 3b. If a cached spec produced a failure (stale/invalid), retry heuristic.
           if (!parseResult.ok && cachedSpec) {
             console.warn(
-              `[upload] cached spec failed for "${file.originalname}" ` +
-                `(fp=${headerFingerprint?.slice(0, 8)}), retrying heuristic`,
+              `[upload] cached spec failed for user=${userId} upload=${uploadRecord.id}; retrying heuristic`,
             );
             parseResult = await parseCSV(file.buffer, file.originalname);
             if (parseResult.ok) appliedSpec = parseResult.detectedSpec ?? null;
@@ -1740,7 +1739,11 @@ export function createApp(options?: CreateAppOptions) {
               (apiKey ? createOpenAiChatTransport(apiKey) : null);
             if (!enhancementFlags.csvFormatAssistance) {
               formatAssistance = { state: "disabled" };
-            } else if (!headerFingerprint || getSampleRows().length === 0 || !transport) {
+            } else if (
+              !headerFingerprint ||
+              getSampleRows().length === 0 ||
+              !transport
+            ) {
               formatAssistance = { state: "unavailable" };
             } else {
               const assistance = await processCsvFormatAssistance({
@@ -1804,7 +1807,7 @@ export function createApp(options?: CreateAppOptions) {
 
           if (!parseResult.ok) {
             console.error(
-              `[upload] parse failed for user=${userId} upload=${uploadRecord.id}: ${parseResult.error}`,
+              `[upload] parse failed for user=${userId} upload=${uploadRecord.id} code=CSV_PARSE_FAILED`,
             );
             if (
               !allowFormatAssistance &&
