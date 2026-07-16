@@ -73,7 +73,7 @@ Optional:
 | `PORT` | Server port (default `5000`) |
 | `OPENAI_API_KEY` | Provider credential only; paid features remain off unless their explicit flags are enabled |
 | `POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED` | Reserved opt-in transaction enhancement switch; defaults to `false` |
-| `POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED` | Allows the legacy CSV-format fallback; defaults to `false` |
+| `POCKETPULSE_CSV_FORMAT_ASSISTANCE_ENABLED` | Allows an explicit user-requested CSV format-assistance retry; defaults to `false` and never changes normal local uploads |
 | `POCKETPULSE_FULL_RECLASSIFY_ENABLED` | Allows dev-authorized full-history reclassification; defaults to `false` |
 | `POCKETPULSE_BILLING_ENABLED` | Enables the Slice 6 hosted billing adapter; defaults to `false` and currently accepts Stripe sandbox credentials only |
 | `STRIPE_SECRET_KEY` | Stripe `sk_test_...` key required only when sandbox billing is enabled; live keys are rejected |
