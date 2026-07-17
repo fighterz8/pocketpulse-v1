@@ -1,4 +1,7 @@
 import pg from "pg";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -22,6 +25,15 @@ const expectedTables = [
 const expectedColumns = [
   ["ai_budget_buckets", "alerted_through_percent"],
   ["billing_trials", "checkout_idempotency_key"],
+] as const;
+
+const releaseMigrationFiles = [
+  "0013_ai_usage_accounting.sql",
+  "0014_ai_enhancement_jobs.sql",
+  "0015_ai_budget_alert_levels.sql",
+  "0016_billing_entitlements.sql",
+  "0017_billing_checkout_idempotency.sql",
+  "0018_csv_format_assistance_attempts.sql",
 ] as const;
 
 const client = new pg.Client({ connectionString: databaseUrl });
@@ -53,12 +65,23 @@ try {
     }
   }
 
-  const migrations = await client.query<{ total: number }>(
-    `SELECT COUNT(*)::integer AS total FROM drizzle.__drizzle_migrations`,
+  const expectedMigrationHashes = await Promise.all(
+    releaseMigrationFiles.map(async (filename) => {
+      const migrationUrl = new URL(`../drizzle/migrations/${filename}`, import.meta.url);
+      const migration = await readFile(fileURLToPath(migrationUrl));
+      return createHash("sha256").update(migration).digest("hex");
+    }),
   );
-  const migrationCount = migrations.rows[0]?.total ?? 0;
-  if (migrationCount < 19) {
-    throw new Error(`expected at least 19 applied migrations; found ${migrationCount}`);
+  const migrations = await client.query<{ hash: string }>(
+    `SELECT hash FROM drizzle.__drizzle_migrations WHERE hash = ANY($1::text[])`,
+    [expectedMigrationHashes],
+  );
+  const appliedReleaseHashes = new Set(migrations.rows.map((row) => row.hash));
+  const missingMigrations = releaseMigrationFiles.filter(
+    (_, index) => !appliedReleaseHashes.has(expectedMigrationHashes[index]),
+  );
+  if (missingMigrations.length > 0) {
+    throw new Error(`missing release migrations: ${missingMigrations.join(", ")}`);
   }
 
   console.log(
@@ -66,7 +89,7 @@ try {
       status: "ok",
       releaseTables: expectedTables.length,
       releaseColumns: expectedColumns.length,
-      appliedMigrations: migrationCount,
+      appliedReleaseMigrations: releaseMigrationFiles.length,
     }),
   );
 } finally {
