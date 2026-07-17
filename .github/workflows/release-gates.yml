@@ -1,0 +1,91 @@
+name: Release gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: TypeScript, database, tests, build, and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pocketpulse_ci
+          POSTGRES_USER: pocketpulse_ci
+          # Ephemeral runner-only credential; never reused outside this job.
+          POSTGRES_PASSWORD: pocketpulse_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pocketpulse_ci -d pocketpulse_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DATABASE_URL: postgresql://pocketpulse_ci:pocketpulse_ci_only@127.0.0.1:5432/pocketpulse_ci
+      POCKETPULSE_STORAGE_TESTS: "1"
+      SESSION_SECRET: pocketpulse-ci-session-secret-not-for-reuse
+      CSRF_SECRET: pocketpulse-ci-csrf-secret-not-for-reuse
+      APP_ORIGIN: http://localhost:5000
+
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use production Node version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Reject whitespace errors
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            git diff --check "$BASE_SHA...HEAD"
+          else
+            git diff --check HEAD^
+          fi
+
+      - name: Apply committed migrations
+        run: npm run db:migrate
+
+      - name: Check schema consistency
+        run: npx drizzle-kit check
+
+      - name: Verify release schema
+        run: npm run db:verify-release
+
+      - name: Type check
+        run: npm run check
+
+      - name: Run all tests serially
+        run: npm test -- --maxWorkers=1 --no-file-parallelism
+
+      - name: Build production artifacts
+        run: npm run build
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
