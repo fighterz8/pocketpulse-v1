@@ -79,6 +79,7 @@ import {
   publicEnhancementError,
 } from "./aiLifecycle.js";
 import { parseTransactionIdsParam } from "./transactionFilterParams.js";
+import { readMulterFileArray } from "./uploadRequestValidation.js";
 import {
   hasDevToolsAccess,
   isDevEmailAllowed,
@@ -710,6 +711,64 @@ export function createApp(options?: CreateAppOptions) {
       error: "Too many password reset attempts, please try again later",
     },
   });
+
+  const forgotPasswordHandler: RequestHandler = async (req, res, next) => {
+    try {
+      const { email } = req.body ?? {};
+      const genericOk = { ok: true } as const;
+
+      if (typeof email !== "string" || !email.trim()) {
+        res.json(genericOk);
+        return;
+      }
+
+      deleteExpiredPasswordResetTokens().catch((err) => {
+        console.error("[forgot-password] cleanup failed:", err);
+      });
+
+      const normalized = normalizeEmail(email);
+      const user = await getUserByEmailForAuth(normalized);
+      if (!user) {
+        res.json(genericOk);
+        return;
+      }
+
+      const verifier = crypto.randomBytes(32).toString("hex");
+      const verifierHash = crypto
+        .createHash("sha256")
+        .update(verifier)
+        .digest("hex");
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      const issued = await issuePasswordResetToken(
+        user.id,
+        verifierHash,
+        expiresAt,
+      );
+      const origin = (
+        process.env.PUBLIC_APP_URL ?? "https://pocket-pulse.com"
+      ).replace(/\/$/, "");
+      const rawToken = `${issued.id}.${verifier}`;
+      const resetUrl = `${origin}/reset-password?token=${rawToken}`;
+
+      try {
+        const { client, fromEmail } = await getUncachableResendClient();
+        const result = await client.emails.send({
+          from: formatFromEmail(fromEmail),
+          to: normalized,
+          subject: "Reset your PocketPulse password",
+          html: buildPasswordResetEmailHtml(resetUrl),
+          text: buildPasswordResetEmailText(resetUrl),
+        });
+        assertResendSendSucceeded(result);
+      } catch (err) {
+        console.error("[forgot-password] email send failed:", err);
+      }
+
+      res.json(genericOk);
+    } catch (error) {
+      next(error);
+    }
+  };
   app.use("/api", globalLimiter);
   app.post(
     "/api/billing/webhooks/stripe",
@@ -747,8 +806,6 @@ export function createApp(options?: CreateAppOptions) {
     },
   );
   app.use(express.json());
-  app.use(cookieParser());
-  app.use(sessionMiddleware(store));
 
   /**
    * POST /api/admin/send-launch-email
@@ -829,21 +886,21 @@ export function createApp(options?: CreateAppOptions) {
     }
   });
 
-  // CSRF middleware mounted globally for all state-changing requests,
-  // with one explicit exemption: POST /api/auth/forgot-password. That
-  // endpoint accepts no session, returns the same anti-enumeration
-  // response regardless of whether the email exists, and is reachable
-  // from the unauth'd Forgot screen — adding a CSRF token would only
-  // block legitimate submissions without raising the bar for an
-  // attacker (who already cannot learn anything from the response).
-  // The companion POST /api/auth/reset-password remains CSRF-protected
-  // because it mutates a credential.
-  app.use((req, res, next) => {
-    if (req.method === "POST" && req.path === "/api/auth/forgot-password") {
-      return next();
-    }
-    return doubleCsrfProtection(req, res, next);
-  });
+  /**
+   * This anti-enumeration endpoint intentionally has no cookie or session
+   * middleware. It cannot act with a user's ambient authority, and placing it
+   * here makes its narrow CSRF exemption explicit to both reviewers and static
+   * analysis. The companion reset endpoint is registered after CSRF.
+   */
+  app.post(
+    "/api/auth/forgot-password",
+    passwordResetLimiter,
+    forgotPasswordHandler,
+  );
+
+  app.use(cookieParser());
+  app.use(sessionMiddleware(store));
+  app.use(doubleCsrfProtection);
 
   app.get("/api/csrf-token", (req, res) => {
     const token = generateToken(req, res);
@@ -1226,112 +1283,6 @@ export function createApp(options?: CreateAppOptions) {
   });
 
   /**
-   * POST /api/auth/forgot-password
-   *
-   * Anti-enumeration password reset trigger. Always returns the same 200
-   * "ok" envelope regardless of whether the email belongs to a registered
-   * user, so an attacker cannot use this endpoint to discover which
-   * addresses have accounts. When the email *does* match, we generate a
-   * 32-byte verifier, store only its SHA-256 hash, and email a short-lived
-   * (30 min) reset URL whose token has the form `<id>.<verifier>` — the
-   * `id` half (the row's serial primary key) acts as a non-secret
-   * selector so the reset endpoint can look the row up by primary key
-   * and verify the verifier with `crypto.timingSafeEqual` rather than
-   * doing a hash-equality lookup inside the DB index.
-   *
-   * Rate-limited at 5 / 15 min per IP. Deliberately CSRF-EXEMPT (see
-   * the global CSRF mount above): the endpoint is reachable from the
-   * unauth'd Forgot screen and its anti-enumeration guarantee means a
-   * CSRF token would add no security while breaking legitimate use.
-   */
-  app.post(
-    "/api/auth/forgot-password",
-    passwordResetLimiter,
-    async (req, res, next) => {
-      try {
-        const { email } = req.body ?? {};
-        const genericOk = { ok: true } as const;
-
-        if (typeof email !== "string" || !email.trim()) {
-          // Match the success shape so the response is indistinguishable
-          // from a "no such user" outcome — same anti-enumeration promise.
-          res.json(genericOk);
-          return;
-        }
-
-        // Opportunistic cleanup so the table doesn't grow unbounded.
-        // Failure here must not block the user, so swallow and log only.
-        deleteExpiredPasswordResetTokens().catch((err) => {
-          console.error("[forgot-password] cleanup failed:", err);
-        });
-
-        const normalized = normalizeEmail(email);
-        const user = await getUserByEmailForAuth(normalized);
-
-        if (!user) {
-          res.json(genericOk);
-          return;
-        }
-
-        // 32 random bytes → 64-char hex verifier (the secret half of the
-        // token). SHA-256 of the verifier is what we persist; the raw
-        // verifier only ever exists in the email URL.
-        const verifier = crypto.randomBytes(32).toString("hex");
-        const verifierHash = crypto
-          .createHash("sha256")
-          .update(verifier)
-          .digest("hex");
-        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-
-        // Atomically invalidates any older unused tokens for this user
-        // before issuing the new one, so previous emailed links stop
-        // working as soon as a fresh reset is requested. The returned
-        // row's serial id becomes the selector half of the token URL.
-        const issued = await issuePasswordResetToken(
-          user.id,
-          verifierHash,
-          expiresAt,
-        );
-
-        // Reset URLs MUST come from a trusted, configured origin — never
-        // from the request's Host header, which is attacker-controllable
-        // and can be used to redirect reset tokens to a malicious domain.
-        // We require PUBLIC_APP_URL in deployed environments and fall
-        // back to the canonical production origin if it is unset.
-        const origin = (
-          process.env.PUBLIC_APP_URL ?? "https://pocket-pulse.com"
-        ).replace(/\/$/, "");
-        // Token = "<id>.<verifier>". The id is non-secret (it just
-        // identifies which row to fetch); the verifier is the part the
-        // server compares against the stored hash with timingSafeEqual.
-        const rawToken = `${issued.id}.${verifier}`;
-        const resetUrl = `${origin}/reset-password?token=${rawToken}`;
-
-        try {
-          const { client, fromEmail } = await getUncachableResendClient();
-          const result = await client.emails.send({
-            from: formatFromEmail(fromEmail),
-            to: normalized,
-            subject: "Reset your PocketPulse password",
-            html: buildPasswordResetEmailHtml(resetUrl),
-            text: buildPasswordResetEmailText(resetUrl),
-          });
-          assertResendSendSucceeded(result);
-        } catch (err) {
-          // Email failure is logged but not surfaced — we still return the
-          // generic OK so the response shape is identical to the no-user
-          // path. The user can simply request another email.
-          console.error("[forgot-password] email send failed:", err);
-        }
-
-        res.json(genericOk);
-      } catch (e) {
-        next(e);
-      }
-    },
-  );
-
-  /**
    * POST /api/auth/reset-password
    *
    * Consumes a one-time reset token and rotates the user's bcrypt hash.
@@ -1506,7 +1457,7 @@ export function createApp(options?: CreateAppOptions) {
           return;
         }
         const allowFormatAssistance = rawFormatAssistanceConsent === "true";
-        const files = req.files as Express.Multer.File[] | undefined;
+        const files = readMulterFileArray(req.files);
 
         if (!files || files.length === 0) {
           res.status(400).json({ error: "No CSV files provided" });
