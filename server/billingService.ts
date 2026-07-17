@@ -6,6 +6,10 @@ import type {
   BillingProviderAdapter,
   NormalizedBillingWebhookEvent,
 } from "./billingProvider.js";
+import {
+  getBillingEntitlement,
+  type BillingEntitlementState,
+} from "./billingEntitlements.js";
 import { pool } from "./db.js";
 
 export class BillingTrialAlreadyReservedError extends Error {
@@ -13,6 +17,15 @@ export class BillingTrialAlreadyReservedError extends Error {
   constructor() {
     super("A Plus trial checkout is already reserved for this account");
     this.name = "BillingTrialAlreadyReservedError";
+  }
+}
+
+export class BillingCheckoutNotAvailableError extends Error {
+  readonly code = "BILLING_CHECKOUT_NOT_AVAILABLE" as const;
+
+  constructor(readonly state: BillingEntitlementState) {
+    super("Checkout is not available for this account's current billing state");
+    this.name = "BillingCheckoutNotAvailableError";
   }
 }
 
@@ -39,6 +52,10 @@ export async function createHostedCheckout(input: {
   adapter: BillingProviderAdapter;
 }) {
   const idempotencyKey = validateIdempotencyKey(input.idempotencyKey);
+  const entitlement = await getBillingEntitlement(input.userId);
+  if (entitlement.state !== "free" && entitlement.state !== "expired") {
+    throw new BillingCheckoutNotAvailableError(entitlement.state);
+  }
   const customer = await pool.query<{ external_customer_id: string }>(
     `SELECT external_customer_id FROM billing_customers
      WHERE user_id = $1 AND provider = $2`,

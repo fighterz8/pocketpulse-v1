@@ -102,6 +102,7 @@ import {
 } from "./billingProvider.js";
 import { createStripeBillingProvider } from "./stripeBillingProvider.js";
 import {
+  BillingCheckoutNotAvailableError,
   BillingCustomerNotFoundError,
   createHostedCheckout,
   createHostedPortal,
@@ -945,6 +946,13 @@ export function createApp(options?: CreateAppOptions) {
         trialIncluded: session.trialIncluded,
       });
     } catch (error) {
+      if (error instanceof BillingCheckoutNotAvailableError) {
+        res.status(409).json({
+          error: error.message,
+          code: error.code,
+        });
+        return;
+      }
       if (error instanceof RangeError) {
         res.status(400).json({ error: error.message, code: "INVALID_REQUEST" });
         return;

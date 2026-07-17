@@ -230,6 +230,15 @@ describeDatabase("billing routes", () => {
       canManageBilling: true,
     });
 
+    const duplicateCheckout = await agent
+      .post("/api/billing/checkout")
+      .set("X-CSRF-Token", csrf)
+      .set("Idempotency-Key", "route-checkout-while-active")
+      .send({});
+    expect(duplicateCheckout.status).toBe(409);
+    expect(duplicateCheckout.body.code).toBe("BILLING_CHECKOUT_NOT_AVAILABLE");
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+
     const invalid = await request(app)
       .post("/api/billing/webhooks/stripe")
       .set("Content-Type", "application/json")

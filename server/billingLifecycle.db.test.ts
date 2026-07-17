@@ -273,6 +273,41 @@ describeDatabase("billing lifecycle", () => {
     expect(replay.id).toBe(attempts[0]!.id);
   }, 30_000);
 
+  it.each(["trialing", "active", "past_due"] as const)(
+    "rejects a second hosted checkout while Plus is %s",
+    async (state) => {
+      const userId = await createUser(`checkout-blocked-${state}`);
+      await service.processBillingWebhook({
+        event: subscriptionEvent({
+          id: `evt-checkout-blocked-${state}-${userId}`,
+          userId,
+          created: "2026-07-16T20:30:00Z",
+          state,
+        }),
+        rawBody: Buffer.from(`checkout-blocked-${state}`),
+      });
+      const createCheckoutSession = vi.fn();
+      const adapter = {
+        provider: "stripe",
+        createCheckoutSession,
+        createPortalSession: vi.fn(),
+        verifyAndNormalizeWebhook: vi.fn(),
+      } satisfies BillingProviderAdapter;
+
+      await expect(
+        service.createHostedCheckout({
+          userId,
+          email: `${state}@example.test`,
+          idempotencyKey: `checkout-blocked-${state}`,
+          config,
+          adapter,
+        }),
+      ).rejects.toMatchObject({ code: "BILLING_CHECKOUT_NOT_AVAILABLE" });
+      expect(createCheckoutSession).not.toHaveBeenCalled();
+    },
+    30_000,
+  );
+
   it("removes private billing projections on account deletion but keeps minimized event receipts", async () => {
     const userId = await createUser("deletion");
     const event = subscriptionEvent({
