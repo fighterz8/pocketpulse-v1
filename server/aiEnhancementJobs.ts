@@ -332,11 +332,11 @@ export async function getAiEnhancementAvailability(input: {
   uploadId: number;
   featureEnabled: boolean;
   providerAvailable: boolean;
-}): Promise<AiEnhancementAvailability> {
+}, connectionPool: Pick<pg.Pool, "connect"> = pool): Promise<AiEnhancementAvailability> {
   assertPositiveId(input.userId, "userId");
   assertPositiveId(input.uploadId, "uploadId");
 
-  const client = await pool.connect();
+  const client = await connectionPool.connect();
   try {
     await client.query("BEGIN");
     const upload = await client.query<{ status: string }>(
@@ -351,6 +351,22 @@ export async function getAiEnhancementAvailability(input: {
     const unresolved = unresolvedSummary(
       await listUnresolvedRows(client, input.userId, input.uploadId),
     );
+    const base = {
+      uploadId: input.uploadId,
+      unresolvedTransactionCount: unresolved.transactionCount,
+      unresolvedMerchantCount: unresolved.representatives.size,
+    };
+
+    // The feature flag is the deployment boundary for the optional job schema.
+    // Production can safely ship the Free/Plus preview before those migrations:
+    // disabled reads use only the core uploads and transactions tables.
+    if (!input.featureEnabled) {
+      await client.query("COMMIT");
+      return unresolved.transactionCount === 0
+        ? { ...base, state: "not_needed" }
+        : { ...base, state: "blocked", blockedReason: "FEATURE_DISABLED" };
+    }
+
     const active = await client.query<{ id: number; upload_id: number }>(
       `SELECT id, upload_id FROM ai_enhancement_jobs
        WHERE user_id = $1
@@ -375,11 +391,6 @@ export async function getAiEnhancementAvailability(input: {
     );
     await client.query("COMMIT");
 
-    const base = {
-      uploadId: input.uploadId,
-      unresolvedTransactionCount: unresolved.transactionCount,
-      unresolvedMerchantCount: unresolved.representatives.size,
-    };
     if (activeJob?.upload_id === input.uploadId) {
       return { ...base, state: "active", activeJobId: activeJob.id };
     }
@@ -388,9 +399,6 @@ export async function getAiEnhancementAvailability(input: {
         ...base,
         state: latest.rows[0]?.status === "complete" ? "complete" : "not_needed",
       };
-    }
-    if (!input.featureEnabled) {
-      return { ...base, state: "blocked", blockedReason: "FEATURE_DISABLED" };
     }
     if (!input.providerAvailable) {
       return {

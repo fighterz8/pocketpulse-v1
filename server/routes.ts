@@ -328,6 +328,8 @@ export type CreateAppOptions = {
   enhancementLeaseProvider?: AiEnhancementLeaseProvider;
   /** Test seam for deterministic entitlement states. Production reads PostgreSQL. */
   billingEntitlementReader?: (userId: number) => Promise<BillingEntitlement>;
+  /** Test seam for the read-only durable resume pointer. */
+  activeEnhancementJobReader?: typeof getActiveAiEnhancementJobForUser;
   /** Test seam for account-facing subscription state. */
   billingAccountReader?: (userId: number) => Promise<BillingAccountSummary>;
   /** Test seams; production uses fail-closed environment config and Stripe adapter. */
@@ -654,6 +656,8 @@ export function createApp(options?: CreateAppOptions) {
   const isProduction = process.env.NODE_ENV === "production";
   const readBillingEntitlement =
     options?.billingEntitlementReader ?? getBillingEntitlement;
+  const readActiveEnhancementJob =
+    options?.activeEnhancementJobReader ?? getActiveAiEnhancementJobForUser;
   const readBillingAccount =
     options?.billingAccountReader ?? getBillingAccountSummary;
   const billingConfig = options?.billingConfig ?? getBillingConfig();
@@ -2069,7 +2073,12 @@ export function createApp(options?: CreateAppOptions) {
   /** Read-only resume pointer. Never starts or advances provider work. */
   app.get("/api/enhancement-jobs/active", requireAuth, async (req, res, next) => {
     try {
-      const job = await getActiveAiEnhancementJobForUser(req.session.userId!);
+      const flags = getEnhancementFeatureFlags();
+      if (!flags.transactionEnhancement) {
+        res.json({ job: null });
+        return;
+      }
+      const job = await readActiveEnhancementJob(req.session.userId!);
       res.json({ job });
     } catch (error) {
       next(error);

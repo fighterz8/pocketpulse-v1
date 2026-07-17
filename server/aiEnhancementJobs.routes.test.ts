@@ -183,6 +183,35 @@ describeDatabase("AI enhancement job routes", () => {
     expect(billingReader).not.toHaveBeenCalled();
   });
 
+  it("does not read the optional active-job schema while enhancement is disabled", async () => {
+    const activeJobReader = vi.fn(async () => {
+      throw new Error("disabled enhancement must not read optional job tables");
+    });
+    const application = createApp({
+      sessionStore: new session.MemoryStore(),
+      runStartupJobs: false,
+      activeEnhancementJobReader: activeJobReader,
+    });
+    const agent = request.agent(application);
+    const csrf = (await agent.get("/api/csrf-token")).body.token as string;
+    const email = `enhancement-active-disabled-${crypto.randomUUID()}@example.test`;
+    expect((await agent
+      .post("/api/auth/register")
+      .set("X-CSRF-Token", csrf)
+      .send({
+        email,
+        password: "secure-password-99",
+        displayName: "Disabled Active Job Test",
+      })).status).toBe(201);
+    delete process.env.POCKETPULSE_TRANSACTION_ENHANCEMENT_ENABLED;
+
+    const response = await agent.get("/api/enhancement-jobs/active");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ job: null });
+    expect(activeJobReader).not.toHaveBeenCalled();
+  });
+
   it("denies job creation to a free user without creating provider work", async () => {
     const free = vi.fn(async (): Promise<BillingEntitlement> => ({
       state: "free",
