@@ -201,7 +201,8 @@ describe("Ledger page", () => {
     renderLedger();
 
     expect(await screen.findByTestId("ledger-enhancement-surface")).toHaveTextContent("Latest import · june.csv");
-    expect(await screen.findByRole("heading", { name: /2 merchants need review/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /clean up 2 merchants faster/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Explore Plus" })).toHaveAttribute("href", "/pricing");
     expect(fetchSpy.mock.calls.some(([url]) => url === "/api/uploads/ai-status")).toBe(false);
   });
 

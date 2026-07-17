@@ -55,12 +55,13 @@ describe("EnhancementPanel", () => {
     renderPanel();
 
     const panel = await screen.findByTestId("enhancement-panel");
-    expect(panel).toHaveTextContent("3 merchants need review");
+    expect(panel).toHaveTextContent("Clean up 3 merchants faster");
     expect(panel).toHaveTextContent("PocketPulse Plus");
-    expect(panel).toHaveTextContent("requires PocketPulse Plus");
+    expect(panel).toHaveTextContent("Review unresolved merchant names in one guided pass.");
+    expect(panel).not.toHaveTextContent("Your imported transactions are already available");
     expect(panel).not.toHaveTextContent("Enhancement status unavailable");
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Compare Free and Plus" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Explore Plus" })).toHaveAttribute(
       "href",
       "/pricing",
     );
@@ -70,7 +71,7 @@ describe("EnhancementPanel", () => {
     );
     expect(screen.queryByRole("button", { name: /^enhance/i })).not.toBeInTheDocument();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const heading = screen.getByRole("heading", { name: /3 merchants need review/i });
+    const heading = screen.getByRole("heading", { name: /clean up 3 merchants faster/i });
     expect(panel).toHaveAttribute("aria-labelledby", heading.id);
   });
 

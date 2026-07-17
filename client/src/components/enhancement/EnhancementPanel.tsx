@@ -15,11 +15,17 @@ function merchantLabel(count: number): string {
   return `${count} merchant${count === 1 ? "" : "s"}`;
 }
 
-function ManualReviewLink({ surface }: { surface: "upload" | "ledger" }) {
+function ManualReviewLink({
+  surface,
+  concise = false,
+}: {
+  surface: "upload" | "ledger";
+  concise?: boolean;
+}) {
   if (surface === "ledger") {
     return (
       <a className="enhancement-manual-link" href="#ledger-transactions">
-        Review manually below
+        {concise ? "Review manually" : "Review manually below"}
       </a>
     );
   }
@@ -30,10 +36,14 @@ function ManualReviewLink({ surface }: { surface: "upload" | "ledger" }) {
   );
 }
 
-function PlanLink({ recovery = false }: { recovery?: boolean }) {
+function PlanLink({ recovery = false, premium = false }: { recovery?: boolean; premium?: boolean }) {
   return (
-    <Link className="enhancement-plan-link" href={recovery ? "/account" : "/pricing"}>
-      {recovery ? "Review plan in Account" : "Compare Free and Plus"}
+    <Link
+      className={`enhancement-plan-link${premium ? " enhancement-plan-link--premium" : ""}`}
+      href={recovery ? "/account" : "/pricing"}
+    >
+      {recovery ? "Review plan in Account" : premium ? "Explore Plus" : "Compare Free and Plus"}
+      {premium ? <span aria-hidden="true">→</span> : null}
     </Link>
   );
 }
@@ -46,14 +56,25 @@ function AccessExplanation({
   surface: "upload" | "ledger";
 }) {
   const needsRecovery = access.state === "past_due" || access.state === "expired";
+
+  if (!needsRecovery) {
+    return (
+      <>
+        <p className="enhancement-copy">Review unresolved merchant names in one guided pass.</p>
+        <div className="enhancement-actions enhancement-actions--locked">
+          <PlanLink premium />
+          <ManualReviewLink surface={surface} concise />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <p className="enhancement-copy">
-        {needsRecovery
-          ? "Plus access needs attention. Enhancement stays paused, while your imported data and corrections remain available."
-          : "Automatic merchant enhancement requires PocketPulse Plus. Your imported transactions are already available, and Free includes manual corrections."}
+        Plus access needs attention. Enhancement stays paused, while your imported data and corrections remain available.
       </p>
-      <PlanLink recovery={needsRecovery} />
+      <PlanLink recovery />
       <ManualReviewLink surface={surface} />
     </>
   );
@@ -205,10 +226,32 @@ export function EnhancementPanel({ uploadId, surface }: EnhancementPanelProps) {
   const entitled = access.state === "active" || access.state === "trialing";
   const needsAccessRecovery = access.state === "past_due" || access.state === "expired";
   const count = availability.unresolvedMerchantCount;
+  const showPlusUpsell =
+    !job &&
+    !needsAccessRecovery &&
+    !entitled &&
+    availability.state !== "complete" &&
+    availability.state !== "not_needed";
 
   return (
-    <section className="enhancement-panel" data-testid="enhancement-panel" aria-labelledby={titleId}>
-      <div className="enhancement-eyebrow">Transaction review</div>
+    <section
+      className={`enhancement-panel${showPlusUpsell ? " enhancement-panel--locked" : ""}`}
+      data-testid="enhancement-panel"
+      aria-labelledby={titleId}
+    >
+      {showPlusUpsell ? (
+        <div className="enhancement-eyebrow enhancement-eyebrow--plus">
+          <span className="enhancement-plus-mark" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 2.8 11.6 7l4.2 1.6-4.2 1.6-1.6 4.2-1.6-4.2-4.2-1.6L8.4 7 10 2.8Z" />
+              <path d="m15.3 13.2.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6.6-1.5Z" />
+            </svg>
+          </span>
+          PocketPulse Plus
+        </div>
+      ) : (
+        <div className="enhancement-eyebrow">Transaction review</div>
+      )}
       {job ? (
         <JobState
           job={job}
@@ -231,7 +274,7 @@ export function EnhancementPanel({ uploadId, surface }: EnhancementPanelProps) {
         </>
       ) : !entitled ? (
         <>
-          <h2 className="enhancement-title" id={titleId}>{merchantLabel(count)} need review · PocketPulse Plus</h2>
+          <h2 className="enhancement-title" id={titleId}>Clean up {merchantLabel(count)} faster</h2>
           <AccessExplanation access={access} surface={surface} />
         </>
       ) : availability.state === "available" ? (

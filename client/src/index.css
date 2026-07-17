@@ -1233,6 +1233,15 @@ html.dark .upload-results-skipped {
   border-top: 1px solid color-mix(in srgb, #94a3b8 24%, transparent);
 }
 
+.enhancement-panel--locked {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, #2563eb 22%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, #eff6ff 78%, transparent);
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
 .enhancement-eyebrow {
   margin-bottom: 0.25rem;
   color: #64748b;
@@ -1240,6 +1249,31 @@ html.dark .upload-results-skipped {
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.enhancement-eyebrow--plus {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+  color: #1d4ed8;
+  letter-spacing: 0.04em;
+}
+
+.enhancement-plus-mark {
+  display: inline-grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #2563eb 25%, transparent);
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: #fff;
+}
+
+.enhancement-plus-mark svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 .enhancement-title {
@@ -1273,6 +1307,11 @@ html.dark .upload-results-skipped {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.enhancement-actions--locked {
+  align-items: center;
+  margin-top: 0.85rem;
 }
 
 .enhancement-button,
@@ -1323,6 +1362,18 @@ html.dark .upload-results-skipped {
   text-underline-offset: 0.18rem;
 }
 
+.enhancement-plan-link--premium {
+  justify-content: center;
+  gap: 0.55rem;
+  min-width: 8.5rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #0f172a;
+  border-radius: 0.5rem;
+  color: #fff;
+  background: #0f172a;
+  text-decoration: none;
+}
+
 .enhancement-button:focus-visible,
 .enhancement-manual-link:focus-visible,
 .enhancement-plan-link:focus-visible {
@@ -1357,6 +1408,13 @@ html.dark .upload-results-skipped {
 }
 
 .enhancement-plan-link:hover { color: #1e40af; }
+
+.enhancement-plan-link--premium:hover {
+  color: #fff;
+  background: #1e293b;
+  border-color: #1e293b;
+  text-decoration: none;
+}
 
 .enhancement-progress {
   display: grid;
@@ -1402,9 +1460,25 @@ html.dark .enhancement-panel {
   border-color: color-mix(in srgb, #94a3b8 26%, transparent);
 }
 
+html.dark .enhancement-panel--locked {
+  border-color: color-mix(in srgb, #60a5fa 34%, transparent);
+  background: color-mix(in srgb, #172554 40%, #0f172a);
+  box-shadow: inset 3px 0 0 #60a5fa;
+}
+
 html.dark .enhancement-eyebrow,
 html.dark .enhancement-progress-label {
   color: #94a3b8;
+}
+
+html.dark .enhancement-eyebrow--plus {
+  color: #93c5fd;
+}
+
+html.dark .enhancement-plus-mark {
+  border-color: color-mix(in srgb, #60a5fa 38%, transparent);
+  color: #93c5fd;
+  background: #0f172a;
 }
 
 html.dark .enhancement-title {
@@ -1431,12 +1505,37 @@ html.dark .enhancement-button--secondary {
   border-color: #475569;
 }
 
+html.dark .enhancement-plan-link--premium {
+  border-color: #93c5fd;
+  color: #0f172a;
+  background: #93c5fd;
+}
+
+html.dark .enhancement-plan-link--premium:hover {
+  border-color: #bfdbfe;
+  color: #0f172a;
+  background: #bfdbfe;
+}
+
 html.dark .enhancement-progress-track {
   background: #334155;
 }
 
 html.dark .ledger-enhancement-context {
   color: #94a3b8;
+}
+
+@media (max-width: 640px) {
+  .enhancement-actions--locked {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .enhancement-plan-link--premium,
+  .enhancement-actions--locked .enhancement-manual-link {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
